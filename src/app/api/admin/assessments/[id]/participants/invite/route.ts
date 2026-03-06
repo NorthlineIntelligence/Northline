@@ -212,7 +212,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       );
     }
 
-    const origin = getOrigin(req);
+    const origin =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  getOrigin(req);
 
     const invites: Array<{
       email: string;
@@ -252,9 +255,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       });
 
       const inviteUrl =
-        `${origin}/assessments/${assessmentId}` +
-        `?email=${encodeURIComponent(email)}` +
-        `&token=${encodeURIComponent(rawToken)}`;
+  `${origin}/assessments/${assessmentId}/start` +
+  `?email=${encodeURIComponent(email)}` +
+  `&token=${encodeURIComponent(rawToken)}`;
 
       invites.push({
         email,
