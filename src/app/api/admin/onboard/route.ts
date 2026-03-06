@@ -244,7 +244,10 @@ export async function POST(req: NextRequest) {
     });
 
           // --- SEND EMAILS (after commit) ---
-          const origin = new URL(req.url).origin;
+          const origin =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  new URL(req.url).origin;
 
           function startUrlFor(to: string) {
             return `${origin}/assessments/${result.assessmentId}/start?email=${encodeURIComponent(
