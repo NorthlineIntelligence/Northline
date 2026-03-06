@@ -16,7 +16,7 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
     "dotenv": "^17.3.1",
-    "next": "15.2.3",
+    "next": "16.0.7",
     "openai": "^6.25.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
