@@ -38,21 +38,22 @@ export async function middleware(req: NextRequest) {
     );
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    const allowlist = getAllowlist();
-    res.headers.set("x-nl-mw-allowlist-len", String(allowlist.length));
-
-    if (!session) {
-      const r = NextResponse.redirect(new URL("/admin/login", req.url));
-      r.headers.set("x-nl-mw-hit", "1");
-      r.headers.set("x-nl-mw-auth", "0");
-      return r;
-    }
-
-    const email = (session.user?.email ?? "").trim().toLowerCase();
-    const isAdmin = allowlist.includes(email);
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+  
+      const allowlist = getAllowlist();
+      res.headers.set("x-nl-mw-allowlist-len", String(allowlist.length));
+  
+      if (userError || !user) {
+        const r = NextResponse.redirect(new URL("/admin/login", req.url));
+        r.headers.set("x-nl-mw-hit", "1");
+        r.headers.set("x-nl-mw-auth", "0");
+        return r;
+      }
+  
+      const email = (user.email ?? "").trim().toLowerCase();
+      const isAdmin = allowlist.includes(email);
 
     res.headers.set("x-nl-mw-auth", "1");
     res.headers.set("x-nl-mw-admin", isAdmin ? "1" : "0");

@@ -1,13 +1,11 @@
-// src/app/api/assessments/[id]/results/route.ts
+// src/app/api/assessments/[id]/narrative/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { isAdminEmail } from "@/lib/admin";
+
 import { prisma } from "@/lib/prisma";
-import { buildAssessmentResultsPayload } from "@/lib/assessmentResultsEngine";
-import { narrativeCacheGet, narrativeCacheSet, narrativeInflight } from "@/lib/narrativeCache";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
@@ -37,7 +35,7 @@ async function getSupabaseServerClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // ignore (edge/runtime can throw)
+          // ignore
         }
       },
     },
@@ -57,10 +55,8 @@ function unauthorized(message?: string) {
 
 /**
  * Auth: allow either:
- *  - Supabase session (admin/team member)
+ *  - Supabase session (must be a participant on this assessment)
  *  - Invite link (email + token)
- *
- * Returns a cacheKeyOwner string to scope caching safely by viewer.
  */
 async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
   const url = req.nextUrl;
@@ -82,8 +78,7 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
     });
 
     if (!participant) return { ok: false as const };
-
-    return { ok: true as const, cacheKeyOwner: `invite:${participant.id}` };
+    return { ok: true as const };
   }
 
   // 2) Supabase session path
@@ -102,7 +97,31 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
 
   if (!membership) return { ok: false as const };
 
-  return { ok: true as const, cacheKeyOwner: `admin:${user.id}` };
+  return { ok: true as const };
+}
+
+async function enforceAllParticipantsCompleted(assessmentId: string) {
+  const participants = await prisma.participant.findMany({
+    where: { assessment_id: assessmentId },
+    select: { completed_at: true },
+  });
+
+  const total = participants.length;
+  const completed = participants.filter((p) => p.completed_at !== null).length;
+
+  if (total === 0 || completed < total) {
+    return {
+      ok: false as const,
+      status: 409 as const,
+      body: {
+        ok: false,
+        error:
+          "All participants have not completed the assessment. Please check back once the administrator confirms completion.",
+      },
+    };
+  }
+
+  return { ok: true as const };
 }
 
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -114,72 +133,25 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }
     const assessmentId = parsed.data.id;
 
-    // AUTH (session OR invite)
     const auth = await authorizeForAssessment(req, assessmentId);
     if (!auth.ok) return unauthorized();
 
-    // Cache scoped by viewer type
-    const cacheKey = `assessment-results:${assessmentId}:${auth.cacheKeyOwner}`;
+    // ✅ Feature: don't allow narrative until all participants completed
+    const gate = await enforceAllParticipantsCompleted(assessmentId);
+    if (!gate.ok) return NextResponse.json(gate.body, { status: gate.status });
 
-    const cached = narrativeCacheGet(cacheKey);
-    if (cached) return NextResponse.json(cached, { status: 200 });
+    const latest = await prisma.assessmentNarrative.findFirst({
+      where: { assessment_id: assessmentId },
+      orderBy: [{ version: "desc" }],
+    });
 
-    const existingInflight = narrativeInflight.get(cacheKey);
-    if (existingInflight) {
-      const payload = await existingInflight;
-      return NextResponse.json(payload, { status: 200 });
+    if (!latest) {
+      return NextResponse.json({ ok: false, error: "Narrative not found" }, { status: 404 });
     }
 
-    const p = (async () => {
-      // Build the full results payload (existing behavior)
-      const results = await buildAssessmentResultsPayload({ assessmentId });
-
-           // Add participant completion stats (so UI can lock without guessing)
-      // IMPORTANT: exclude the admin “owner” participant row so single-participant assessments work.
-      const participantsRaw = await prisma.participant.findMany({
-        where: { assessment_id: assessmentId },
-        select: {
-          user_id: true,
-          email: true,
-          completed_at: true,
-        },
-      });
-
-      const reportingParticipants = participantsRaw.filter((p) => {
-        const email = (p.email ?? "").trim().toLowerCase();
-        const isOwnerAdmin = Boolean(p.user_id) && isAdminEmail(email);
-        return !isOwnerAdmin;
-      });
-
-      const participantsTotal = reportingParticipants.length;
-      const participantsCompleted = reportingParticipants.filter((p) => p.completed_at != null).length;
-
-      const allParticipantsCompleted =
-        participantsTotal > 0 && participantsCompleted >= participantsTotal;
-      return {
-        ok: results.ok,
-        ...results.body,
-
-        // NEW: completion fields for UI enforcement
-        participants_total: participantsTotal,
-        participants_completed: participantsCompleted,
-        all_participants_completed: allParticipantsCompleted,
-      };
-    })();
-
-    narrativeInflight.set(cacheKey, p);
-
-    let payload: any;
-    try {
-      payload = await p;
-    } finally {
-      narrativeInflight.delete(cacheKey);
-    }
-
-    narrativeCacheSet(cacheKey, payload);
-    return NextResponse.json(payload, { status: 200 });
+    return NextResponse.json({ ok: true, narrative: latest }, { status: 200 });
   } catch (err: any) {
-    console.error("GET /api/assessments/[id]/results error:", err);
+    console.error("GET /api/assessments/[id]/narrative error:", err);
     return NextResponse.json(
       { ok: false, error: "Internal server error.", message: err?.message ?? String(err) },
       { status: 500 }

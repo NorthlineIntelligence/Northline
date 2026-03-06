@@ -1,99 +1,113 @@
-// src/app/api/assessments/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/authz";
+import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isAdminEmail } from "@/lib/admin";
 
-type AssessmentType = "FULL" | "LITE";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-type CreateAssessmentBody = {
-  organizationId: string;
-  version?: string | number;
-  type: AssessmentType; // required
-};
+async function getSupabaseServerClient() {
+  const cookieStore = await cookies();
 
-function resolveAssessmentName(type: AssessmentType): string {
-  if (type === "FULL") return "NL-Assess";
-  if (type === "LITE") return "NL-Lite";
-  return "NL-Assess";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+
+  return createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // ignore
+        }
+      },
+    },
+  });
 }
 
+/**
+ * GET /api/assessments
+ * Returns assessments visible to the current user via Participant membership.
+ * (Facilitated diagnostic: this is enough for v1.1 UI navigation.)
+ */
 export async function POST(req: NextRequest) {
-  const admin = await requireAdmin(req);
-  if (!admin.ok) {
-    return NextResponse.json(
-      { ok: false, error: admin.message },
-      { status: admin.status }
-    );
-  }
-
-  let body: CreateAssessmentBody;
   try {
-    body = (await req.json()) as CreateAssessmentBody;
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
-      { status: 400 }
-    );
-  }
+    const supabase = await getSupabaseServerClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-  const organizationId = (body.organizationId ?? "").trim();
-  const type = body.type;
+    const contentType = req.headers.get("content-type") ?? "";
+    const accept = req.headers.get("accept") ?? "";
 
-  if (!organizationId) {
-    return NextResponse.json(
-      { ok: false, error: "organizationId is required" },
-      { status: 400 }
-    );
-  }
+    if (userError || !user) {
+      if (accept.includes("text/html")) {
+        return NextResponse.redirect(new URL("/admin/login", req.url), {
+          status: 303,
+        });
+      }
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  if (!type || (type !== "FULL" && type !== "LITE")) {
-    return NextResponse.json(
-      { ok: false, error: "type must be FULL or LITE" },
-      { status: 400 }
-    );
-  }
+    const email = (user.email ?? "").trim().toLowerCase();
+    if (!isAdminEmail(email)) {
+      if (accept.includes("text/html")) {
+        return NextResponse.redirect(
+          new URL("/admin/login?error=forbidden", req.url),
+          { status: 303 }
+        );
+      }
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    let organizationId: unknown = undefined;
 
-  const version = body.version !== undefined ? String(body.version) : "1";
-  const name = resolveAssessmentName(type);
+    if (contentType.includes("application/json")) {
+      const body = await req.json().catch(() => ({} as any));
+      organizationId = body?.organizationId;
+    } else {
+      // Supports form POSTs from plain HTML <form>
+      const form = await req.formData().catch(() => null);
+      organizationId = form?.get("organizationId");
+    }
 
-  try {
-    const org = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { id: true },
-    });
-
-    if (!org) {
+    if (!organizationId || typeof organizationId !== "string") {
       return NextResponse.json(
-        { ok: false, error: "Organization not found" },
-        { status: 404 }
+        { error: "Bad Request", message: "organizationId is required" },
+        { status: 400 }
       );
     }
 
-    const assessment = await prisma.assessment.create({
-      data: {
-        organization_id: organizationId,
-        version,
-        name,
-        type, // only if your schema has this column (see note below)
-      } as any,
-      select: {
-        id: true,
-        organization_id: true,
-        version: true,
-        name: true,
-        created_at: true,
-      } as any,
+    const result = await prisma.$transaction(async (tx) => {
+      const assessment = await tx.assessment.create({
+        data: {
+          organization_id: organizationId,
+        },
+        select: { id: true, organization_id: true },
+      });
+
+      
+      return assessment;
     });
 
-    return NextResponse.json({ ok: true, assessment }, { status: 201 });
+    // If this was a browser form post, redirect straight into the assessment flow
+    if (accept.includes("text/html")) {
+      return NextResponse.redirect(
+        new URL(`/assessments/${result.id}`, req.url),
+        { status: 303 }
+      );
+    }
+
+    return NextResponse.json({ assessment: result }, { status: 201 });
   } catch (err: any) {
-    console.error("[ASSESSMENTS_POST] error:", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "Create assessment failed",
-        message: err?.message ?? String(err),
-      },
+      { error: "Internal Server Error", message: err?.message ?? String(err) },
       { status: 500 }
     );
   }

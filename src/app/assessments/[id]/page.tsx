@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 type Pillar =
   | "SYSTEM_INTEGRITY"
@@ -16,6 +16,24 @@ type Question = {
   display_order: number;
   weight: number;
   version: string;
+};
+type Department =
+  | "ALL"
+  | "SALES"
+  | "MARKETING"
+  | "CUSTOMER_SUCCESS"
+  | "OPS"
+  | "REVOPS"
+  | "GTM";
+
+type AssessmentMeta = {
+  id: string;
+  name: string | null;
+  locked_department: Department | null;
+  organization?: {
+    id: string;
+    name: string | null;
+  } | null;
 };
 
 type QuestionsResponse = {
@@ -65,22 +83,108 @@ const BRAND = {
   muted: "#4B5565",
 };
 
+function RadarChart({
+  data,
+  size = 320,
+}: {
+  data: Array<{ label: string; value: number; color?: string }>;
+  size?: number;
+}) {
+  const center = size / 2;
+  const radius = size / 2 - 40;
+  const levels = 5;
+  const angleStep = (Math.PI * 2) / data.length;
+
+  const points = data.map((d, i) => {
+    const angle = i * angleStep - Math.PI / 2;
+    const r = (d.value / 5) * radius;
+    return {
+      x: center + r * Math.cos(angle),
+      y: center + r * Math.sin(angle),
+    };
+  });
+
+  const polygonPoints = points.map((p) => `${p.x},${p.y}`).join(" ");
+
+  return (
+    <svg width={size} height={size}>
+      {[...Array(levels)].map((_, level) => {
+        const r = ((level + 1) / levels) * radius;
+        const gridPoints = data.map((_, i) => {
+          const angle = i * angleStep - Math.PI / 2;
+          return {
+            x: center + r * Math.cos(angle),
+            y: center + r * Math.sin(angle),
+          };
+        });
+        return (
+          <polygon
+            key={level}
+            points={gridPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke="#E6EAF2"
+            strokeWidth="1"
+          />
+        );
+      })}
+
+      <polygon
+        points={polygonPoints}
+        fill="rgba(23, 52, 100, 0.15)"
+        stroke="#173464"
+        strokeWidth="2"
+      />
+
+      {data.map((d, i) => {
+        const angle = i * angleStep - Math.PI / 2;
+        const labelRadius = radius + 20;
+        return (
+          <text
+            key={d.label}
+            x={center + labelRadius * Math.cos(angle)}
+            y={center + labelRadius * Math.sin(angle)}
+            textAnchor="middle"
+            fontSize="11"
+            fill="#173464"
+            fontWeight="700"
+          >
+            {d.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
 function clampText(s: string, max = 120) {
   const t = (s ?? "").trim();
   if (t.length <= max) return t;
   return t.slice(0, max - 1) + "…";
 }
 
+function safeLower(s: string) {
+  return (s ?? "").trim().toLowerCase();
+}
+
+function safeTrim(s: string) {
+  return (s ?? "").trim();
+}
+
 export default function AssessmentTakePage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const assessmentId =
     typeof params?.id === "string" && params.id.length > 0 ? params.id : null;
 
   const [loading, setLoading] = useState(true);
   const [participantId, setParticipantId] = useState<string | null>(null);
+  const [participantDept, setParticipantDept] = useState<Department | null>(null);
+  const [assessmentMeta, setAssessmentMeta] = useState<AssessmentMeta | null>(null);
+
   const [questions, setQuestions] = useState<QuestionsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const [scores, setScores] = useState<Record<string, number>>({});
   const [aiUseCase, setAiUseCase] = useState<string>("");
 
@@ -88,9 +192,51 @@ export default function AssessmentTakePage() {
   const [submitResult, setSubmitResult] = useState<string | null>(null);
 
   // for hover styling per question/option
-  const [hover, setHover] = useState<{ qid: string; value: number } | null>(
-    null
-  );
+  const [hover, setHover] = useState<{ qid: string; value: number } | null>(null);
+
+  // --- Invite auth handling (belt + suspenders)
+  // Read from URL first; if missing, fall back to sessionStorage.
+  const inviteEmail = useMemo(() => {
+    const urlEmail = safeLower(searchParams?.get("email") ?? "");
+    if (urlEmail) return urlEmail;
+
+    if (typeof window === "undefined") return "";
+    try {
+      return safeLower(window.sessionStorage.getItem("invite_email") ?? "");
+    } catch {
+      return "";
+    }
+  }, [searchParams]);
+
+  const inviteToken = useMemo(() => {
+    const urlToken = safeTrim(searchParams?.get("token") ?? "");
+    if (urlToken) return urlToken;
+
+    if (typeof window === "undefined") return "";
+    try {
+      return safeTrim(window.sessionStorage.getItem("invite_token") ?? "");
+    } catch {
+      return "";
+    }
+  }, [searchParams]);
+
+  // Persist invite params when present in URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (inviteEmail) window.sessionStorage.setItem("invite_email", inviteEmail);
+      if (inviteToken) window.sessionStorage.setItem("invite_token", inviteToken);
+    } catch {}
+  }, [inviteEmail, inviteToken]);
+
+  // Shared querystring for links + API calls that support invite auth
+  const authQs = useMemo(() => {
+    const qs = new URLSearchParams();
+    if (inviteEmail) qs.set("email", inviteEmail);
+    if (inviteToken) qs.set("token", inviteToken);
+    const s = qs.toString();
+    return s ? `?${s}` : "";
+  }, [inviteEmail, inviteToken]);
 
   const allQuestionsFlat = useMemo(() => {
     if (!questions) return [];
@@ -117,31 +263,43 @@ export default function AssessmentTakePage() {
       setSubmitResult(null);
 
       if (!assessmentId) {
-        setLoadError(
-          "Missing assessment id in route. Ensure URL is /assessments/<UUID>."
-        );
+        setLoadError("Missing assessment id in route. Ensure URL is /assessments/<UUID>.");
         setLoading(false);
         return;
       }
 
       try {
-        // Ensure participant (binds user_id server-side)
-        const ensureRes = await fetch(
-          `/api/assessments/${assessmentId}/participant`,
-          { method: "POST", credentials: "include" }
-        );
+        // Ensure participant (invite link auth: email + token)
+        const ensureRes = await fetch(`/api/assessments/${assessmentId}/participant`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            email: inviteEmail,
+            token: inviteToken,
+          }),
+        });
 
         if (ensureRes.status === 401) {
-          setLoadError(
-            "Unauthorized. You are not logged in as an end-user yet (admin login is separate)."
-          );
+          if (inviteEmail && inviteToken) {
+            setLoadError(
+              "Unauthorized. Your invite link is invalid or expired. Ask your admin to resend the invite."
+            );
+            setLoading(false);
+            return;
+          }
+
+          setLoadError("Unauthorized. This link is missing your email or token. Ask your admin to resend the invite.");
           setLoading(false);
           return;
         }
 
         const ensureJson = await ensureRes.json().catch(() => null);
         if (ensureRes.ok && ensureJson?.ok) {
-          if (!cancelled) setParticipantId(ensureJson.participant.id);
+          if (!cancelled) {
+            setParticipantId(ensureJson.participant.id);
+            setParticipantDept(ensureJson.participant.department ?? null);
+          }
         } else {
           if (!cancelled) {
             setLoadError(
@@ -154,10 +312,44 @@ export default function AssessmentTakePage() {
           return;
         }
 
-        const qRes = await fetch(`/api/questions?active=true&version=1`, {
+        const pid = ensureJson.participant.id as string;
+
+        // Load assessment meta (optional). This endpoint may require session; ignore 401.
+        const metaUrl = new URL(`/api/assessments/${assessmentId}`, window.location.origin);
+        if (inviteEmail) metaUrl.searchParams.set("email", inviteEmail);
+        if (inviteToken) metaUrl.searchParams.set("token", inviteToken);
+
+        const metaRes = await fetch(metaUrl.toString(), {
           method: "GET",
           credentials: "include",
         });
+
+        if (!metaRes.ok) {
+          if (metaRes.status !== 401) {
+            const txt = await metaRes.text();
+            if (!cancelled) {
+              setLoadError(`Failed to load assessment metadata: ${metaRes.status} ${txt}`);
+              setLoading(false);
+            }
+            return;
+          }
+        } else {
+          const metaJson = await metaRes.json().catch(() => null);
+          if (!cancelled) setAssessmentMeta(metaJson?.assessment ?? null);
+        }
+
+        // Load questions
+        const qUrl = new URL("/api/questions", window.location.origin);
+        qUrl.searchParams.set("active", "true");
+        qUrl.searchParams.set("version", "1");
+        qUrl.searchParams.set("assessmentId", assessmentId);
+        qUrl.searchParams.set("participantId", pid);
+
+        const qRes = await fetch(qUrl.toString(), {
+          method: "GET",
+          credentials: "include",
+        });
+
         if (!qRes.ok) {
           const txt = await qRes.text();
           if (!cancelled) {
@@ -185,7 +377,7 @@ export default function AssessmentTakePage() {
     return () => {
       cancelled = true;
     };
-  }, [assessmentId]);
+  }, [assessmentId, inviteEmail, inviteToken]);
 
   async function submit() {
     if (!assessmentId || !participantId) return;
@@ -214,6 +406,8 @@ export default function AssessmentTakePage() {
       body: JSON.stringify({
         assessment_id: assessmentId,
         participant_id: participantId,
+        email: inviteEmail,
+        token: inviteToken,
         responses: payloadResponses,
       }),
     });
@@ -225,11 +419,14 @@ export default function AssessmentTakePage() {
         `Error (${res.status}): ${(json as any)?.error ?? "Submit failed."}` +
           (Array.isArray(dup) && dup.length ? ` Duplicates: ${dup.join(", ")}` : "")
       );
-    } else {
-      setSubmitResult("Submitted successfully.");
+      setSubmitting(false);
+      return;
     }
 
     setSubmitting(false);
+
+    // Always carry auth params forward to completion page
+    router.push(`/assessments/${assessmentId}/complete${authQs}`);
   }
 
   if (loading) {
@@ -254,9 +451,7 @@ export default function AssessmentTakePage() {
             boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
           }}
         >
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
-            Northline AI Readiness
-          </div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>Northline AI Readiness</div>
           <div style={{ color: BRAND.muted, marginTop: 6 }}>Loading assessment…</div>
         </div>
       </main>
@@ -285,12 +480,8 @@ export default function AssessmentTakePage() {
             boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
           }}
         >
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
-            Northline AI Readiness
-          </div>
-          <div style={{ marginTop: 12, color: "#b42318", fontWeight: 700 }}>
-            {loadError}
-          </div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>Northline AI Readiness</div>
+          <div style={{ marginTop: 12, color: "#b42318", fontWeight: 700 }}>{loadError}</div>
           <div style={{ marginTop: 10, color: BRAND.muted }}>
             If this is a dev environment, we’ll add an end-user login UI next.
           </div>
@@ -325,12 +516,34 @@ export default function AssessmentTakePage() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 280px" }}>
-              <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
-                Northline AI Readiness
+              <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>Northline AI Readiness</div>
+
+              <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: BRAND.dark,
+                    background: "#F3F4F6",
+                    border: `1px solid ${BRAND.border}`,
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                  }}
+                >
+                  {assessmentMeta?.organization?.name ?? "Org Name Unavailable"}
+                </span>
               </div>
-              <div style={{ marginTop: 4, color: BRAND.muted }}>
+
+              <div style={{ marginTop: 6, color: BRAND.muted }}>
                 Answer honestly. This is diagnostic, not performative.
               </div>
+
+              {/* Helpful: show if invite auth is missing */}
+              {!inviteEmail || !inviteToken ? (
+                <div style={{ marginTop: 8, color: "#b42318", fontWeight: 800, fontSize: 12 }}>
+                  This page is missing your invite email/token. Ask your admin to resend the invite link.
+                </div>
+              ) : null}
             </div>
 
             <div style={{ minWidth: 240 }}>
@@ -376,24 +589,8 @@ export default function AssessmentTakePage() {
                 {submitting ? "Submitting…" : "Submit"}
               </button>
 
-              {assessmentId && (
-                <a
-                  href={`/api/assessments/${assessmentId}/results`}
-                  style={{
-                    background: BRAND.dark,
-                    color: "white",
-                    border: "none",
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
-                >
-                  Results 
-                </a>
-              )}
+              
+              
             </div>
           </div>
 
@@ -491,34 +688,20 @@ export default function AssessmentTakePage() {
                           >
                             {LIKERT.map((opt) => {
                               const isSelected = selected === opt.value;
-                              const isHover =
-                                hover?.qid === q.id && hover?.value === opt.value;
+                              const isHover = hover?.qid === q.id && hover?.value === opt.value;
 
-                              const bg = isSelected
-                                ? BRAND.cyan
-                                : isHover
-                                  ? "#EAF3FF"
-                                  : "#FFFFFF";
+                              const bg = isSelected ? BRAND.cyan : isHover ? "#EAF3FF" : "#FFFFFF";
 
-                              const border = isSelected
-                                ? BRAND.cyan
-                                : isHover
-                                  ? BRAND.dark
-                                  : "#D7DEEA";
+                              const border = isSelected ? BRAND.cyan : isHover ? BRAND.dark : "#D7DEEA";
 
-                              const numColor = isSelected ? BRAND.dark : BRAND.dark;
-
+                              const numColor = BRAND.dark;
                               const labelColor = isSelected ? BRAND.dark : BRAND.muted;
 
                               return (
                                 <button
                                   key={opt.value}
-                                  onClick={() =>
-                                    setScores((prev) => ({ ...prev, [q.id]: opt.value }))
-                                  }
-                                  onMouseEnter={() =>
-                                    setHover({ qid: q.id, value: opt.value })
-                                  }
+                                  onClick={() => setScores((prev) => ({ ...prev, [q.id]: opt.value }))}
+                                  onMouseEnter={() => setHover({ qid: q.id, value: opt.value })}
                                   onMouseLeave={() => setHover(null)}
                                   style={{
                                     width: "100%",
@@ -527,9 +710,7 @@ export default function AssessmentTakePage() {
                                     background: bg,
                                     padding: "12px 10px",
                                     cursor: "pointer",
-                                    boxShadow: isSelected
-                                      ? "0 10px 24px rgba(52, 176, 180, 0.18)"
-                                      : "none",
+                                    boxShadow: isSelected ? "0 10px 24px rgba(52, 176, 180, 0.18)" : "none",
                                     transition:
                                       "background 120ms ease, border 120ms ease, transform 120ms ease, box-shadow 120ms ease",
                                     transform: isHover ? "translateY(-1px)" : "translateY(0)",
@@ -605,9 +786,7 @@ export default function AssessmentTakePage() {
               }}
               placeholder="Example: automate client onboarding, generate first-draft SOPs, sales follow-ups, internal reporting, support ticket triage…"
             />
-            <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 12 }}>
-              {aiUseCase.length}/5000
-            </div>
+            <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 12 }}>{aiUseCase.length}/5000</div>
           </section>
         </div>
       </div>

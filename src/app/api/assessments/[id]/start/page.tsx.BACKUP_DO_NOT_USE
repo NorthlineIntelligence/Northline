@@ -1,0 +1,357 @@
+"use client";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+
+const ROLE_OPTIONS = [
+  "Sales",
+  "Customer Success",
+  "Engineering",
+  "Product",
+  "Marketing",
+  "Operations",
+  "RevOps",
+  "Finance",
+  "HR / People",
+  "Executive",
+  "Other",
+] as const;
+
+const SENIORITY_OPTIONS = [
+  "Individual Contributor",
+  "Mid-level Leadership",
+  "VP",
+  "Executive",
+] as const;
+
+export default function AssessmentStartPage() {
+  const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const assessmentId = typeof params?.id === "string" ? params.id : null;
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [orgName, setOrgName] = useState<string>("");
+
+  const [role, setRole] = useState<string>("");
+  const [seniority, setSeniority] = useState<string>("");
+  const [notes, setNotes] = useState<string>("");
+
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const canContinue = useMemo(() => {
+    return role.trim().length > 0 && seniority.trim().length > 0 && notes.trim().length >= 20;
+  }, [role, seniority, notes]);
+
+  useEffect(() => {
+    if (!assessmentId) return;
+
+    let alive = true;
+
+    async function load() {
+      setLoading(true);
+      setErr(null);
+
+      try {
+        const res = await fetch(`/api/assessments/${assessmentId}/intake`, {
+          credentials: "include",
+        });
+
+        const json = await res.json().catch(() => null);
+
+        if (!alive) return;
+
+        if (!res.ok) {
+          setErr(json?.error ?? `Load failed (${res.status})`);
+          return;
+        }
+
+        setOrgName(json?.organization?.name ?? "");
+
+        const p = json?.participant ?? null;
+        if (p) {
+          setRole(p.role ?? "");
+          setSeniority(p.seniority_level ?? "");
+          setNotes(p.ai_opportunities_notes ?? "");
+        }
+      } catch (e: any) {
+        if (!alive) return;
+        setErr(e?.message ?? String(e));
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [assessmentId]);
+
+  async function saveIntake() {
+    if (!assessmentId) return;
+
+    setSaving(true);
+    setErr(null);
+
+    try {
+      const res = await fetch(`/api/assessments/${assessmentId}/intake`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          seniority_level: seniority,
+          ai_opportunities_notes: notes,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErr(json?.error ?? json?.message ?? `Save failed (${res.status})`);
+        return false;
+      }
+
+      return true;
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onGoToAssessment() {
+    if (!canContinue) {
+      setErr("Please complete Role, Seniority, and the note (at least a few sentences).");
+      return;
+    }
+    setShowConfirm(true);
+  }
+
+  async function onConfirmOrgYes() {
+    const ok = await saveIntake();
+    if (!ok) return;
+
+    // 👇 Change this if your assessment answering page is elsewhere
+    router.push(`/assessments/${assessmentId}`);
+  }
+
+  return (
+    <main style={{ maxWidth: 780, margin: "0 auto", padding: 28, fontFamily: "system-ui" }}>
+      <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Before you start</h1>
+      <p style={{ marginTop: 8, color: "#4B5565", fontWeight: 600 }}>
+        Quick context so the results and narrative reflect your real work.
+      </p>
+
+      {loading ? (
+        <div style={{ marginTop: 16, color: "#4B5565", fontWeight: 700 }}>Loading…</div>
+      ) : null}
+
+      {err ? (
+        <div
+          style={{
+            marginTop: 14,
+            background: "#FFF5F5",
+            border: "1px solid #FED7D7",
+            borderRadius: 12,
+            padding: 12,
+            color: "#7F1D1D",
+            fontWeight: 800,
+          }}
+        >
+          {err}
+        </div>
+      ) : null}
+
+      <section
+        style={{
+          marginTop: 18,
+          border: "1px solid #E6EAF2",
+          borderRadius: 16,
+          padding: 16,
+          background: "#FFFFFF",
+        }}
+      >
+        <div style={{ fontWeight: 900, marginBottom: 10 }}>Your role</div>
+
+        <label style={{ display: "block", fontWeight: 700, marginTop: 8 }}>
+          Department / Role
+        </label>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          style={{
+            marginTop: 6,
+            width: "100%",
+            padding: 10,
+            borderRadius: 12,
+            border: "1px solid #E6EAF2",
+            fontWeight: 700,
+          }}
+        >
+          <option value="">Select…</option>
+          {ROLE_OPTIONS.map((x) => (
+            <option key={x} value={x}>
+              {x}
+            </option>
+          ))}
+        </select>
+
+        <label style={{ display: "block", fontWeight: 700, marginTop: 14 }}>
+          Seniority level
+        </label>
+        <select
+          value={seniority}
+          onChange={(e) => setSeniority(e.target.value)}
+          style={{
+            marginTop: 6,
+            width: "100%",
+            padding: 10,
+            borderRadius: 12,
+            border: "1px solid #E6EAF2",
+            fontWeight: 700,
+          }}
+        >
+          <option value="">Select…</option>
+          {SENIORITY_OPTIONS.map((x) => (
+            <option key={x} value={x}>
+              {x}
+            </option>
+          ))}
+        </select>
+      </section>
+
+      <section
+        style={{
+          marginTop: 18,
+          border: "1px solid #E6EAF2",
+          borderRadius: 16,
+          padding: 16,
+          background: "#FFFFFF",
+        }}
+      >
+        <div style={{ fontWeight: 900, marginBottom: 10 }}>AI opportunities (your day-to-day)</div>
+
+        <div style={{ color: "#4B5565", fontWeight: 650, lineHeight: 1.55 }}>
+          Think about your day to day work and list and describe <b>two instances today</b> where AI automation
+          could make your job easier, make you more efficient, or make you more money.
+          <br />
+          <br />
+          Even if you don’t know exactly how AI would help, list the areas you’d like improved.
+        </div>
+
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={8}
+          placeholder="Example: 1) … 2) …"
+          style={{
+            marginTop: 12,
+            width: "100%",
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #E6EAF2",
+            fontWeight: 650,
+            lineHeight: 1.5,
+          }}
+        />
+      </section>
+
+      <div style={{ marginTop: 18, display: "flex", gap: 12, justifyContent: "flex-end" }}>
+        <button
+          onClick={onGoToAssessment}
+          disabled={saving || loading}
+          style={{
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid #E6EAF2",
+            background: "#34b0b4",
+            color: "#173464",
+            fontWeight: 900,
+            cursor: "pointer",
+            opacity: saving || loading ? 0.7 : 1,
+          }}
+        >
+          Go To Assessment
+        </button>
+      </div>
+
+      {/* Modal */}
+      {showConfirm ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              background: "#FFFFFF",
+              borderRadius: 16,
+              border: "1px solid #E6EAF2",
+              padding: 16,
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 900 }}>One second…</div>
+            <div style={{ marginTop: 10, fontWeight: 700, color: "#0B1220", lineHeight: 1.5 }}>
+              Please confirm this is your organization:
+              <div style={{ marginTop: 8, fontSize: 18, fontWeight: 900, color: "#173464" }}>
+                {orgName || "—"}
+              </div>
+              <div style={{ marginTop: 10, color: "#4B5565", fontWeight: 650 }}>
+                If this is not your organization, please let your administrator know.
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowConfirm(false)}
+                disabled={saving}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid #E6EAF2",
+                  background: "#FFFFFF",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={onConfirmOrgYes}
+                disabled={saving}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid #E6EAF2",
+                  background: "#173464",
+                  color: "#FFFFFF",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  opacity: saving ? 0.7 : 1,
+                }}
+              >
+                {saving ? "Saving…" : "Yes, continue"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </main>
+  );
+}

@@ -9,60 +9,98 @@ datasource db {
 }
 
 model Organization {
-  id                String                 @id @default(uuid()) @db.Uuid
-  name              String
-  industry          String?
-  size              String?
-  growth_stage      String?
-  primary_pressures String?
-  created_at        DateTime               @default(now())
-  assessments       Assessment[]
-  documents         OrganizationDocument[]
-  participants      Participant[]
+  id                 String                 @id @default(uuid()) @db.Uuid
+  name               String
+  industry           String?
+  size               String?
+  growth_stage       String?
+  primary_pressures  String?
+
+  /// Admin-entered website for narrative + enrichment
+  website            String?
+
+  /// Admin-pasted context about the org (what they do, ICP, offerings, etc.)
+  context_notes      String?
+
+  created_at         DateTime               @default(now())
+  assessments        Assessment[]
+  documents          OrganizationDocument[]
+  participants       Participant[]
+  show_admin_controls Boolean               @default(false)
 
   @@index([name])
+  @@index([created_at])
 }
 
 model Assessment {
-  id              String           @id @default(uuid()) @db.Uuid
-  organization_id String           @db.Uuid
-  cohort_name     String?
-  assessment_date DateTime?
-  status          AssessmentStatus @default(DRAFT)
-  created_at      DateTime         @default(now())
-  type            assessmenttype   @default(FULL)
-  name            String           @default("NL-Assess")
-  organization    Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  Participant     Participant[]
-  Response        Response[]
+  id                String           @id @default(uuid()) @db.Uuid
+  organization_id   String           @db.Uuid
+  cohort_name       String?
+  assessment_date   DateTime?
+  status            AssessmentStatus @default(DRAFT)
+  locked_at         DateTime?
+  created_at        DateTime         @default(now())
+  type              assessmenttype   @default(FULL)
+  name              String           @default("NL-Assess")
+
+  /// If set, this assessment is "team-only locked" and participants do NOT choose a department.
+  /// All questions should be filtered to audience = locked_department OR ALL.
+  locked_department Department?
+
+  organization       Organization        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  Participant        Participant[]
+  Response           Response[]
+  narratives         AssessmentNarrative[]
 
   @@index([organization_id])
   @@index([status])
   @@index([type])
+  @@index([locked_department])
+  @@index([organization_id, created_at])
 }
 
 model Participant {
-  id              String       @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
   /// Supabase Auth user.id (UUID). Used for authorization + org membership enforcement.
   /// Optional for now to avoid breaking existing data; should become required before production.
-  user_id         String?      @db.Uuid
+  user_id String? @db.Uuid
 
-  organization_id String       @db.Uuid
+  /// Participant intake: free-text notes about where AI automation could help (used for narrative grounding)
+  ai_opportunities_notes String? @db.Text
+
+  /// Invite / participant email for onboarding before the user is linked to Supabase auth.
+  email String?
+
+  /// Hardened invite system (Option B): token stored as a hash (never store raw token)
+  invite_token_hash       String?
+  invite_token_expires_at DateTime?
+  invite_sent_at          DateTime?
+  invite_accepted_at      DateTime?
+
+  organization_id String   @db.Uuid
   role            String?
   seniority_level String?
-  created_at      DateTime     @default(now())
-  assessment_id   String       @db.Uuid
-  Assessment      Assessment   @relation(fields: [assessment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  Response        Response[]
+  created_at      DateTime @default(now())
+  assessment_id   String   @db.Uuid
+   completed_at   DateTime? 
+  /// Department/team the participant represents (used to select variant questions).
+  /// If assessment.locked_department is set, this can be null.
+  department Department?
+
+  Assessment   Assessment   @relation(fields: [assessment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  Response     Response[]
+
+  @@unique([assessment_id, user_id], map: "participant_unique_per_assessment_user")
+  @@unique([assessment_id, email], map: "participant_unique_per_assessment_email")
 
   @@index([organization_id])
   @@index([user_id])
+  @@index([email])
   @@index([organization_id, user_id])
-
-  /// Enforces: one participant per user per assessment
-  @@unique([assessment_id, user_id], map: "participant_unique_per_assessment_user")
+  @@index([assessment_id, department])
+  @@index([assessment_id, created_at])
 }
 
 model Question {
@@ -74,10 +112,17 @@ model Question {
   active        Boolean    @default(true)
   version       String     @default("1.0")
   created_at    DateTime   @default(now())
+
+  /// Which department this question is targeted for.
+  /// - ALL = included in every assessment/department
+  /// - SALES/MARKETING/etc = included when participant/assessment matches that department
+  audience Department @default(ALL)
+
   Response      Response[]
 
-  @@unique([pillar, display_order, version])
+  @@unique([pillar, display_order, version, audience])
   @@index([pillar, active])
+  @@index([version, audience, active])
 }
 
 model Response {
@@ -88,6 +133,7 @@ model Response {
   score          Int
   free_write     String?
   created_at     DateTime    @default(now())
+
   Assessment     Assessment  @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
   Participant    Participant @relation(fields: [participant_id], references: [id], onDelete: Cascade)
   Question       Question    @relation(fields: [question_id], references: [id], onDelete: Cascade)
@@ -95,6 +141,44 @@ model Response {
   @@unique([assessment_id, participant_id, question_id], map: "response_unique_per_participant_question")
   @@index([assessment_id, participant_id])
   @@index([assessment_id, question_id])
+}
+
+model AssessmentNarrative {
+  id            String @id @default(uuid()) @db.Uuid
+  assessment_id String @db.Uuid
+
+  /// Version number per assessment (1, 2, 3...). Increment on each generation.
+  version Int
+
+  /// Lifecycle: DRAFT while iterating; FINAL when delivered; ARCHIVED for old/hidden versions.
+  status NarrativeStatus @default(DRAFT)
+
+  /// Hash of the canonical inputs used to generate this narrative
+  /// (diagnostic results + org context + documents fingerprints).
+  input_hash String
+
+  /// Audit metadata (keep conservative; no secrets here).
+  engine_version String  @default("v1.1")
+  schema_version String  @default("1.0")
+  prompt_version String?
+  model_name     String?
+  model_provider String?
+
+  /// Structured output (guardrailed JSON). Validate with Zod before insert.
+  narrative_json Json
+
+  /// Optional human-readable render target for PDF/export.
+  memo_markdown String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  Assessment Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  @@unique([assessment_id, version], map: "narrative_unique_per_assessment_version")
+  @@index([assessment_id, status])
+  @@index([assessment_id, created_at])
+  @@index([assessment_id, status, created_at])
 }
 
 model OrganizationDocument {
@@ -110,6 +194,7 @@ model OrganizationDocument {
   organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 
   @@index([organization_id, source_type])
+  @@index([organization_id, created_at])
 }
 
 enum Pillar {
@@ -117,6 +202,19 @@ enum Pillar {
   HUMAN_ALIGNMENT
   STRATEGIC_COHERENCE
   SUSTAINABILITY_PRACTICE
+}
+
+enum Department {
+  /// Included for every participant/assessment unless you explicitly choose to filter it out.
+  ALL
+  SALES
+  MARKETING
+  CUSTOMER_SUCCESS
+  OPS
+  REVOPS
+  ENGINEERING
+  PRODUCT
+  GTM
 }
 
 enum AssessmentStatus {
@@ -128,4 +226,10 @@ enum AssessmentStatus {
 enum assessmenttype {
   FULL
   LITE
+}
+
+enum NarrativeStatus {
+  DRAFT
+  FINAL
+  ARCHIVED
 }

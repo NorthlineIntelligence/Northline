@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
-
+import { prisma } from "@/lib/prisma";
+import AdminControlsToggleButton from "../AdminControlsToggleButton";
 export default async function AdminDashboardPage() {
   const cookieStore = await cookies();
 
@@ -29,6 +30,19 @@ export default async function AdminDashboardPage() {
   if (userError || !user) redirect("/admin/login");
 
   const email = user.email ?? "unknown";
+
+  const recentOrgs = await prisma.organization.findMany({
+    orderBy: { created_at: "desc" },
+    take: 10,
+    select: {
+      id: true,
+      name: true,
+      industry: true,
+      created_at: true,
+      show_admin_controls: true,
+      _count: { select: { assessments: true } },
+    },
+  });
 
   return (
     <div className="min-h-screen bg-[#fcfcfe] text-[#173464]">
@@ -60,6 +74,16 @@ export default async function AdminDashboardPage() {
 
         <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
           <a
+            href="/admin/organizations/new"
+            className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
+          >
+            <div className="text-base font-semibold">Create New Organization</div>
+            <div className="mt-1 text-sm text-[#66819e]">
+              Intake org context, set assessment type, add participants.
+            </div>
+          </a>
+
+          <a
             href="/admin/session"
             className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
           >
@@ -69,12 +93,15 @@ export default async function AdminDashboardPage() {
             </div>
           </a>
 
-          <div className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm">
-            <div className="text-base font-semibold">Next: Authorization</div>
+          <a
+            href="/admin/questions/ingest"
+            className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
+          >
+            <div className="text-base font-semibold">Question Ingestion</div>
             <div className="mt-1 text-sm text-[#66819e]">
-              Add org/assessment membership rules (beyond admin allowlist).
+              Upload a CSV, preview questions, and import into the question bank.
             </div>
-          </div>
+          </a>
 
           <div className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm">
             <div className="text-base font-semibold">Next: Documents</div>
@@ -82,12 +109,63 @@ export default async function AdminDashboardPage() {
               Upload + store org-specific context (Storage + metadata).
             </div>
           </div>
+        </div>
 
-          <div className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm">
-            <div className="text-base font-semibold">Next: Reporting UI</div>
-            <div className="mt-1 text-sm text-[#66819e]">
-              Boardroom-ready results + radar chart scaffolding.
+        <div className="mt-10">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-lg font-semibold">Recent Organizations</div>
+              <div className="text-sm text-[#66819e]">
+                Newest first • Click to open Org Settings
+              </div>
             </div>
+
+            <a
+              href="/admin/organizations/new"
+              className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+            >
+              + New Organization
+            </a>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-[#cdd8df] bg-white shadow-sm">
+            {recentOrgs.length === 0 ? (
+              <div className="p-5 text-sm text-[#66819e]">
+                No organizations yet. Create your first one.
+              </div>
+            ) : (
+              <div className="divide-y divide-[#e9eef4]">
+                {recentOrgs.map((org) => (
+                  <a
+                    key={org.id}
+                    href={`/admin/organizations/${org.id}`}
+                    className="block p-5 transition hover:bg-[#f6f8fc]"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-base font-semibold">{org.name}</div>
+                        <div className="mt-1 text-sm text-[#66819e]">
+                          {org.industry ? org.industry : "Industry not set"} •{" "}
+                          {org._count.assessments} assessment
+                          {org._count.assessments === 1 ? "" : "s"}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2">
+  <div className="text-xs text-[#66819e]">
+    {new Date(org.created_at).toLocaleDateString()}
+  </div>
+
+  <AdminControlsToggleButton
+    organizationId={org.id}
+    initialEnabled={Boolean((org as any).show_admin_controls)}
+  />
+</div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

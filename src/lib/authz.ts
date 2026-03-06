@@ -1,41 +1,59 @@
-import { NextRequest } from "next/server";
-import { supabaseServer } from "./supabaseServer";
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+/**
+ * NOTE: This file exports isAdminEmail and requireAdmin.
+ * Some routes import isAdminEmail from "@/lib/authz".
+ */
 
-function parseAdminEmails(): Set<string> {
+export function getAdminEmailAllowlist(): string[] {
   const raw = process.env.NORTHLINE_ADMIN_EMAILS ?? "";
-  return new Set(
-    raw
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-  );
+  return raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 }
 
-export async function requireAdmin(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.toLowerCase().startsWith("bearer ")) {
-    return { ok: false as const, status: 401, message: "Missing bearer token" };
+export const isAdminEmail = (email?: string | null): boolean => {
+  if (!email) return false;
+
+  const allowlist = getAdminEmailAllowlist();
+
+  // Fail closed if env var is missing
+  if (allowlist.length === 0) return false;
+
+  return allowlist.includes(email.toLowerCase());
+};
+
+export async function requireAdmin() {
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const email = user?.email ?? null;
+
+  if (!isAdminEmail(email)) {
+    redirect("/admin/login");
   }
 
-  const token = authHeader.slice("bearer ".length).trim();
-
-  const { data, error } = await supabaseServer.auth.getUser(token);
-
-  // IMPORTANT: return the actual error message for debugging
-  if (error || !data?.user?.email) {
-    return {
-      ok: false as const,
-      status: 401,
-      message: `Invalid token${error?.message ? `: ${error.message}` : ""}`,
-    };
-  }
-
-  const admins = parseAdminEmails();
-  const email = data.user.email.toLowerCase();
-
-  if (!admins.has(email)) {
-    return { ok: false as const, status: 403, message: "Not an admin" };
-  }
-
-  return { ok: true as const, user: data.user };
+  return { user, email };
 }

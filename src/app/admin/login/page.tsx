@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 
-export default function AdminLoginPage() {
+function AdminLoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -23,12 +24,11 @@ export default function AdminLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset password UI state
   const [resetMode, setResetMode] = useState(false);
   const [resetSubmitting, setResetSubmitting] = useState(false);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setResetNotice(null);
@@ -52,15 +52,13 @@ export default function AdminLoginPage() {
     }
   }
 
-  async function onResetPassword(e: React.FormEvent) {
+  async function onResetPassword(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setResetNotice(null);
     setResetSubmitting(true);
 
     try {
-      // Where Supabase will send the user back after they click the email link.
-      // We'll build that page next (one step at a time).
       const redirectTo =
         typeof window !== "undefined"
           ? `${window.location.origin}/admin/reset`
@@ -179,9 +177,7 @@ export default function AdminLoginPage() {
                 Reset your password
               </button>
 
-              <p className="text-xs text-[#66819e]">
-                Restricted to admins.
-              </p>
+              <p className="text-xs text-[#66819e]">Restricted to admins.</p>
             </div>
           </form>
         ) : (
@@ -227,5 +223,21 @@ export default function AdminLoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#fcfcfe] flex items-center justify-center px-6">
+          <div className="w-full max-w-md rounded-2xl border border-[#cdd8df] bg-white p-8 shadow-sm">
+            <p className="text-sm text-[#66819e]">Loading…</p>
+          </div>
+        </div>
+      }
+    >
+      <AdminLoginInner />
+    </Suspense>
   );
 }

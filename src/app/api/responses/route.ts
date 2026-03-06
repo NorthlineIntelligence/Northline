@@ -1,21 +1,30 @@
-import { NextResponse } from "next/server";
+// src/app/api/responses/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { createHash } from "crypto";
 
-const ResponseItemSchema = z.object({
-  question_id: z.string().uuid(),
-  score: z.number().int().min(1).max(5),
-  free_write: z.string().max(5000).optional(),
-});
-
-const SubmitResponsesSchema = z.object({
-  assessment_id: z.string().uuid(),
-  participant_id: z.string().uuid(),
-  responses: z.array(ResponseItemSchema).min(1).max(500),
-});
+const BodySchema = z
+  .object({
+    assessment_id: z.string().uuid(),
+    participant_id: z.string().uuid(),
+    // invite auth (participants with no Supabase session)
+    email: z.string().email().optional(),
+    token: z.string().min(16).optional(),
+    responses: z
+      .array(
+        z.object({
+          question_id: z.string().uuid(),
+          score: z.number().int().min(1).max(5),
+          free_write: z.string().optional(),
+        })
+      )
+      .min(1),
+  })
+  .strict();
 
 async function getSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -43,128 +52,145 @@ async function getSupabaseServerClient() {
   });
 }
 
-export async function POST(req: Request) {
+function sha256Hex(raw: string) {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+export async function POST(req: NextRequest) {
   try {
-    // --- AUTH GATE: require logged-in user (server-trusted) ---
+    const json = await req.json().catch(() => null);
+    const parsed = BodySchema.safeParse(json);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Bad Request", issues: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { assessment_id, participant_id, responses } = parsed.data;
+    const email = (parsed.data.email ?? "").trim().toLowerCase();
+    const token = (parsed.data.token ?? "").trim();
+
+    // ---------- AUTH (either Supabase session OR invite email+token) ----------
     const supabase = await getSupabaseServerClient();
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError) {
-      return NextResponse.json(
-        { error: "Unauthorized", message: userError.message },
-        { status: 401 }
-      );
-    }
+    let authorizedParticipantId: string | null = null;
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    // --- END AUTH GATE ---
-
-    const body = await req.json();
-    const { assessment_id, participant_id, responses } =
-      SubmitResponsesSchema.parse(body);
-
-    // 1) Verify participant belongs to assessment + secure-bind user_id
-    const participant = await prisma.participant.findFirst({
-      where: { id: participant_id, assessment_id },
-      select: { id: true, user_id: true },
-    });
-
-    if (!participant) {
-      return NextResponse.json(
-        { error: "Participant not found for this assessment." },
-        { status: 404 }
-      );
-    }
-
-    // Auto-bind user_id on first write if missing; otherwise enforce identity match.
-    if (!participant.user_id) {
-      await prisma.participant.update({
-        where: { id: participant.id },
-        data: { user_id: user.id },
+    // A) Logged in: enforce membership by user_id + assessment
+    if (!userError && user?.id) {
+      const membership = await prisma.participant.findFirst({
+        where: { assessment_id, user_id: user.id },
+        select: { id: true },
       });
-    } else if (participant.user_id !== user.id) {
-      return NextResponse.json(
-        { error: "Forbidden", message: "Participant does not belong to this user." },
-        { status: 403 }
-      );
-    }
 
-    // 2) Ensure questions exist
-    const questionIds = Array.from(new Set(responses.map((r) => r.question_id)));
+      if (!membership) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
-    const existingQuestions = await prisma.question.findMany({
-      where: { id: { in: questionIds } },
-      select: { id: true },
-    });
+      authorizedParticipantId = membership.id;
+    } else {
+      // B) Invite flow: must have email + token
+      if (!email || !token) {
+        return NextResponse.json(
+          {
+            error: "Unauthorized",
+            message: "No session found. Provide email and token to submit responses.",
+          },
+          { status: 401 }
+        );
+      }
 
-    if (existingQuestions.length !== questionIds.length) {
-      const existingSet = new Set(existingQuestions.map((q) => q.id));
-      const missing = questionIds.filter((id) => !existingSet.has(id));
-      return NextResponse.json(
-        { error: "One or more questions not found.", missingQuestionIds: missing },
-        { status: 400 }
-      );
-    }
+      const tokenHash = sha256Hex(token);
 
-    // 3) Pre-check duplicates (nice 409)
-    const existing = await prisma.response.findMany({
-      where: {
-        assessment_id,
-        participant_id,
-        question_id: { in: questionIds },
-      },
-      select: { question_id: true },
-    });
-
-    if (existing.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Duplicate submission detected for one or more questions.",
-          duplicateQuestionIds: existing.map((e) => e.question_id),
+      const invited = await prisma.participant.findFirst({
+        where: {
+          assessment_id,
+          email,
+          invite_token_hash: tokenHash,
+          OR: [
+            { invite_token_expires_at: null },
+            { invite_token_expires_at: { gt: new Date() } },
+          ],
         },
-        { status: 409 }
-      );
+        select: { id: true },
+      });
+
+      if (!invited) {
+        return NextResponse.json(
+          { error: "Unauthorized", message: "Invite link invalid or expired." },
+          { status: 401 }
+        );
+      }
+
+      authorizedParticipantId = invited.id;
     }
 
-    // 4) Insert
-    await prisma.response.createMany({
-      data: responses.map((r) => ({
-        assessment_id,
-        participant_id,
-        question_id: r.question_id,
-        score: r.score,
-        free_write: r.free_write ?? null,
-      })),
-    });
+    // You can only submit for yourself
+    if (authorizedParticipantId !== participant_id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // ---------- END AUTH ----------
 
-    return NextResponse.json(
-      { ok: true, created: responses.length },
-      { status: 201 }
-    );
-  } catch (err: any) {
-    if (err?.name === "ZodError") {
+    // ---------- Duplicate protection in payload ----------
+    const seen = new Set<string>();
+    const duplicateQuestionIds: string[] = [];
+    for (const r of responses) {
+      if (seen.has(r.question_id)) duplicateQuestionIds.push(r.question_id);
+      seen.add(r.question_id);
+    }
+    if (duplicateQuestionIds.length) {
       return NextResponse.json(
-        { error: "Invalid request body.", issues: err.issues },
+        { error: "Duplicate question ids in payload", duplicateQuestionIds },
         { status: 400 }
       );
     }
 
-    // Unique constraint fallback
-    if (err?.code === "P2002") {
-      return NextResponse.json(
-        { error: "Duplicate submission (unique constraint).", details: err.meta },
-        { status: 409 }
-      );
+    // ---------- Write responses + mark participant completed ----------
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.response.createMany({
+          data: responses.map((r) => ({
+            assessment_id,
+            participant_id,
+            question_id: r.question_id,
+            score: r.score,
+            free_write: r.free_write ?? null,
+          })),
+          skipDuplicates: true,
+        });
+
+        // ✅ Mark completion (idempotent).
+        // If they resubmit (duplicates skipped), we still want completed_at to be set.
+        await tx.participant.updateMany({
+          where: {
+            id: participant_id,
+            assessment_id,
+            completed_at: null,
+          },
+          data: {
+            completed_at: new Date(),
+          },
+        });
+      });
+    } catch (e: any) {
+      if (e?.code === "P2002") {
+        return NextResponse.json(
+          { error: "Duplicate response detected (already submitted for one or more questions)." },
+          { status: 409 }
+        );
+      }
+      throw e;
     }
 
-    console.error("POST /api/responses error:", err);
+    return NextResponse.json({ ok: true }, { status: 201 });
+  } catch (err: any) {
     return NextResponse.json(
-      { error: "Internal server error." },
+      { error: "Internal Server Error", message: err?.message ?? String(err) },
       { status: 500 }
     );
   }
