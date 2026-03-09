@@ -39,16 +39,30 @@ const LegacyPillarSchema = z.object({
     .max(500),
 });
 
+const LegacyPillarMapSchema = z.record(
+  z.string(),
+  z.array(
+    z.object({
+      question_text: z.string().min(1).max(8000),
+      display_order: z.number().int().min(1).max(100000).optional(),
+      weight: z.number().int().min(1).max(1000).optional(),
+      active: z.boolean().optional(),
+      audience: z.nativeEnum(Department).optional(),
+    })
+  )
+);
+
 const BodySchema = z
   .object({
     version: z.union([z.number().int().min(1).max(9999), z.string().min(1).max(50)]).optional(),
     questions: z.array(FlatQuestionSchema).min(1).max(500).optional(),
     pillars: z
-    .union([
-      z.array(LegacyPillarSchema).min(1).max(100),
-      LegacyPillarSchema,
-    ])
-    .optional(),
+  .union([
+    z.array(LegacyPillarSchema).min(1).max(100),
+    LegacyPillarSchema,
+    LegacyPillarMapSchema,
+  ])
+  .optional(),
     deactivateMissing: z.boolean().optional().default(false),
   })
   .strict()
@@ -100,11 +114,19 @@ const versionStr =
     : String(rawVersion).trim() || "1";
 
    
-      const legacyPillars = !parsed.data.pillars
-      ? []
-      : Array.isArray(parsed.data.pillars)
-        ? parsed.data.pillars
-        : [parsed.data.pillars];
+    const rawPillars = parsed.data.pillars;
+
+    const legacyPillars =
+      !rawPillars
+        ? []
+        : Array.isArray(rawPillars)
+          ? rawPillars
+          : "pillar" in rawPillars && "questions" in rawPillars
+            ? [rawPillars]
+            : Object.entries(rawPillars).map(([pillar, questions]) => ({
+                pillar,
+                questions,
+              }));
     
     const normalizedQuestions = Array.isArray(parsed.data.questions)
       ? parsed.data.questions
@@ -119,7 +141,7 @@ const versionStr =
             active: q.active ?? true,
             audience: q.audience ?? Department.ALL,
           }));
-        });
+        }); 
     // Upsert each question by your unique constraint:
     // @@unique([pillar, display_order, version, audience])
     const results = await prisma.$transaction(async (tx) => {
