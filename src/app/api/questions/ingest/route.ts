@@ -44,11 +44,11 @@ const BodySchema = z
     version: z.union([z.number().int().min(1).max(9999), z.string().min(1).max(50)]).optional(),
     questions: z.array(FlatQuestionSchema).min(1).max(500).optional(),
     pillars: z
-  .union([
-    z.array(LegacyPillarSchema).min(1).max(100),
-    LegacyPillarSchema,
-  ])
-  .optional(),
+    .union([
+      z.array(LegacyPillarSchema).min(1).max(100),
+      LegacyPillarSchema,
+    ])
+    .optional(),
     deactivateMissing: z.boolean().optional().default(false),
   })
   .strict()
@@ -99,26 +99,27 @@ const versionStr =
     ? String(rawVersion)
     : String(rawVersion).trim() || "1";
 
-    const legacyPillars = !parsed.data.pillars
-    ? []
-    : Array.isArray(parsed.data.pillars)
-      ? parsed.data.pillars
-      : [parsed.data.pillars];
-  
-  const normalizedQuestions = Array.isArray(parsed.data.questions)
-    ? parsed.data.questions
-    : legacyPillars.flatMap((pillarGroup) => {
-        const pillarValue = String(pillarGroup.pillar).trim().toUpperCase() as Pillar;
-  
-        return pillarGroup.questions.map((q, idx) => ({
-          pillar: pillarValue,
-          question_text: q.question_text,
-          display_order: q.display_order ?? idx + 1,
-          weight: q.weight ?? 1,
-          active: q.active ?? true,
-          audience: q.audience ?? Department.ALL,
-        }));
-      });
+   
+      const legacyPillars = !parsed.data.pillars
+      ? []
+      : Array.isArray(parsed.data.pillars)
+        ? parsed.data.pillars
+        : [parsed.data.pillars];
+    
+    const normalizedQuestions = Array.isArray(parsed.data.questions)
+      ? parsed.data.questions
+      : legacyPillars.flatMap((pillarGroup) => {
+          const pillarValue = String(pillarGroup.pillar).trim().toUpperCase() as Pillar;
+    
+          return pillarGroup.questions.map((q, idx) => ({
+            pillar: pillarValue,
+            question_text: q.question_text,
+            display_order: q.display_order ?? idx + 1,
+            weight: q.weight ?? 1,
+            active: q.active ?? true,
+            audience: q.audience ?? Department.ALL,
+          }));
+        });
     // Upsert each question by your unique constraint:
     // @@unique([pillar, display_order, version, audience])
     const results = await prisma.$transaction(async (tx) => {
