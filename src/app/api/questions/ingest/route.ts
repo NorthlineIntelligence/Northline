@@ -99,7 +99,17 @@ export async function POST(req: NextRequest) {
     const parsed = BodySchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json(
-        { ok: false, error: "Invalid body", issues: parsed.error.issues },
+        {
+          ok: false,
+          error: "Invalid body",
+          issues: parsed.error.issues,
+          receivedType: typeof json,
+          receivedKeys:
+            json && typeof json === "object" && !Array.isArray(json)
+              ? Object.keys(json)
+              : [],
+          receivedBody: json,
+        },
         { status: 400 }
       );
     }
