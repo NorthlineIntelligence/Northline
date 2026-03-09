@@ -67,9 +67,15 @@ const BodySchema = z
   })
   .strict()
   .superRefine((val, ctx) => {
-    const hasQuestions = Array.isArray(val.questions);
-    const hasPillars = Array.isArray(val.pillars);
-
+    const hasQuestions = Array.isArray(val.questions) && val.questions.length > 0;
+    const hasPillars =
+      val.pillars !== undefined &&
+      val.pillars !== null &&
+      (
+        (Array.isArray(val.pillars) && val.pillars.length > 0) ||
+        (!Array.isArray(val.pillars) && typeof val.pillars === "object")
+      );
+  
     if (!hasQuestions && !hasPillars) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -77,7 +83,7 @@ const BodySchema = z
         message: 'Provide either "questions" or "pillars".',
       });
     }
-
+  
     if (hasQuestions && hasPillars) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
