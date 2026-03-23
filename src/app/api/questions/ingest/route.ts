@@ -2,7 +2,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { isAdminEmail } from "@/lib/admin";
 import { requireAdmin } from "@/lib/authz";
 import { Pillar, Department } from "@prisma/client";
 
@@ -10,8 +9,10 @@ import { Pillar, Department } from "@prisma/client";
  * Ingest/update questions (admin only).
  *
  * Notes:
- * - uses your Prisma Question model: pillar, question_text, display_order, weight, active, version, audience
- * - upserts by the unique constraint: [pillar, display_order, version, audience]
+ * - uses Prisma Question model: pillar, question_text, display_order, weight, active, version, audience
+ * - upserts by unique constraint: [pillar, display_order, version, audience]
+ * - validates duplicate keys inside the same payload before writing
+ * - makes audience explicit so department-specific variants do not accidentally become ALL
  */
 
 const FlatQuestionSchema = z.object({
@@ -19,6 +20,7 @@ const FlatQuestionSchema = z.object({
   question_text: z.string().min(1).max(8000),
   display_order: z.number().int().min(1).max(100000),
   weight: z.number().int().min(1).max(1000).optional().default(1),
+  version: z.union([z.number().int().min(1).max(9999), z.string().min(1).max(50)]).optional(),
   active: z.boolean().optional().default(true),
   audience: z.nativeEnum(Department).optional().default(Department.ALL),
 });
@@ -57,12 +59,12 @@ const BodySchema = z
     version: z.union([z.number().int().min(1).max(9999), z.string().min(1).max(50)]).optional(),
     questions: z.array(FlatQuestionSchema).min(1).max(500).optional(),
     pillars: z
-  .union([
-    z.array(LegacyPillarSchema).min(1).max(100),
-    LegacyPillarSchema,
-    LegacyPillarMapSchema,
-  ])
-  .optional(),
+      .union([
+        z.array(LegacyPillarSchema).min(1).max(100),
+        LegacyPillarSchema,
+        LegacyPillarMapSchema,
+      ])
+      .optional(),
     deactivateMissing: z.boolean().optional().default(false),
   })
   .strict()
@@ -71,11 +73,9 @@ const BodySchema = z
     const hasPillars =
       val.pillars !== undefined &&
       val.pillars !== null &&
-      (
-        (Array.isArray(val.pillars) && val.pillars.length > 0) ||
-        (!Array.isArray(val.pillars) && typeof val.pillars === "object")
-      );
-  
+      ((Array.isArray(val.pillars) && val.pillars.length > 0) ||
+        (!Array.isArray(val.pillars) && typeof val.pillars === "object"));
+
     if (!hasQuestions && !hasPillars) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -83,7 +83,7 @@ const BodySchema = z
         message: 'Provide either "questions" or "pillars".',
       });
     }
-  
+
     if (hasQuestions && hasPillars) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -93,9 +93,41 @@ const BodySchema = z
     }
   });
 
+function normalizeVersion(value: string | number | undefined) {
+  const raw = value ?? 1;
+  return typeof raw === "number" ? String(raw) : String(raw).trim() || "1";
+}
+
+function normalizeQuestionText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function validateDuplicateKeys(
+  questions: Array<{
+    pillar: Pillar;
+    display_order: number;
+    audience: Department;
+    question_text: string;
+  }>
+) {
+  const seen = new Map<string, string>();
+
+  for (const q of questions) {
+    const key = `${q.pillar}::${q.audience}::${q.display_order}`;
+    const prior = seen.get(key);
+
+    if (prior) {
+      throw new Error(
+        `Duplicate question key in ingest payload for pillar=${q.pillar}, audience=${q.audience}, display_order=${q.display_order}. Existing="${prior}" New="${q.question_text}"`
+      );
+    }
+
+    seen.set(key, q.question_text);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    // ✅ Admin gate (your requireAdmin takes ZERO args and returns { user, email })
     const admin = await requireAdmin();
     if (!admin.user) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -103,6 +135,7 @@ export async function POST(req: NextRequest) {
 
     const json = await req.json().catch(() => null);
     const parsed = BodySchema.safeParse(json);
+
     if (!parsed.success) {
       return NextResponse.json(
         {
@@ -121,54 +154,57 @@ export async function POST(req: NextRequest) {
     }
 
     const { deactivateMissing } = parsed.data;
-
-const rawVersion = parsed.data.version ?? 1;
-
-const versionStr =
-  typeof rawVersion === "number"
-    ? String(rawVersion)
-    : String(rawVersion).trim() || "1";
-
-   
+    const defaultVersion = normalizeVersion(parsed.data.version);
     const rawPillars = parsed.data.pillars;
 
     const legacyPillars =
       !rawPillars
         ? []
         : Array.isArray(rawPillars)
-          ? rawPillars
-          : "pillar" in rawPillars && "questions" in rawPillars
-            ? [rawPillars]
-            : Object.entries(rawPillars).map(([pillar, questions]) => ({
-                pillar,
-                questions,
-              }));
-    
+        ? rawPillars
+        : "pillar" in rawPillars && "questions" in rawPillars
+        ? [rawPillars]
+        : Object.entries(rawPillars).map(([pillar, questions]) => ({
+            pillar,
+            questions,
+          }));
+
     const normalizedQuestions = Array.isArray(parsed.data.questions)
-      ? parsed.data.questions
+      ? parsed.data.questions.map((q) => ({
+          pillar: q.pillar,
+          question_text: normalizeQuestionText(q.question_text),
+          display_order: q.display_order,
+          weight: q.weight ?? 1,
+          active: q.active ?? true,
+          audience: q.audience ?? Department.ALL,
+          version: normalizeVersion(q.version ?? defaultVersion),
+        }))
       : legacyPillars.flatMap((pillarGroup) => {
           const pillarValue = String(pillarGroup.pillar).trim().toUpperCase() as Pillar;
-    
+
           return pillarGroup.questions.map((q, idx) => ({
             pillar: pillarValue,
-            question_text: q.question_text,
+            question_text: normalizeQuestionText(q.question_text),
             display_order: q.display_order ?? idx + 1,
             weight: q.weight ?? 1,
             active: q.active ?? true,
             audience: q.audience ?? Department.ALL,
+            version: defaultVersion,
           }));
-        }); 
-    // Upsert each question by your unique constraint:
-    // @@unique([pillar, display_order, version, audience])
+        });
+
+    validateDuplicateKeys(normalizedQuestions);
+
     const results = await prisma.$transaction(async (tx) => {
       const upserted = [];
+
       for (const q of normalizedQuestions) {
         const row = await tx.question.upsert({
           where: {
             pillar_display_order_version_audience: {
               pillar: q.pillar,
               display_order: q.display_order,
-              version: versionStr,
+              version: q.version,
               audience: q.audience,
             },
           },
@@ -176,41 +212,54 @@ const versionStr =
             pillar: q.pillar,
             question_text: q.question_text,
             display_order: q.display_order,
-            weight: q.weight ?? 1,
-            active: q.active ?? true,
-            version: versionStr,
+            weight: q.weight,
+            active: q.active,
+            version: q.version,
             audience: q.audience,
           },
           update: {
             question_text: q.question_text,
-            weight: q.weight ?? 1,
-            active: q.active ?? true,
+            weight: q.weight,
+            active: q.active,
           },
         });
+
         upserted.push(row);
       }
 
-      // Optional: deactivate missing questions (same version, only for pillars/audiences included)
       let deactivatedCount = 0;
-      if (deactivateMissing) {
-        const touchedPillars = Array.from(new Set(normalizedQuestions.map((q) => q.pillar)));
-const touchedAudiences = Array.from(new Set(normalizedQuestions.map((q) => q.audience)));
 
-const keepKeys = new Set(
-  normalizedQuestions.map((q) => `${q.pillar}::${q.audience}::${q.display_order}`)
-);
+      if (deactivateMissing) {
+        const touchedVersions = Array.from(new Set(normalizedQuestions.map((q) => q.version)));
+        const touchedPillars = Array.from(new Set(normalizedQuestions.map((q) => q.pillar)));
+        const touchedAudiences = Array.from(new Set(normalizedQuestions.map((q) => q.audience)));
+
+        const keepKeys = new Set(
+          normalizedQuestions.map(
+            (q) => `${q.version}::${q.pillar}::${q.audience}::${q.display_order}`
+          )
+        );
 
         const existing = await tx.question.findMany({
           where: {
-            version: versionStr,
+            version: { in: touchedVersions },
             pillar: { in: touchedPillars },
             audience: { in: touchedAudiences },
           },
-          select: { id: true, pillar: true, audience: true, display_order: true },
+          select: {
+            id: true,
+            version: true,
+            pillar: true,
+            audience: true,
+            display_order: true,
+          },
         });
 
         const idsToDeactivate = existing
-          .filter((e) => !keepKeys.has(`${e.pillar}::${e.audience}::${e.display_order}`))
+          .filter(
+            (e) =>
+              !keepKeys.has(`${e.version}::${e.pillar}::${e.audience}::${e.display_order}`)
+          )
           .map((e) => e.id);
 
         if (idsToDeactivate.length > 0) {
@@ -226,13 +275,23 @@ const keepKeys = new Set(
     });
 
     return NextResponse.json(
-      { ok: true, version: versionStr, normalizedQuestionCount: normalizedQuestions.length, ...results },
+      {
+        ok: true,
+        version: defaultVersion,
+        normalizedQuestionCount: normalizedQuestions.length,
+        ...results,
+      },
       { status: 200 }
     );
   } catch (err: any) {
     console.error("POST /api/questions/ingest error:", err);
+
     return NextResponse.json(
-      { ok: false, error: "Internal server error", message: err?.message ?? String(err) },
+      {
+        ok: false,
+        error: "Internal server error",
+        message: err?.message ?? String(err),
+      },
       { status: 500 }
     );
   }
