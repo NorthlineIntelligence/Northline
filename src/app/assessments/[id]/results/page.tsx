@@ -76,6 +76,14 @@ function getAt(obj: any, path: (string | number)[]) {
   return cur;
 }
 
+function radarRowsFromPayload(payload: any): any[] {
+  const r = getAt(payload, ["reporting", "radar"]);
+  if (Array.isArray(r)) return r;
+  if (r && typeof r === "object" && Array.isArray((r as any).pillars)) return (r as any).pillars;
+  if (r && typeof r === "object" && Array.isArray((r as any).data)) return (r as any).data;
+  return [];
+}
+
 function extractReadinessIndex(payload: any): number | null {
   const v = getAt(payload, ["aggregate", "overall", "weightedAverage"]);
   return typeof v === "number" ? v : null;
@@ -100,21 +108,20 @@ function buildRadarData(payload: any): RadarPoint[] {
     };
   };
 
-  const serverRadar = getAt(payload, ["reporting", "radar"]);
+  const serverRadar = radarRowsFromPayload(payload);
   const byKey = new Map<string, any>();
 
-  if (Array.isArray(serverRadar)) {
-    for (const r of serverRadar) {
-      const k = String(r?.key ?? r?.label ?? "");
-      if (k) byKey.set(k, r);
-    }
+  for (const r of serverRadar) {
+    const k = String(r?.key ?? r?.label ?? "");
+    if (k) byKey.set(k, r);
   }
 
   // Always return all 4 pillars
   return PILLAR_KEYS.map((k) => {
     const r = byKey.get(k);
 
-    const valueFromRadar = typeof r?.value === "number" ? r.value : null;
+    const rawRadar = r?.value ?? r?.score;
+    const valueFromRadar = typeof rawRadar === "number" ? rawRadar : null;
     const valueFromAggregate = extractPillarScore(payload, k);
 
     const value =

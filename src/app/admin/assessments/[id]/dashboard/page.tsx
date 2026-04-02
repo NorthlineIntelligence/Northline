@@ -148,7 +148,13 @@ export default async function AdminAssessmentDashboardPage(props: {
   const results = await buildAssessmentResultsPayload({ assessmentId });
   const resultsBody = results.ok ? results.body : null;
 
-  const overallScore = resultsBody?.aggregate?.overall ?? null;
+  const overallNode = resultsBody?.aggregate?.overall;
+  const overallScore =
+    typeof overallNode === "number"
+      ? overallNode
+      : overallNode && typeof overallNode === "object"
+        ? (overallNode as { weightedAverage?: number | null }).weightedAverage ?? null
+        : null;
   const overallBand = scoreBand(overallScore);
 
   const pillarRows = resultsBody?.aggregate?.pillars
