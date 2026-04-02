@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-type PillarKey = string;
+// remove this line if unused
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -92,6 +92,7 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
       organization: {
         select: {
           id: true,
+          name: true,
           industry: true,
           website: true,
           context_notes: true,
@@ -140,34 +141,58 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
    * -------------------------------
    */
 
-  const pillarScores: Record<string, number[]> = {};
+  const pillarScores: Record<string, { score: number; weight: number }[]> = {};
 
-  for (const r of responses) {
-    const q = questions.find((q) => q.id === r.question_id);
-    if (!q) continue;
+for (const r of responses) {
+  const q = questions.find((q) => q.id === r.question_id);
+  if (!q) continue;
 
-    const pillar = String(q.pillar);
+  const pillar = String(q.pillar);
+  const score = safeNumber(r.score);
+  if (score === null) continue;
 
-    if (!pillarScores[pillar]) pillarScores[pillar] = [];
-    pillarScores[pillar].push(r.score);
+  const weight = typeof q.weight === "number" && q.weight > 0 ? q.weight : 1;
+
+  if (!pillarScores[pillar]) pillarScores[pillar] = [];
+  pillarScores[pillar].push({ score, weight });
+}
+
+const expectedPillars = [
+  "System Integrity",
+  "Human Alignment",
+  "Strategic Coherence",
+  "Sustainability Practice",
+];
+
+const pillars: Record<string, { weightedAverage: number | null }> = {};
+
+for (const pillar of expectedPillars) {
+  const entries = pillarScores[pillar] ?? [];
+
+  if (!entries.length) {
+    pillars[pillar] = { weightedAverage: null };
+    continue;
   }
 
-  const pillars: Record<string, { weightedAverage: number | null }> = {};
+  const totalWeight = entries.reduce((sum, entry) => sum + entry.weight, 0);
+  const weightedSum = entries.reduce(
+    (sum, entry) => sum + entry.score * entry.weight,
+    0
+  );
 
-  for (const [pillar, scores] of Object.entries(pillarScores)) {
-    if (!scores.length) {
-      pillars[pillar] = { weightedAverage: null };
-    } else {
-      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-      pillars[pillar] = { weightedAverage: round2(avg) };
-    }
-  }
+  pillars[pillar] = {
+    weightedAverage: totalWeight > 0 ? round2(weightedSum / totalWeight) : null,
+  };
+}
 
-  const allScores = Object.values(pillarScores).flat();
-  const overall =
-    allScores.length > 0
-      ? round2(allScores.reduce((a, b) => a + b, 0) / allScores.length)
-      : null;
+const allEntries = Object.values(pillarScores).flat();
+const overall =
+  allEntries.length > 0
+    ? round2(
+        allEntries.reduce((sum, entry) => sum + entry.score * entry.weight, 0) /
+          allEntries.reduce((sum, entry) => sum + entry.weight, 0)
+      )
+    : null;
 
   /**
    * -------------------------------
@@ -182,24 +207,24 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
   });
 
   const freeTextResponses = responses
-    .map((r) => {
-      const q = questions.find((q) => q.id === r.question_id);
-      const text = normalizeText(r.free_write);
-      if (!q || !text) return null;
+  .map((r) => {
+    const q = questions.find((q) => q.id === r.question_id);
+    const text = normalizeText(r.free_write);
+    if (!q || !text) return null;
 
-      return {
-        question: q.question_text,
-        pillar: q.pillar,
-        answer: text,
-        role: r.Participant.role,
-        seniority: r.Participant.seniority_level,
-      };
-    })
-    .filter(Boolean);
+    return {
+      question: q.question_text,
+      pillar: String(q.pillar),
+      answer: text,
+      role: r.Participant.role,
+      seniority: r.Participant.seniority_level,
+    };
+  })
+  .filter((value) => value !== null);
 
-  const participantNotes = responses
-    .map((r) => normalizeText(r.Participant.ai_opportunities_notes))
-    .filter(Boolean);
+const participantNotes = responses
+  .map((r) => normalizeText(r.Participant.ai_opportunities_notes))
+  .filter((value): value is string => value !== null);
 
   /**
    * -------------------------------
@@ -207,40 +232,74 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
    * -------------------------------
    */
 
-  return {
-    ok: true,
-    status: 200,
-    body: {
-      assessment: {
-        id: assessment.id,
-        name: assessment.name,
-        organization_id: assessment.organization_id,
-        type: assessment.type,
-        status: assessment.status,
-        created_at: assessment.created_at,
+  const readinessIndex = overall;
+const readinessClassification = classifyScore(readinessIndex);
+
+const pillarEntries = Object.entries(pillars).map(([pillar, value]) => ({
+  pillar,
+  score: value.weightedAverage,
+  classification: classifyScore(value.weightedAverage),
+}));
+
+const weakestPillars = pillarEntries
+  .filter((p): p is typeof p & { score: number } => p.score !== null)
+  .sort((a, b) => a.score - b.score);
+
+  const riskSignalsBase = weakestPillars
+  .filter((p) => (p.score ?? 999) <= 2.9)
+  .slice(0, 3);
+
+const riskSignalsSource =
+  riskSignalsBase.length > 0 ? riskSignalsBase : weakestPillars.slice(0, 2);
+
+  const riskSignals = riskSignalsSource.map((p) => ({
+    pillar: p.pillar,
+    score: p.score,
+    severity: (p.score ?? 999) <= 2.3 ? "high" : "moderate",
+    summary: `${p.pillar} is below the target readiness threshold and may limit early AI execution.`,
+    implication: `Projects may stall or underperform unless ${p.pillar.toLowerCase()} is strengthened during planning and rollout.`,
+  }));
+
+return {
+  ok: true,
+  status: 200,
+  body: {
+    assessment: {
+      id: assessment.id,
+      name: assessment.name,
+      organization_id: assessment.organization_id,
+      organization_name: assessment.organization?.name ?? null,
+      type: assessment.type,
+      status: assessment.status,
+      created_at: assessment.created_at,
+    },
+    aggregate: {
+      overall,
+      readinessIndex,
+      readinessBand: readinessClassification.band,
+      readinessKey: readinessClassification.key,
+      pillars,
+      pillarEntries,
+    },
+    riskSignals,
+    narrativeContext: {
+      reference: {
+        companyDescriptor,
+        namingPolicy: "DO NOT USE COMPANY NAME",
       },
-      aggregate: {
-        overall,
-        pillars,
+      businessContext: {
+        industry: assessment.organization?.industry,
+        contextNotes: assessment.organization?.context_notes,
+        website: assessment.organization?.website,
+        primaryPressures: assessment.organization?.primary_pressures,
+        growthStage: assessment.organization?.growth_stage,
+        size: assessment.organization?.size,
       },
-      narrativeContext: {
-        reference: {
-          companyDescriptor,
-          namingPolicy: "DO NOT USE COMPANY NAME",
-        },
-        businessContext: {
-          industry: assessment.organization?.industry,
-          contextNotes: assessment.organization?.context_notes,
-          website: assessment.organization?.website,
-          primaryPressures: assessment.organization?.primary_pressures,
-          growthStage: assessment.organization?.growth_stage,
-          size: assessment.organization?.size,
-        },
-        evidence: {
-          freeTextResponses,
-          participantNotes,
-        },
+      evidence: {
+        freeTextResponses,
+        participantNotes,
       },
     },
-  };
+  },
+};
 }
