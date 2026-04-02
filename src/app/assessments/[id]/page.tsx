@@ -2,6 +2,19 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Montserrat, Open_Sans } from "next/font/google";
+
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  weight: ["600", "700", "800", "900"],
+  display: "swap",
+});
+
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
 
 type Pillar =
   | "SYSTEM_INTEGRITY"
@@ -72,16 +85,64 @@ const LIKERT: Array<{ value: 1 | 2 | 3 | 4 | 5; label: string }> = [
   { value: 5, label: "Strongly Agree" },
 ];
 
+/** Northline Intelligence brand (aligned with official guide) */
 const BRAND = {
   dark: "#173464",
   cyan: "#34b0b4",
   greyBlue: "#66819e",
-  bg: "#F6F8FC",
+  lightAzure: "#cdd8df",
+  lightBlue: "#fcfcfe",
+  bg: "#fcfcfe",
   card: "#FFFFFF",
   border: "#E6EAF2",
   text: "#0B1220",
   muted: "#4B5565",
+  surfaceMuted: "#f3f6fb",
 };
+
+function BrandWordmark() {
+  return (
+    <div aria-label="Northline Intelligence" style={{ lineHeight: 1.2 }}>
+      <div
+        style={{
+          fontFamily: montserrat.style.fontFamily,
+          fontWeight: 800,
+          fontSize: 11,
+          letterSpacing: "0.12em",
+          color: BRAND.dark,
+          textTransform: "uppercase",
+        }}
+      >
+        Northline
+      </div>
+      <div
+        style={{
+          fontFamily: openSans.style.fontFamily,
+          fontWeight: 700,
+          fontSize: 9,
+          letterSpacing: "0.2em",
+          color: BRAND.greyBlue,
+          textTransform: "uppercase",
+          marginTop: 3,
+        }}
+      >
+        Intelligence
+      </div>
+    </div>
+  );
+}
+
+const shellBackground = `radial-gradient(ellipse 100% 80% at 100% -10%, rgba(52, 176, 180, 0.11) 0%, transparent 55%),
+  radial-gradient(ellipse 80% 60% at -5% 100%, rgba(23, 52, 100, 0.08) 0%, transparent 48%),
+  ${BRAND.lightBlue}`;
+
+const glassCard = {
+  background: "rgba(255, 255, 255, 0.9)",
+  backdropFilter: "saturate(160%) blur(14px)",
+  WebkitBackdropFilter: "saturate(160%) blur(14px)",
+  border: `1px solid rgba(205, 216, 223, 0.65)`,
+  boxShadow: "0 4px 28px rgba(23, 52, 100, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)",
+} as const;
 
 function RadarChart({
   data,
@@ -122,7 +183,7 @@ function RadarChart({
             key={level}
             points={gridPoints.map((p) => `${p.x},${p.y}`).join(" ")}
             fill="none"
-            stroke="#E6EAF2"
+            stroke="#cdd8df"
             strokeWidth="1"
           />
         );
@@ -431,30 +492,77 @@ export default function AssessmentTakePage() {
 
   if (loading) {
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: BRAND.bg,
-          padding: 32,
-          fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
-          color: BRAND.text,
-        }}
-      >
-        <div
+      <>
+        <style>{`
+          @keyframes nl-pulse {
+            0%, 100% { opacity: 0.45; }
+            50% { opacity: 1; }
+          }
+        `}</style>
+        <main
           style={{
-            maxWidth: 980,
-            margin: "0 auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
+            minHeight: "100vh",
+            background: shellBackground,
+            padding: "clamp(20px, 4vw, 40px)",
+            fontFamily: openSans.style.fontFamily,
+            color: BRAND.text,
           }}
         >
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>Northline AI Readiness</div>
-          <div style={{ color: BRAND.muted, marginTop: 6 }}>Loading assessment…</div>
-        </div>
-      </main>
+          <div
+            style={{
+              maxWidth: 980,
+              margin: "0 auto",
+              borderRadius: 20,
+              padding: 28,
+              ...glassCard,
+            }}
+          >
+            <BrandWordmark />
+            <div
+              style={{
+                marginTop: 16,
+                fontFamily: montserrat.style.fontFamily,
+                fontSize: 20,
+                fontWeight: 800,
+                color: BRAND.dark,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              AI Readiness Diagnostic
+            </div>
+            <div
+              style={{
+                marginTop: 12,
+                color: BRAND.greyBlue,
+                fontWeight: 600,
+                fontSize: 14,
+                animation: "nl-pulse 1.4s ease-in-out infinite",
+              }}
+            >
+              Preparing your assessment…
+            </div>
+            <div
+              style={{
+                marginTop: 20,
+                height: 3,
+                borderRadius: 999,
+                background: BRAND.lightAzure,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: "38%",
+                  height: "100%",
+                  background: `linear-gradient(90deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                  borderRadius: 999,
+                  animation: "nl-pulse 1.1s ease-in-out infinite",
+                }}
+              />
+            </div>
+          </div>
+        </main>
+      </>
     );
   }
 
@@ -463,9 +571,9 @@ export default function AssessmentTakePage() {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
-          padding: 32,
-          fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
           color: BRAND.text,
         }}
       >
@@ -473,16 +581,38 @@ export default function AssessmentTakePage() {
           style={{
             maxWidth: 980,
             margin: "0 auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
+            borderRadius: 20,
+            padding: 28,
+            ...glassCard,
           }}
         >
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>Northline AI Readiness</div>
-          <div style={{ marginTop: 12, color: "#b42318", fontWeight: 700 }}>{loadError}</div>
-          <div style={{ marginTop: 10, color: BRAND.muted }}>
+          <BrandWordmark />
+          <div
+            style={{
+              marginTop: 14,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 20,
+              fontWeight: 800,
+              color: BRAND.dark,
+            }}
+          >
+            AI Readiness Diagnostic
+          </div>
+          <div
+            style={{
+              marginTop: 16,
+              padding: 16,
+            borderRadius: 14,
+            background: "#FFF5F5",
+            border: "1px solid #FECACA",
+            color: "#991B1B",
+            fontWeight: 600,
+            lineHeight: 1.5,
+            }}
+          >
+            {loadError}
+          </div>
+          <div style={{ marginTop: 14, color: BRAND.greyBlue, fontSize: 14, fontWeight: 500, lineHeight: 1.45 }}>
             If this is a dev environment, we’ll add an end-user login UI next.
           </div>
         </div>
@@ -491,119 +621,161 @@ export default function AssessmentTakePage() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: BRAND.bg,
-        padding: 32,
-        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
-        color: BRAND.text,
-      }}
-    >
+    <>
+      <style>{`
+        .nl-assess-focus:focus {
+          outline: none;
+          border-color: ${BRAND.cyan} !important;
+          box-shadow: 0 0 0 3px rgba(52, 176, 180, 0.28);
+        }
+      `}</style>
+      <main
+        style={{
+          minHeight: "100vh",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
+          color: BRAND.text,
+        }}
+      >
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
         {/* Header card */}
         <div
           style={{
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 20,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
+            ...glassCard,
+            borderRadius: 20,
+            padding: "22px 24px",
             position: "sticky",
-            top: 16,
-            zIndex: 10,
+            top: 14,
+            zIndex: 20,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 18, flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 280px" }}>
-              <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>Northline AI Readiness</div>
+              <BrandWordmark />
+              <div
+                style={{
+                  marginTop: 12,
+                  fontFamily: montserrat.style.fontFamily,
+                  fontSize: "clamp(1.15rem, 2.5vw, 1.45rem)",
+                  fontWeight: 800,
+                  color: BRAND.dark,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1.2,
+                }}
+              >
+                AI Readiness Diagnostic
+              </div>
 
-              <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <span
                   style={{
                     fontSize: 12,
-                    fontWeight: 800,
+                    fontWeight: 700,
                     color: BRAND.dark,
-                    background: "#F3F4F6",
-                    border: `1px solid ${BRAND.border}`,
-                    padding: "4px 10px",
+                    background: BRAND.surfaceMuted,
+                    border: `1px solid ${BRAND.lightAzure}`,
+                    padding: "6px 12px",
                     borderRadius: 999,
+                    letterSpacing: "0.02em",
                   }}
                 >
-                  {assessmentMeta?.organization?.name ?? "Org Name Unavailable"}
+                  {assessmentMeta?.organization?.name ?? "Organization"}
                 </span>
               </div>
 
-              <div style={{ marginTop: 6, color: BRAND.muted }}>
+              <div style={{ marginTop: 10, color: BRAND.greyBlue, fontSize: 14, fontWeight: 500, lineHeight: 1.45 }}>
                 Answer honestly. This is diagnostic, not performative.
               </div>
 
-              {/* Helpful: show if invite auth is missing */}
               {!inviteEmail || !inviteToken ? (
-                <div style={{ marginTop: 8, color: "#b42318", fontWeight: 800, fontSize: 12 }}>
+                <div
+                  style={{
+                    marginTop: 10,
+                    color: "#b42318",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                  }}
+                >
                   This page is missing your invite email/token. Ask your admin to resend the invite link.
                 </div>
               ) : null}
             </div>
 
-            <div style={{ minWidth: 240 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", color: BRAND.muted, fontSize: 13 }}>
+            <div style={{ minWidth: 220, flex: "1 1 200px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  color: BRAND.greyBlue,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                }}
+              >
                 <span>Progress</span>
-                <span>
-                  {answeredCount}/{allQuestionsFlat.length} ({completionPct}%)
+                <span style={{ color: BRAND.dark }}>
+                  {answeredCount}/{allQuestionsFlat.length} · {completionPct}%
                 </span>
               </div>
               <div
                 style={{
-                  height: 10,
+                  height: 8,
                   borderRadius: 999,
-                  background: "#E9EEF7",
+                  background: BRAND.lightAzure,
                   overflow: "hidden",
-                  marginTop: 6,
+                  marginTop: 8,
                 }}
               >
                 <div
                   style={{
                     width: `${completionPct}%`,
                     height: "100%",
-                    background: BRAND.cyan,
+                    background: `linear-gradient(90deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                    borderRadius: 999,
+                    transition: "width 280ms ease-out",
                   }}
                 />
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", alignSelf: "center" }}>
               <button
+                type="button"
                 onClick={submit}
                 disabled={submitting}
                 style={{
-                  background: submitting ? "#98a2b3" : BRAND.dark,
-                  color: "white",
+                  background: submitting ? BRAND.lightAzure : BRAND.dark,
+                  color: submitting ? BRAND.greyBlue : "#fff",
                   border: "none",
-                  padding: "10px 14px",
-                  borderRadius: 12,
+                  padding: "12px 22px",
+                  borderRadius: 14,
                   fontWeight: 800,
+                  fontSize: 14,
+                  letterSpacing: "0.03em",
                   cursor: submitting ? "not-allowed" : "pointer",
+                  boxShadow: submitting ? "none" : "0 6px 20px rgba(23, 52, 100, 0.22)",
+                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
                 }}
               >
-                {submitting ? "Submitting…" : "Submit"}
+                {submitting ? "Submitting…" : "Submit assessment"}
               </button>
-
-              
-              
             </div>
           </div>
 
           {submitResult && (
             <div
               style={{
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 12,
-                border: `1px solid ${BRAND.border}`,
-                background: "#F9FAFB",
+                marginTop: 14,
+                padding: 14,
+                borderRadius: 14,
+                border: `1px solid ${BRAND.lightAzure}`,
+                background: BRAND.surfaceMuted,
                 color: BRAND.text,
                 fontWeight: 600,
+                lineHeight: 1.5,
               }}
             >
               {submitResult}
@@ -612,7 +784,7 @@ export default function AssessmentTakePage() {
         </div>
 
         {/* Questions */}
-        <div style={{ marginTop: 18, display: "grid", gap: 18 }}>
+        <div style={{ marginTop: 24, display: "grid", gap: 22 }}>
           {questions &&
             pillarsOrder.map((pillar) => {
               const qs = questions.pillars[pillar] ?? [];
@@ -622,13 +794,28 @@ export default function AssessmentTakePage() {
                 <section
                   key={pillar}
                   style={{
+                    position: "relative",
                     background: BRAND.card,
-                    border: `1px solid ${BRAND.border}`,
-                    borderRadius: 16,
-                    padding: 20,
-                    boxShadow: "0 8px 30px rgba(15, 23, 42, 0.04)",
+                    border: `1px solid rgba(205, 216, 223, 0.55)`,
+                    borderRadius: 20,
+                    padding: "24px 24px 24px 22px",
+                    boxShadow: "0 6px 32px rgba(23, 52, 100, 0.055)",
+                    overflow: "hidden",
                   }}
                 >
+                  <div
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 4,
+                      background: `linear-gradient(180deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                      opacity: 0.95,
+                      borderRadius: "20px 0 0 20px",
+                    }}
+                  />
                   <div
                     style={{
                       display: "flex",
@@ -636,18 +823,35 @@ export default function AssessmentTakePage() {
                       justifyContent: "space-between",
                       gap: 12,
                       flexWrap: "wrap",
-                      marginBottom: 12,
+                      marginBottom: 18,
                     }}
                   >
-                    <h2 style={{ margin: 0, color: BRAND.dark, fontSize: 18, fontWeight: 900 }}>
+                    <h2
+                      style={{
+                        margin: 0,
+                        color: BRAND.dark,
+                        fontSize: 17,
+                        fontWeight: 800,
+                        fontFamily: montserrat.style.fontFamily,
+                        letterSpacing: "-0.02em",
+                      }}
+                    >
                       {prettyPillar(pillar)}
                     </h2>
-                    <div style={{ color: BRAND.muted, fontSize: 13 }}>
-                      {qs.length} question{qs.length === 1 ? "" : "s"}
+                    <div
+                      style={{
+                        color: BRAND.greyBlue,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {qs.length} item{qs.length === 1 ? "" : "s"}
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 16 }}>
+                  <div style={{ display: "grid", gap: 18 }}>
                     {qs.map((q) => {
                       const selected = scores[q.id] ?? null;
 
@@ -655,34 +859,48 @@ export default function AssessmentTakePage() {
                         <div
                           key={q.id}
                           style={{
-                            border: `1px solid ${BRAND.border}`,
-                            borderRadius: 14,
-                            padding: 18,
-                            background: "#FFFFFF",
+                            border: `1px solid ${BRAND.lightAzure}`,
+                            borderRadius: 16,
+                            padding: "20px 18px",
+                            background: BRAND.lightBlue,
                           }}
                         >
-                          {/* Centered question */}
                           <div
                             style={{
                               textAlign: "center",
                               color: BRAND.dark,
-                              fontWeight: 900,
+                              fontWeight: 700,
                               fontSize: 16,
-                              lineHeight: 1.35,
-                              marginBottom: 14,
+                              lineHeight: 1.45,
+                              marginBottom: 16,
+                              maxWidth: 720,
+                              marginLeft: "auto",
+                              marginRight: "auto",
                             }}
                           >
-                            {q.display_order}. {q.question_text}
+                            <span
+                              style={{
+                                display: "inline-block",
+                                marginRight: 8,
+                                fontFamily: montserrat.style.fontFamily,
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: BRAND.cyan,
+                                verticalAlign: "middle",
+                              }}
+                            >
+                              {q.display_order}
+                            </span>
+                            {q.question_text}
                           </div>
 
-                          {/* Likert scale */}
                           <div
                             style={{
                               display: "grid",
                               gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                              gap: 12,
+                              gap: 10,
                               alignItems: "start",
-                              maxWidth: 780,
+                              maxWidth: 800,
                               margin: "0 auto",
                             }}
                           >
@@ -690,15 +908,20 @@ export default function AssessmentTakePage() {
                               const isSelected = selected === opt.value;
                               const isHover = hover?.qid === q.id && hover?.value === opt.value;
 
-                              const bg = isSelected ? BRAND.cyan : isHover ? "#EAF3FF" : "#FFFFFF";
+                              const bg = isSelected
+                                ? BRAND.cyan
+                                : isHover
+                                  ? "rgba(52, 176, 180, 0.12)"
+                                  : BRAND.card;
 
-                              const border = isSelected ? BRAND.cyan : isHover ? BRAND.dark : "#D7DEEA";
+                              const border = isSelected ? BRAND.dark : isHover ? BRAND.cyan : BRAND.lightAzure;
 
                               const numColor = BRAND.dark;
-                              const labelColor = isSelected ? BRAND.dark : BRAND.muted;
+                              const labelColor = isSelected ? BRAND.dark : BRAND.greyBlue;
 
                               return (
                                 <button
+                                  type="button"
                                   key={opt.value}
                                   onClick={() => setScores((prev) => ({ ...prev, [q.id]: opt.value }))}
                                   onMouseEnter={() => setHover({ qid: q.id, value: opt.value })}
@@ -706,22 +929,27 @@ export default function AssessmentTakePage() {
                                   style={{
                                     width: "100%",
                                     borderRadius: 14,
-                                    border: `1px solid ${border}`,
+                                    border: `1.5px solid ${border}`,
                                     background: bg,
-                                    padding: "12px 10px",
+                                    padding: "14px 8px",
                                     cursor: "pointer",
-                                    boxShadow: isSelected ? "0 10px 24px rgba(52, 176, 180, 0.18)" : "none",
+                                    boxShadow: isSelected
+                                      ? "0 8px 26px rgba(52, 176, 180, 0.28), 0 2px 6px rgba(23, 52, 100, 0.08)"
+                                      : isHover
+                                        ? "0 4px 14px rgba(23, 52, 100, 0.06)"
+                                        : "none",
                                     transition:
-                                      "background 120ms ease, border 120ms ease, transform 120ms ease, box-shadow 120ms ease",
-                                    transform: isHover ? "translateY(-1px)" : "translateY(0)",
+                                      "background 140ms ease, border 140ms ease, transform 140ms ease, box-shadow 140ms ease",
+                                    transform: isHover ? "translateY(-2px)" : "translateY(0)",
                                     textAlign: "center",
                                   }}
                                   aria-pressed={isSelected}
                                 >
                                   <div
                                     style={{
-                                      fontWeight: 900,
-                                      fontSize: 18,
+                                      fontFamily: montserrat.style.fontFamily,
+                                      fontWeight: 800,
+                                      fontSize: 19,
                                       color: numColor,
                                       lineHeight: 1,
                                       marginBottom: 8,
@@ -731,11 +959,11 @@ export default function AssessmentTakePage() {
                                   </div>
                                   <div
                                     style={{
-                                      fontSize: 12,
-                                      fontWeight: 700,
+                                      fontSize: 11,
+                                      fontWeight: 600,
                                       color: isHover ? BRAND.dark : labelColor,
                                       whiteSpace: "normal",
-                                      lineHeight: 1.2,
+                                      lineHeight: 1.25,
                                     }}
                                   >
                                     {opt.label}
@@ -752,44 +980,72 @@ export default function AssessmentTakePage() {
               );
             })}
 
-          {/* Single free-text use case */}
           <section
             style={{
+              position: "relative",
               background: BRAND.card,
-              border: `1px solid ${BRAND.border}`,
-              borderRadius: 16,
-              padding: 20,
-              boxShadow: "0 8px 30px rgba(15, 23, 42, 0.04)",
+              border: `1px solid rgba(205, 216, 223, 0.55)`,
+              borderRadius: 20,
+              padding: "24px 24px 24px 22px",
+              boxShadow: "0 6px 32px rgba(23, 52, 100, 0.055)",
+              overflow: "hidden",
             }}
           >
-            <h2 style={{ margin: 0, color: BRAND.dark, fontSize: 18, fontWeight: 900 }}>
-              Best Use Case for AI Automation
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 4,
+                background: `linear-gradient(180deg, ${BRAND.greyBlue}, ${BRAND.cyan})`,
+                opacity: 0.9,
+                borderRadius: "20px 0 0 20px",
+              }}
+            />
+            <h2
+              style={{
+                margin: 0,
+                color: BRAND.dark,
+                fontSize: 17,
+                fontWeight: 800,
+                fontFamily: montserrat.style.fontFamily,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Best use case for AI automation
             </h2>
-            <div style={{ color: BRAND.muted, marginTop: 6 }}>
+            <div style={{ color: BRAND.greyBlue, marginTop: 8, fontSize: 14, fontWeight: 500, lineHeight: 1.5 }}>
               In your own words, what would create the most leverage right now?
             </div>
 
             <textarea
+              className="nl-assess-focus"
               value={aiUseCase}
               onChange={(e) => setAiUseCase(e.target.value)}
               rows={4}
               style={{
                 width: "100%",
-                marginTop: 12,
-                border: `1px solid ${BRAND.border}`,
-                borderRadius: 14,
-                padding: 12,
+                marginTop: 14,
+                border: `1px solid ${BRAND.lightAzure}`,
+                borderRadius: 16,
+                padding: 14,
                 fontSize: 14,
-                fontFamily: "inherit",
-                outline: "none",
-                boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04) inset",
+                fontFamily: openSans.style.fontFamily,
+                lineHeight: 1.5,
+                background: BRAND.lightBlue,
+                transition: "border-color 0.15s ease, box-shadow 0.15s ease",
               }}
               placeholder="Example: automate client onboarding, generate first-draft SOPs, sales follow-ups, internal reporting, support ticket triage…"
             />
-            <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 12 }}>{aiUseCase.length}/5000</div>
+            <div style={{ marginTop: 8, color: BRAND.greyBlue, fontSize: 12, fontWeight: 600 }}>
+              {aiUseCase.length} / 5000
+            </div>
           </section>
         </div>
       </div>
     </main>
+    </>
   );
 }

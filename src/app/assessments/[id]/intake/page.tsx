@@ -2,6 +2,74 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Montserrat, Open_Sans } from "next/font/google";
+
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  weight: ["600", "700", "800", "900"],
+  display: "swap",
+});
+
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+const BRAND = {
+  dark: "#173464",
+  cyan: "#34b0b4",
+  greyBlue: "#66819e",
+  lightAzure: "#cdd8df",
+  lightBlue: "#fcfcfe",
+  border: "#E6EAF2",
+  text: "#0B1220",
+  muted: "#4B5565",
+};
+
+const shellBackground = `radial-gradient(ellipse 100% 80% at 100% -10%, rgba(52, 176, 180, 0.11) 0%, transparent 55%),
+  radial-gradient(ellipse 80% 60% at -5% 100%, rgba(23, 52, 100, 0.08) 0%, transparent 48%),
+  ${BRAND.lightBlue}`;
+
+const glassCard = {
+  background: "rgba(255, 255, 255, 0.92)",
+  backdropFilter: "saturate(160%) blur(14px)",
+  WebkitBackdropFilter: "saturate(160%) blur(14px)",
+  border: `1px solid rgba(205, 216, 223, 0.65)`,
+  boxShadow: "0 4px 28px rgba(23, 52, 100, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)",
+} as const;
+
+function BrandWordmark() {
+  return (
+    <div aria-label="Northline Intelligence" style={{ lineHeight: 1.2 }}>
+      <div
+        style={{
+          fontFamily: montserrat.style.fontFamily,
+          fontWeight: 800,
+          fontSize: 11,
+          letterSpacing: "0.12em",
+          color: BRAND.dark,
+          textTransform: "uppercase",
+        }}
+      >
+        Northline
+      </div>
+      <div
+        style={{
+          fontFamily: openSans.style.fontFamily,
+          fontWeight: 700,
+          fontSize: 9,
+          letterSpacing: "0.2em",
+          color: BRAND.greyBlue,
+          textTransform: "uppercase",
+          marginTop: 3,
+        }}
+      >
+        Intelligence
+      </div>
+    </div>
+  );
+}
 
 const DEPARTMENTS = [
   "ALL",
@@ -120,20 +188,68 @@ export default function AssessmentIntakePage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", padding: 28, background: "#F6F8FC" }}>
-      <div style={{ maxWidth: 760, margin: "0 auto", background: "#fff", border: "1px solid #E6EAF2", borderRadius: 16, padding: 20 }}>
-        <div style={{ fontWeight: 900, fontSize: 18, color: "#173464" }}>Participant Intake</div>
-        <div style={{ marginTop: 6, color: "#4B5565", fontWeight: 700 }}>
-          {loadingOrg ? "Loading organization…" : `Organization: ${orgName}`}
+    <main
+      style={{
+        minHeight: "100vh",
+        padding: "clamp(20px, 4vw, 36px)",
+        background: shellBackground,
+        fontFamily: openSans.style.fontFamily,
+        color: BRAND.text,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 760,
+          margin: "0 auto",
+          borderRadius: 20,
+          padding: 26,
+          ...glassCard,
+        }}
+      >
+        <BrandWordmark />
+        <div
+          style={{
+            marginTop: 14,
+            fontFamily: montserrat.style.fontFamily,
+            fontWeight: 800,
+            fontSize: 20,
+            color: BRAND.dark,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          Participant intake
+        </div>
+        <div style={{ marginTop: 8, color: BRAND.greyBlue, fontWeight: 600, fontSize: 14 }}>
+          {loadingOrg ? "Loading organization…" : orgName}
         </div>
 
-        <div style={{ marginTop: 18, display: "grid", gap: 14 }}>
+        <div style={{ marginTop: 22, display: "grid", gap: 18 }}>
           <div>
-            <div style={{ fontWeight: 900, marginBottom: 6, color: "#173464" }}>Department</div>
+            <div
+              style={{
+                fontFamily: montserrat.style.fontFamily,
+                fontWeight: 800,
+                marginBottom: 8,
+                color: BRAND.dark,
+                fontSize: 13,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              Department
+            </div>
             <select
               value={department}
               onChange={(e) => setDepartment(e.target.value as any)}
-              style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #E6EAF2", fontWeight: 700 }}
+              style={{
+                width: "100%",
+                padding: 14,
+                borderRadius: 14,
+                border: `1px solid ${BRAND.lightAzure}`,
+                fontWeight: 600,
+                background: BRAND.lightBlue,
+                fontFamily: openSans.style.fontFamily,
+              }}
             >
               <option value="">Select…</option>
               {DEPARTMENTS.map((d) => (
@@ -145,11 +261,31 @@ export default function AssessmentIntakePage() {
           </div>
 
           <div>
-            <div style={{ fontWeight: 900, marginBottom: 6, color: "#173464" }}>Seniority level</div>
+            <div
+              style={{
+                fontFamily: montserrat.style.fontFamily,
+                fontWeight: 800,
+                marginBottom: 8,
+                color: BRAND.dark,
+                fontSize: 13,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              Seniority level
+            </div>
             <select
               value={seniority}
               onChange={(e) => setSeniority(e.target.value as any)}
-              style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #E6EAF2", fontWeight: 700 }}
+              style={{
+                width: "100%",
+                padding: 14,
+                borderRadius: 14,
+                border: `1px solid ${BRAND.lightAzure}`,
+                fontWeight: 600,
+                background: BRAND.lightBlue,
+                fontFamily: openSans.style.fontFamily,
+              }}
             >
               <option value="">Select…</option>
               {SENIORITY.map((s) => (
@@ -161,10 +297,19 @@ export default function AssessmentIntakePage() {
           </div>
 
           <div>
-            <div style={{ fontWeight: 900, marginBottom: 6, color: "#173464" }}>
+            <div
+              style={{
+                fontFamily: montserrat.style.fontFamily,
+                fontWeight: 800,
+                marginBottom: 8,
+                color: BRAND.dark,
+                fontSize: 15,
+                letterSpacing: "-0.01em",
+              }}
+            >
               Day-to-day opportunities for AI automation
             </div>
-            <div style={{ color: "#4B5565", fontWeight: 700, fontSize: 13, lineHeight: 1.4, marginBottom: 8 }}>
+            <div style={{ color: BRAND.greyBlue, fontWeight: 500, fontSize: 14, lineHeight: 1.5, marginBottom: 10 }}>
               Think about your work today. List and describe two instances where AI automation could make your job easier,
               improve efficiency, or help you generate more revenue. If you’re unsure, describe areas you wish were smoother.
             </div>
@@ -173,12 +318,31 @@ export default function AssessmentIntakePage() {
               onChange={(e) => setNotes(e.target.value)}
               rows={6}
               placeholder="Example: Follow-up emails after demos…"
-              style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #E6EAF2", fontWeight: 700, lineHeight: 1.5 }}
+              style={{
+                width: "100%",
+                padding: 14,
+                borderRadius: 16,
+                border: `1px solid ${BRAND.lightAzure}`,
+                fontWeight: 500,
+                lineHeight: 1.5,
+                background: BRAND.lightBlue,
+                fontFamily: openSans.style.fontFamily,
+              }}
             />
           </div>
 
           {err ? (
-            <div style={{ background: "#FFF5F5", border: "1px solid #FCA5A5", color: "#7F1D1D", padding: 12, borderRadius: 12, fontWeight: 800 }}>
+            <div
+              style={{
+                background: "#FFF5F5",
+                border: "1px solid #FECACA",
+                color: "#991B1B",
+                padding: 14,
+                borderRadius: 14,
+                fontWeight: 600,
+                lineHeight: 1.45,
+              }}
+            >
               {err}
             </div>
           ) : null}
@@ -188,44 +352,84 @@ export default function AssessmentIntakePage() {
             disabled={!canContinue || saving}
             onClick={() => setConfirmOpen(true)}
             style={{
-              padding: "12px 14px",
-              borderRadius: 12,
-              border: "1px solid #E6EAF2",
-              background: canContinue ? "#34b0b4" : "#D7DEE8",
-              color: "#173464",
-              fontWeight: 900,
+              padding: "14px 18px",
+              borderRadius: 14,
+              border: "none",
+              background: canContinue ? BRAND.dark : BRAND.lightAzure,
+              color: canContinue ? "#fff" : BRAND.greyBlue,
+              fontWeight: 800,
+              fontSize: 14,
+              letterSpacing: "0.03em",
               cursor: canContinue ? "pointer" : "not-allowed",
+              boxShadow: canContinue ? "0 6px 20px rgba(23, 52, 100, 0.2)" : "none",
             }}
           >
-            {saving ? "Saving…" : "Go To Assessment"}
+            {saving ? "Saving…" : "Go to assessment"}
           </button>
         </div>
       </div>
 
       {/* Confirm Modal */}
       {confirmOpen ? (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(11,18,32,0.45)",
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 18
-        }}>
-          <div style={{ width: "100%", maxWidth: 520, background: "#fff", borderRadius: 16, border: "1px solid #E6EAF2", padding: 18 }}>
-            <div style={{ fontWeight: 900, fontSize: 16, color: "#173464" }}>One second…</div>
-            <div style={{ marginTop: 10, fontWeight: 800, color: "#0B1220" }}>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(11, 18, 32, 0.48)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              background: "rgba(255,255,255,0.97)",
+              borderRadius: 20,
+              border: `1px solid ${BRAND.lightAzure}`,
+              padding: 24,
+              boxShadow: "0 20px 60px rgba(23, 52, 100, 0.18)",
+            }}
+          >
+            <div style={{ fontFamily: montserrat.style.fontFamily, fontWeight: 800, fontSize: 17, color: BRAND.dark }}>
+              One moment
+            </div>
+            <div style={{ marginTop: 10, fontWeight: 600, color: BRAND.text, lineHeight: 1.45 }}>
               Please confirm this is your organization:
             </div>
-            <div style={{ marginTop: 6, fontWeight: 900, color: "#173464", fontSize: 18 }}>
+            <div
+              style={{
+                marginTop: 10,
+                fontFamily: montserrat.style.fontFamily,
+                fontWeight: 800,
+                color: BRAND.dark,
+                fontSize: 20,
+              }}
+            >
               {orgName}
             </div>
-            <div style={{ marginTop: 10, color: "#4B5565", fontWeight: 700, fontSize: 13 }}>
+            <div style={{ marginTop: 12, color: BRAND.greyBlue, fontWeight: 500, fontSize: 14, lineHeight: 1.45 }}>
               If this is not your organization, please let your administrator know.
             </div>
 
-            <div style={{ marginTop: 16, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <div style={{ marginTop: 20, display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={() => setConfirmOpen(false)}
                 disabled={saving}
-                style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid #E6EAF2", background: "#fff", fontWeight: 900, cursor: "pointer" }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 14,
+                  border: `1px solid ${BRAND.lightAzure}`,
+                  background: "#fff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: openSans.style.fontFamily,
+                }}
               >
                 Cancel
               </button>
@@ -233,9 +437,19 @@ export default function AssessmentIntakePage() {
                 type="button"
                 onClick={saveAndGo}
                 disabled={saving}
-                style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid #E6EAF2", background: "#34b0b4", color: "#173464", fontWeight: 900, cursor: "pointer" }}
+                style={{
+                  padding: "12px 18px",
+                  borderRadius: 14,
+                  border: "none",
+                  background: BRAND.cyan,
+                  color: BRAND.dark,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontFamily: openSans.style.fontFamily,
+                  boxShadow: "0 4px 16px rgba(52, 176, 180, 0.35)",
+                }}
               >
-                Confirm & Continue
+                Confirm &amp; continue
               </button>
             </div>
           </div>

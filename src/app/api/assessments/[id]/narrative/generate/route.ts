@@ -762,6 +762,7 @@ async function generateNarrativeJsonWithAI(args: {
     "- Each must include: name, businessProblem, aiRole, expectedOutcome, whyThisIsAGoodStart.",
     "- These must be high-value, low-risk, practical first moves.",
     "- Do not recommend vendor tools.",
+    "- The pilotProjects array is what the product shows as Northline High-Value Entry Points (outcome = expectedOutcome, first move = whyThisIsAGoodStart); make those fields specific and workshop-ready.",
     "",
     "6. guardrails",
     "- Include practical bullets for dataProtection, humanOversight, toolGovernance, and adoptionRisks.",

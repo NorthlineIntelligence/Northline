@@ -417,6 +417,201 @@ function parseMemoSections(raw: string): Array<{ title: string; body: string[] }
   return sections;
 }
 
+/** AI stores projects in narrativeJson.pilotProjects; memo text rarely includes the legacy "Project Name:" lines. */
+function entryPointsFromPilotProjectsJson(narrativeJson: any): Array<{
+  name: string;
+  outcome: string;
+  firstMove: string;
+}> {
+  const raw = narrativeJson?.pilotProjects;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p) => p && typeof p === "object")
+    .map((p: any) => {
+      const name = String(p.name ?? "").trim();
+      const outcome = String(p.expectedOutcome ?? "").trim();
+      const firstMove =
+        String(p.whyThisIsAGoodStart ?? "").trim() || String(p.aiRole ?? "").trim();
+      return {
+        name,
+        outcome: outcome || "—",
+        firstMove: firstMove || "—",
+      };
+    })
+    .filter((p) => p.name.length > 0);
+}
+
+function entryPointsFromMemoBody(body: string[]): Array<{ name: string; outcome: string; firstMove: string }> {
+  const projects: Array<{ name?: string; outcome?: string; firstMove?: string }> = [];
+
+  for (let i = 0; i < body.length; i++) {
+    const line = String(body[i] ?? "");
+    const match = line.match(/^(Project Name|Outcome|First Move)\s*:\s*(.*)$/i);
+    if (!match) continue;
+
+    const label = match[1].toLowerCase();
+    const value = match[2] ?? "";
+
+    if (label === "project name") {
+      projects.push({ name: value });
+    } else if (label === "outcome") {
+      if (projects.length > 0) projects[projects.length - 1].outcome = value;
+    } else if (label === "first move") {
+      if (projects.length > 0) projects[projects.length - 1].firstMove = value;
+    }
+  }
+
+  return projects
+    .filter((p) => typeof p.name === "string" && p.name.trim().length > 0)
+    .map((p) => ({
+      name: p.name!.trim(),
+      outcome: (p.outcome ?? "").trim() || "—",
+      firstMove: (p.firstMove ?? "").trim() || "—",
+    }));
+}
+
+function EntryPointProjectCards({
+  projects,
+}: {
+  projects: Array<{ name: string; outcome: string; firstMove: string }>;
+}) {
+  return (
+    <>
+      {projects.map((proj, idx) => (
+        <div
+          key={idx}
+          style={{
+            border: `1px solid ${BRAND.border}`,
+            borderRadius: 16,
+            background: "#FFFFFF",
+            padding: 16,
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: BRAND.greyBlue,
+                fontSize: 12,
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+              }}
+            >
+              Project Name
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                color: BRAND.text,
+                fontSize: 16,
+                fontWeight: 900,
+                lineHeight: 1.6,
+              }}
+            >
+              {proj.name}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: BRAND.greyBlue,
+                fontSize: 12,
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+              }}
+            >
+              Outcome
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                color: BRAND.text,
+                fontSize: 14,
+                fontWeight: 900,
+                lineHeight: 1.7,
+              }}
+            >
+              {proj.outcome}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: BRAND.greyBlue,
+                fontSize: 12,
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+              }}
+            >
+              First Move
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                color: BRAND.text,
+                fontSize: 14,
+                fontWeight: 700,
+                lineHeight: 1.7,
+              }}
+            >
+              {proj.firstMove}
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function EntryPointsMemoSection({
+  projects,
+  accentOpacity = 0.65,
+}: {
+  projects: Array<{ name: string; outcome: string; firstMove: string }>;
+  accentOpacity?: number;
+}) {
+  if (projects.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${BRAND.border}`,
+        borderRadius: 16,
+        background: "#FBFDFF",
+        padding: 16,
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          background: BRAND.cyan,
+          opacity: accentOpacity,
+        }}
+      />
+      <div style={{ paddingLeft: 6 }}>
+        <div style={{ color: BRAND.dark, fontSize: 14, fontWeight: 900, letterSpacing: 0.2 }}>
+          Northline High-Value Entry Points
+        </div>
+        <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
+          <EntryPointProjectCards projects={projects} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function riskPillarsFromFlags(riskFlags: any[]): string[] {
   const out = new Set<string>();
 
@@ -1324,12 +1519,20 @@ const participantsTotal =
                   ? narrativeJson.maturityInterpretation.explanation
                   : "";
 
-              // Split into sections. We DO want High-Value Entry Points + Sequencing here.
-              const sections = parseMemoSections(memoText).filter(
+              const pilotsFromJson = entryPointsFromPilotProjectsJson(narrativeJson);
+              const useJsonEntryPoints = pilotsFromJson.length > 0;
+              const entryPointsTitleLc = "northline high-value entry points";
+
+              let sections = parseMemoSections(memoText).filter(
                 (s) => String(s.title || "").toLowerCase() !== "risk interpretation"
               );
+              if (useJsonEntryPoints) {
+                sections = sections.filter((s) => String(s.title || "").toLowerCase() !== entryPointsTitleLc);
+              }
 
-              if (!memoText.trim()) {
+              const memoGrid = { marginTop: 16, display: "grid" as const, gap: 14 };
+
+              if (!memoText.trim() && !useJsonEntryPoints) {
                 return (
                   <div style={{ marginTop: 14, color: BRAND.muted, fontWeight: 700 }}>
                     No memo text yet (click Generate / Refresh).
@@ -1337,30 +1540,45 @@ const participantsTotal =
                 );
               }
 
-              // If the model didn’t include headings, show as one clean block.
+              if (!memoText.trim() && useJsonEntryPoints) {
+                return (
+                  <div style={memoGrid}>
+                    <div style={{ color: BRAND.muted, fontWeight: 700, lineHeight: 1.55, fontSize: 14 }}>
+                      Executive narrative text will appear here once generated. Pilot recommendations below are taken from
+                      the structured narrative output.
+                    </div>
+                    <EntryPointsMemoSection projects={pilotsFromJson} accentOpacity={0.65} />
+                  </div>
+                );
+              }
+
               if (sections.length === 0) {
                 return (
-                  <div
-                    style={{
-                      marginTop: 16,
-                      border: `1px solid ${BRAND.border}`,
-                      background: "#F8FAFC",
-                      borderRadius: 14,
-                      padding: 16,
-                      color: BRAND.text,
-                      fontWeight: 700,
-                      lineHeight: 1.75,
-                      whiteSpace: "pre-wrap",
-                      fontSize: 15,
-                    }}
-                  >
-                    {memoText}
+                  <div style={memoGrid}>
+                    <div
+                      style={{
+                        border: `1px solid ${BRAND.border}`,
+                        background: "#F8FAFC",
+                        borderRadius: 14,
+                        padding: 16,
+                        color: BRAND.text,
+                        fontWeight: 700,
+                        lineHeight: 1.75,
+                        whiteSpace: "pre-wrap",
+                        fontSize: 15,
+                      }}
+                    >
+                      {memoText}
+                    </div>
+                    {useJsonEntryPoints ? (
+                      <EntryPointsMemoSection projects={pilotsFromJson} accentOpacity={0.65} />
+                    ) : null}
                   </div>
                 );
               }
 
               return (
-                <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
+                <div style={memoGrid}>
                   {sections.map((s, idx) => (
                     <div
                       key={`${s.title}-${idx}`}
@@ -1373,7 +1591,6 @@ const participantsTotal =
                         overflow: "hidden",
                       }}
                     >
-                      {/* subtle left accent */}
                       <div
                         style={{
                           position: "absolute",
@@ -1393,10 +1610,8 @@ const participantsTotal =
 
                         <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
                           {(() => {
-                            const isEntryPoints =
-                              String(s.title || "").toLowerCase() === "northline high-value entry points";
+                            const isEntryPoints = String(s.title || "").toLowerCase() === entryPointsTitleLc;
 
-                            // Default rendering for all other memo sections
                             if (!isEntryPoints) {
                               return s.body.map((p, i) => {
                                 const { lead, paras } = chunkTextForExecRead(p);
@@ -1435,126 +1650,15 @@ const participantsTotal =
                               });
                             }
 
-                            // ENTRY POINTS — group every 3 lines into one project card
-                            const projects: Array<{
-                              name?: string;
-                              outcome?: string;
-                              firstMove?: string;
-                            }> = [];
-
-                            for (let i = 0; i < s.body.length; i++) {
-                              const line = String(s.body[i] ?? "");
-                              const match = line.match(/^(Project Name|Outcome|First Move)\s*:\s*(.*)$/i);
-                              if (!match) continue;
-
-                              const label = match[1].toLowerCase();
-                              const value = match[2] ?? "";
-
-                              if (label === "project name") {
-                                projects.push({ name: value });
-                              } else if (label === "outcome") {
-                                if (projects.length > 0) projects[projects.length - 1].outcome = value;
-                              } else if (label === "first move") {
-                                if (projects.length > 0) projects[projects.length - 1].firstMove = value;
-                              }
-                            }
-
-                            return projects.map((proj, idx) => (
-                              <div
-                                key={idx}
-                                style={{
-                                  border: `1px solid ${BRAND.border}`,
-                                  borderRadius: 16,
-                                  background: "#FFFFFF",
-                                  padding: 16,
-                                  display: "grid",
-                                  gap: 12,
-                                }}
-                              >
-                                {/* Project Name */}
-                                <div>
-                                  <div
-                                    style={{
-                                      color: BRAND.greyBlue,
-                                      fontSize: 12,
-                                      fontWeight: 900,
-                                      textTransform: "uppercase",
-                                      letterSpacing: 0.4,
-                                    }}
-                                  >
-                                    Project Name
-                                  </div>
-                                  <div
-                                    style={{
-                                      marginTop: 4,
-                                      color: BRAND.text,
-                                      fontSize: 16,
-                                      fontWeight: 900,
-                                      lineHeight: 1.6,
-                                    }}
-                                  >
-                                    {proj.name}
-                                  </div>
-                                </div>
-
-                                {/* Outcome */}
-                                <div>
-                                  <div
-                                    style={{
-                                      color: BRAND.greyBlue,
-                                      fontSize: 12,
-                                      fontWeight: 900,
-                                      textTransform: "uppercase",
-                                      letterSpacing: 0.4,
-                                    }}
-                                  >
-                                    Outcome
-                                  </div>
-                                  <div
-                                    style={{
-                                      marginTop: 4,
-                                      color: BRAND.text,
-                                      fontSize: 14,
-                                      fontWeight: 900,
-                                      lineHeight: 1.7,
-                                    }}
-                                  >
-                                    {proj.outcome}
-                                  </div>
-                                </div>
-
-                                {/* First Move */}
-                                <div>
-                                  <div
-                                    style={{
-                                      color: BRAND.greyBlue,
-                                      fontSize: 12,
-                                      fontWeight: 900,
-                                      textTransform: "uppercase",
-                                      letterSpacing: 0.4,
-                                    }}
-                                  >
-                                    First Move
-                                  </div>
-                                  <div
-                                    style={{
-                                      marginTop: 4,
-                                      color: BRAND.text,
-                                      fontSize: 14,
-                                      fontWeight: 700,
-                                      lineHeight: 1.7,
-                                    }}
-                                  >
-                                    {proj.firstMove}
-                                  </div>
-                                </div>
-                              </div>
-                            ));
+                            return <EntryPointProjectCards projects={entryPointsFromMemoBody(s.body)} />;
                           })()}
                         </div>
                       </div>
                     </div>
                   ))}
+                  {useJsonEntryPoints ? (
+                    <EntryPointsMemoSection projects={pilotsFromJson} accentOpacity={0.55} />
+                  ) : null}
                 </div>
               );
             })()}

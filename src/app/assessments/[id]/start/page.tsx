@@ -2,6 +2,19 @@
 
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Montserrat, Open_Sans } from "next/font/google";
+
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  weight: ["600", "700", "800", "900"],
+  display: "swap",
+});
+
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
 
 /**
  * IMPORTANT:
@@ -42,12 +55,63 @@ type AssessmentMeta = {
 const BRAND = {
   dark: "#173464",
   cyan: "#34b0b4",
-  bg: "#F6F8FC",
+  greyBlue: "#66819e",
+  lightAzure: "#cdd8df",
+  lightBlue: "#fcfcfe",
+  bg: "#fcfcfe",
   card: "#FFFFFF",
   border: "#E6EAF2",
   text: "#0B1220",
   muted: "#4B5565",
 };
+
+const shellBackground = `radial-gradient(ellipse 100% 80% at 100% -10%, rgba(52, 176, 180, 0.11) 0%, transparent 55%),
+  radial-gradient(ellipse 80% 60% at -5% 100%, rgba(23, 52, 100, 0.08) 0%, transparent 48%),
+  ${BRAND.lightBlue}`;
+
+const shellCard = {
+  maxWidth: 720,
+  margin: "0 auto" as const,
+  borderRadius: 20,
+  padding: 26,
+  background: "rgba(255, 255, 255, 0.92)",
+  backdropFilter: "saturate(160%) blur(14px)",
+  WebkitBackdropFilter: "saturate(160%) blur(14px)",
+  border: `1px solid rgba(205, 216, 223, 0.65)`,
+  boxShadow: "0 4px 28px rgba(23, 52, 100, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)",
+};
+
+function BrandWordmark() {
+  return (
+    <div aria-label="Northline Intelligence" style={{ lineHeight: 1.2 }}>
+      <div
+        style={{
+          fontFamily: montserrat.style.fontFamily,
+          fontWeight: 800,
+          fontSize: 11,
+          letterSpacing: "0.12em",
+          color: BRAND.dark,
+          textTransform: "uppercase",
+        }}
+      >
+        Northline
+      </div>
+      <div
+        style={{
+          fontFamily: openSans.style.fontFamily,
+          fontWeight: 700,
+          fontSize: 9,
+          letterSpacing: "0.2em",
+          color: BRAND.greyBlue,
+          textTransform: "uppercase",
+          marginTop: 3,
+        }}
+      >
+        Intelligence
+      </div>
+    </div>
+  );
+}
 
 function labelDept(d: string) {
   const up = String(d ?? "").toUpperCase();
@@ -280,43 +344,42 @@ export default function AssessmentStartPage() {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
-          padding: 32,
-          fontFamily: "system-ui",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
           color: BRAND.text,
         }}
       >
-        <div
-          style={{
-            maxWidth: 720,
-            margin: "0 auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
-          }}
-        >
+        <div style={shellCard}>
           {created && (
             <div
               style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
+                marginBottom: 14,
+                padding: 14,
+                borderRadius: 14,
                 background: "#ECFDF5",
                 border: "1px solid #A7F3D0",
                 color: "#065F46",
-                fontWeight: 800,
+                fontWeight: 700,
               }}
             >
-              ✅ Assessment created successfully.
+              Assessment created successfully.
             </div>
           )}
 
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
-            Northline AI Readiness
+          <BrandWordmark />
+          <div
+            style={{
+              marginTop: 14,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 20,
+              fontWeight: 800,
+              color: BRAND.dark,
+            }}
+          >
+            AI Readiness Diagnostic
           </div>
-          <div style={{ color: BRAND.muted, marginTop: 6 }}>Loading…</div>
+          <div style={{ color: BRAND.greyBlue, marginTop: 8, fontWeight: 500 }}>Loading…</div>
         </div>
       </main>
     );
@@ -327,40 +390,41 @@ export default function AssessmentStartPage() {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
-          padding: 32,
-          fontFamily: "system-ui",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
           color: BRAND.text,
         }}
       >
-        <div
-          style={{
-            maxWidth: 720,
-            margin: "0 auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
-          }}
-        >
+        <div style={shellCard}>
           {created && (
             <div
               style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
+                marginBottom: 14,
+                padding: 14,
+                borderRadius: 14,
                 background: "#ECFDF5",
                 border: "1px solid #A7F3D0",
                 color: "#065F46",
-                fontWeight: 800,
+                fontWeight: 700,
               }}
             >
-              ✅ Assessment created successfully.
+              Assessment created successfully.
             </div>
           )}
 
-          <h2 style={{ margin: 0, color: BRAND.dark }}>Department Selection</h2>
+          <BrandWordmark />
+          <h2
+            style={{
+              margin: "14px 0 0 0",
+              color: BRAND.dark,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 18,
+              fontWeight: 800,
+            }}
+          >
+            Department selection
+          </h2>
 
           <div
             style={{
@@ -408,40 +472,39 @@ export default function AssessmentStartPage() {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
-          padding: 32,
-          fontFamily: "system-ui",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
           color: BRAND.text,
         }}
       >
-        <div
-          style={{
-            maxWidth: 720,
-            margin: "0 auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
-          }}
-        >
+        <div style={shellCard}>
           {created && (
             <div
               style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
+                marginBottom: 14,
+                padding: 14,
+                borderRadius: 14,
                 background: "#ECFDF5",
                 border: "1px solid #A7F3D0",
                 color: "#065F46",
-                fontWeight: 800,
+                fontWeight: 700,
               }}
             >
-              ✅ Assessment created successfully.
+              Assessment created successfully.
             </div>
           )}
 
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
+          <BrandWordmark />
+          <div
+            style={{
+              marginTop: 14,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 20,
+              fontWeight: 800,
+              color: BRAND.dark,
+            }}
+          >
             Assessment is locked
           </div>
           <div style={{ color: BRAND.muted, marginTop: 8, fontWeight: 600 }}>
@@ -481,40 +544,40 @@ export default function AssessmentStartPage() {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
-          padding: 32,
-          fontFamily: "system-ui",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
           color: BRAND.text,
         }}
       >
-        <div
-          style={{
-            maxWidth: 720,
-            margin: "0 auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
-          }}
-        >
+        <div style={shellCard}>
           {created && (
             <div
               style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
+                marginBottom: 14,
+                padding: 14,
+                borderRadius: 14,
                 background: "#ECFDF5",
                 border: "1px solid #A7F3D0",
                 color: "#065F46",
-                fontWeight: 800,
+                fontWeight: 700,
               }}
             >
-              ✅ Assessment created successfully.
+              Assessment created successfully.
             </div>
           )}
 
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
+          <BrandWordmark />
+          <div
+            style={{
+              marginTop: 14,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 20,
+              fontWeight: 800,
+              color: BRAND.dark,
+              lineHeight: 1.3,
+            }}
+          >
             This assessment is locked to {labelDept(lockedDept)}
           </div>
           <div style={{ color: BRAND.muted, marginTop: 8 }}>
@@ -542,66 +605,57 @@ export default function AssessmentStartPage() {
     );
   }
 
-   // Org-wide: show intake + picker + continue.
-   return (
+  // Org-wide: show intake + picker + continue.
+  return (
     <main
       style={{
         minHeight: "100vh",
-        background: BRAND.bg,
-        padding: 32,
-        fontFamily: "system-ui",
+        background: shellBackground,
+        padding: "clamp(20px, 4vw, 40px)",
+        fontFamily: openSans.style.fontFamily,
         color: BRAND.text,
       }}
     >
-      <div
-        style={{
-          maxWidth: 720,
-          margin: "0 auto",
-          background: BRAND.card,
-          border: `1px solid ${BRAND.border}`,
-          borderRadius: 16,
-          padding: 24,
-          boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
-        }}
-      >
+      <div style={shellCard}>
         {created && (
           <div
             style={{
-              marginBottom: 12,
-              padding: 12,
-              borderRadius: 12,
+              marginBottom: 14,
+              padding: 14,
+              borderRadius: 14,
               background: "#ECFDF5",
               border: "1px solid #A7F3D0",
               color: "#065F46",
-              fontWeight: 800,
+              fontWeight: 700,
             }}
           >
-            ✅ Assessment created successfully.
+            Assessment created successfully.
           </div>
         )}
 
-<div style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
-  Welcome to the Northline Diagnostic
-</div>
+        <BrandWordmark />
+        <div
+          style={{
+            marginTop: 14,
+            fontFamily: montserrat.style.fontFamily,
+            fontSize: "clamp(1.1rem, 3vw, 1.35rem)",
+            fontWeight: 800,
+            color: BRAND.dark,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          Welcome to the Northline diagnostic
+        </div>
 
-<div style={{ marginTop: 8 }}>
-  <div
-    style={{
-      fontSize: 14,
-      fontWeight: 800,
-      color: BRAND.dark,
-    }}
-  >
-    {assessment?.organization?.name ?? "Organization"}
-  </div>
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: BRAND.dark }}>
+            {assessment?.organization?.name ?? "Organization"}
+          </div>
 
-  <div style={{ color: BRAND.muted, marginTop: 4 }}>
-    Assessment ID:{" "}
-    <span style={{ fontWeight: 800 }}>
-      {assessmentId ?? ""}
-    </span>
-  </div>
-</div>
+          <div style={{ color: BRAND.greyBlue, marginTop: 6, fontSize: 13, fontWeight: 500 }}>
+            Assessment ID: <span style={{ fontWeight: 700, color: BRAND.dark }}>{assessmentId ?? ""}</span>
+          </div>
+        </div>
 
         <div style={{ marginTop: 18 }}>
           <div style={{ fontSize: 16, fontWeight: 900, color: BRAND.dark }}>
@@ -620,14 +674,16 @@ export default function AssessmentStartPage() {
                   disabled={saving}
                   onClick={() => setSelected(dept)}
                   style={{
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    border: `1px solid ${BRAND.border}`,
-                    background: isSelected ? BRAND.cyan : BRAND.dark,
-                    color: "white",
-                    fontWeight: 800,
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    border: `1.5px solid ${isSelected ? BRAND.dark : BRAND.lightAzure}`,
+                    background: isSelected ? BRAND.cyan : BRAND.lightBlue,
+                    color: BRAND.dark,
+                    fontWeight: 700,
                     cursor: saving ? "not-allowed" : "pointer",
                     opacity: saving ? 0.75 : 1,
+                    boxShadow: isSelected ? "0 6px 18px rgba(52, 176, 180, 0.25)" : "none",
+                    transition: "box-shadow 0.15s ease, border-color 0.15s ease",
                   }}
                 >
                   {labelDept(dept)}
