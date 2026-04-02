@@ -313,6 +313,18 @@ export async function POST(
     const desiredDepartment =
       bodyParsed?.success ? (bodyParsed.data.department ?? undefined) : undefined;
 
+    if (desiredDepartment === Department.ALL) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Invalid department",
+          message:
+            'Choose your current department or team for reporting. Org-wide (ALL) is not used as a participant department.',
+        },
+        { status: 400 }
+      );
+    }
+
     const emailFromBody =
       bodyParsed?.success && bodyParsed.data.email
         ? bodyParsed.data.email.trim().toLowerCase()

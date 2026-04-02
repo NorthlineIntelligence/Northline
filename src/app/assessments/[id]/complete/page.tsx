@@ -3,6 +3,11 @@
 import React, { useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Montserrat, Open_Sans } from "next/font/google";
+import {
+  NORTHLINE_BRAND as BRAND,
+  NORTHLINE_GLASS_CARD as glassCard,
+  NORTHLINE_SHELL_BG as shellBackground,
+} from "@/lib/northlineBrand";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -12,33 +17,9 @@ const montserrat = Montserrat({
 
 const openSans = Open_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  lightAzure: "#cdd8df",
-  lightBlue: "#fcfcfe",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-  card: "#FFFFFF",
-};
-
-const shellBackground = `radial-gradient(ellipse 100% 80% at 100% -10%, rgba(52, 176, 180, 0.11) 0%, transparent 55%),
-  radial-gradient(ellipse 80% 60% at -5% 100%, rgba(23, 52, 100, 0.08) 0%, transparent 48%),
-  ${BRAND.lightBlue}`;
-
-const glassCard = {
-  background: "rgba(255, 255, 255, 0.92)",
-  backdropFilter: "saturate(160%) blur(14px)",
-  WebkitBackdropFilter: "saturate(160%) blur(14px)",
-  border: `1px solid rgba(205, 216, 223, 0.65)`,
-  boxShadow: "0 4px 28px rgba(23, 52, 100, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)",
-} as const;
 
 function BrandWordmark() {
   return (
@@ -46,7 +27,7 @@ function BrandWordmark() {
       <div
         style={{
           fontFamily: montserrat.style.fontFamily,
-          fontWeight: 800,
+          fontWeight: 900,
           fontSize: 11,
           letterSpacing: "0.12em",
           color: BRAND.dark,
@@ -58,7 +39,7 @@ function BrandWordmark() {
       <div
         style={{
           fontFamily: openSans.style.fontFamily,
-          fontWeight: 700,
+          fontWeight: 800,
           fontSize: 9,
           letterSpacing: "0.2em",
           color: BRAND.greyBlue,

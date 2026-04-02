@@ -23,11 +23,8 @@ function normalizeText(value: string | null | undefined) {
 function getCompanyDescriptor(args: {
   industry?: string | null;
   contextNotes?: string | null;
-  website?: string | null;
 }) {
-  const combined = [args.industry ?? "", args.contextNotes ?? "", args.website ?? ""]
-    .join(" ")
-    .toLowerCase();
+  const combined = [args.industry ?? "", args.contextNotes ?? ""].join(" ").toLowerCase();
 
   if (
     combined.includes("logistics") ||
@@ -418,7 +415,6 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
   const companyDescriptor = getCompanyDescriptor({
     industry: assessment.organization?.industry,
     contextNotes: assessment.organization?.context_notes,
-    website: assessment.organization?.website,
   });
 
   const freeTextResponses = responses

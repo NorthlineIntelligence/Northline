@@ -2,18 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { Open_Sans } from "next/font/google";
+import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  bg: "#F6F8FC",
-  card: "#FFFFFF",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-  danger: "#b42318",
-};
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+  display: "swap",
+});
 
 type NarrativeApiResponse =
   | { ok: true; cached: boolean; narrative: any }
@@ -761,9 +757,9 @@ export default function AssessmentResultsPage() {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
+          background: shellBackground,
           padding: 32,
-          fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
+          fontFamily: openSans.style.fontFamily,
           color: BRAND.text,
         }}
       >

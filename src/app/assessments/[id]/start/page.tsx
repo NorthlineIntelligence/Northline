@@ -3,6 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Montserrat, Open_Sans } from "next/font/google";
+import {
+  NORTHLINE_BRAND as BRAND,
+  NORTHLINE_SHELL_BG as shellBackground,
+  PARTICIPANT_DEPARTMENT_CODES,
+  type ParticipantDepartmentCode,
+} from "@/lib/northlineBrand";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -12,32 +18,12 @@ const montserrat = Montserrat({
 
 const openSans = Open_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
 
-/**
- * IMPORTANT:
- * - The participant API you showed returns 401 with:
- *   "No session found. Provide email in request body..."
- *   So this page MUST send { email } in the POST body.
- *
- * - Department values MUST match your Prisma enum exactly.
- *   If your enum uses ALL (not "All"), use "ALL".
- */
-const DEPARTMENTS = [
-  "ALL",
-  "SALES",
-  "MARKETING",
-  "CUSTOMER_SUCCESS",
-  "OPS",
-  "REVOPS",
-  "ENGINEERING",
-  "PRODUCT",
-  "GTM",
-] as const;
-
-type Department = (typeof DEPARTMENTS)[number];
+/** Server may return Prisma Department including ALL; picker only lists real teams. */
+type Department = ParticipantDepartmentCode | "ALL";
 
 type AssessmentMeta = {
     id: string;
@@ -51,23 +37,6 @@ type AssessmentMeta = {
       name: string | null;
     } | null;
   };
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  lightAzure: "#cdd8df",
-  lightBlue: "#fcfcfe",
-  bg: "#fcfcfe",
-  card: "#FFFFFF",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-};
-
-const shellBackground = `radial-gradient(ellipse 100% 80% at 100% -10%, rgba(52, 176, 180, 0.11) 0%, transparent 55%),
-  radial-gradient(ellipse 80% 60% at -5% 100%, rgba(23, 52, 100, 0.08) 0%, transparent 48%),
-  ${BRAND.lightBlue}`;
 
 const shellCard = {
   maxWidth: 720,
@@ -87,7 +56,7 @@ function BrandWordmark() {
       <div
         style={{
           fontFamily: montserrat.style.fontFamily,
-          fontWeight: 800,
+          fontWeight: 900,
           fontSize: 11,
           letterSpacing: "0.12em",
           color: BRAND.dark,
@@ -99,7 +68,7 @@ function BrandWordmark() {
       <div
         style={{
           fontFamily: openSans.style.fontFamily,
-          fontWeight: 700,
+          fontWeight: 800,
           fontSize: 9,
           letterSpacing: "0.2em",
           color: BRAND.greyBlue,
@@ -114,14 +83,7 @@ function BrandWordmark() {
 }
 
 function labelDept(d: string) {
-  const up = String(d ?? "").toUpperCase();
-  if (up === "ALL") return "ORG-WIDE (ALL)";
-  return up.replaceAll("_", " ");
-}
-
-function normalizeDeptForApi(d: Department): Department | null {
-  // Your API route normalizes ALL -> null (meaning org-wide)
-  return d === "ALL" ? null : d;
+  return String(d ?? "").toUpperCase().replaceAll("_", " ");
 }
 
 async function safeReadError(res: Response): Promise<string> {
@@ -158,7 +120,7 @@ export default function AssessmentStartPage() {
   const [saving, setSaving] = useState(false);
 
   const [assessment, setAssessment] = useState<AssessmentMeta | null>(null);
-  const [selected, setSelected] = useState<Department | null>(null);
+  const [selected, setSelected] = useState<ParticipantDepartmentCode | null>(null);
 
   const [seniority, setSeniority] = useState<string>("");
   const [role, setRole] = useState<string>("");
@@ -215,9 +177,10 @@ export default function AssessmentStartPage() {
         const existingDept = ensureJson?.participant?.department;
         if (
           typeof existingDept === "string" &&
-          (DEPARTMENTS as readonly string[]).includes(existingDept)
+          existingDept !== "ALL" &&
+          (PARTICIPANT_DEPARTMENT_CODES as readonly string[]).includes(existingDept)
         ) {
-          setSelected(existingDept as Department);
+          setSelected(existingDept as ParticipantDepartmentCode);
         }
 
         // 2) Try to fetch assessment metadata (optional — if it 401s, we still let them proceed)
@@ -243,17 +206,23 @@ export default function AssessmentStartPage() {
             }
 
             // 3) If locked_department exists and assessment is NOT locked, auto-set dept silently
-            if (meta?.locked_at == null && meta?.locked_department) {
+            const lockDept = meta?.locked_department;
+            if (
+              meta?.locked_at == null &&
+              lockDept &&
+              lockDept !== "ALL" &&
+              (PARTICIPANT_DEPARTMENT_CODES as readonly string[]).includes(lockDept)
+            ) {
               await fetch(`/api/assessments/${assessmentId}/participant`, {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   email: emailFromLink,
-                  department: meta.locked_department,
+                  department: lockDept,
                 }),
               }).catch(() => {});
-              if (!cancelled) setSelected(meta.locked_department);
+              if (!cancelled) setSelected(lockDept);
             }
           }
         } catch {
@@ -273,7 +242,7 @@ export default function AssessmentStartPage() {
     return () => {
       cancelled = true;
     };
-  }, [assessmentId, emailFromLink]);
+  }, [assessmentId, emailFromLink, tokenFromLink]);
 
   async function saveIntakeAndContinue() {
     if (!assessmentId) return;
@@ -286,7 +255,7 @@ export default function AssessmentStartPage() {
     }
 
     if (!selected && !lockedDept) {
-      setLoadError("Please choose your department to continue.");
+      setLoadError("Please choose the department or team you work in most (for reporting).");
       return;
     }
 
@@ -315,7 +284,7 @@ export default function AssessmentStartPage() {
       body: JSON.stringify({
         email: emailFromLink,
         token: tokenFromLink,
-        department: lockedDept ? lockedDept : normalizeDeptForApi(selected as Department),
+        department: lockedDept ? lockedDept : (selected as ParticipantDepartmentCode),
         seniority_level: seniority.trim(),
         role: role.trim(),
         ai_opportunities_notes: aiNotes.trim(),
@@ -659,14 +628,15 @@ export default function AssessmentStartPage() {
 
         <div style={{ marginTop: 18 }}>
           <div style={{ fontSize: 16, fontWeight: 900, color: BRAND.dark }}>
-            1) Choose your department
+            1) Your department or team
           </div>
-          <div style={{ color: BRAND.muted, marginTop: 6 }}>
-            Your answers will be contextualized to your functional role.
+          <div style={{ color: BRAND.muted, marginTop: 6, lineHeight: 1.5 }}>
+            This identifies your current function for reporting and narrative context. The questions you see are set by
+            your administrator (assessment configuration)—not by this selection.
           </div>
 
           <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-            {DEPARTMENTS.map((dept) => {
+            {PARTICIPANT_DEPARTMENT_CODES.map((dept) => {
               const isSelected = selected === dept;
               return (
                 <button

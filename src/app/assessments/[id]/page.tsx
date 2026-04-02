@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Montserrat, Open_Sans } from "next/font/google";
+import { NORTHLINE_BRAND as BRAND } from "@/lib/northlineBrand";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -85,21 +86,6 @@ const LIKERT: Array<{ value: 1 | 2 | 3 | 4 | 5; label: string }> = [
   { value: 5, label: "Strongly Agree" },
 ];
 
-/** Northline Intelligence brand (aligned with official guide) */
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  lightAzure: "#cdd8df",
-  lightBlue: "#fcfcfe",
-  bg: "#fcfcfe",
-  card: "#FFFFFF",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-  surfaceMuted: "#f3f6fb",
-};
-
 function BrandWordmark() {
   return (
     <div aria-label="Northline Intelligence" style={{ lineHeight: 1.2 }}>
@@ -134,7 +120,7 @@ function BrandWordmark() {
 
 const shellBackground = `radial-gradient(ellipse 120% 95% at 85% -20%, rgba(52, 176, 180, 0.15) 0%, transparent 58%),
   radial-gradient(ellipse 85% 65% at 0% 105%, rgba(23, 52, 100, 0.12) 0%, transparent 52%),
-  linear-gradient(165deg, #fcfcfe 0%, #f2f6fb 48%, #fafcfe 100%)`;
+  linear-gradient(165deg, ${BRAND.lightBlue} 0%, #f2f6fb 48%, #fafcfe 100%)`;
 
 const glassCard = {
   background: "rgba(255, 255, 255, 0.94)",

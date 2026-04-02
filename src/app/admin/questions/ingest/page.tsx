@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
 type IngestResult =
   | {
@@ -19,16 +20,6 @@ type IngestResult =
       issues?: any[];
       code?: string;
     };
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  bg: "#fcfcfe",
-  card: "#FFFFFF",
-  border: "#cdd8df",
-  borderLight: "#e6eaf2",
-  muted: "#66819e",
-};
 
 function normalizeKey(k: string) {
   return (k ?? "").trim().toLowerCase();
@@ -243,12 +234,12 @@ export default function QuestionIngestPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: BRAND.bg, color: BRAND.dark }}>
+    <div className="min-h-screen" style={{ background: shellBackground, color: BRAND.dark }}>
       <div className="mx-auto max-w-5xl px-6 py-10">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Question Ingestion</h1>
-            <p className="mt-2 text-sm" style={{ color: BRAND.muted }}>
+            <p className="mt-2 text-sm" style={{ color: BRAND.greyBlue }}>
               Upload a CSV → preview → import into the question bank.
             </p>
           </div>
@@ -275,7 +266,7 @@ export default function QuestionIngestPage() {
                 onChange={handleFile}
                 className="mt-2 block w-full text-sm"
               />
-              <div className="mt-2 text-xs" style={{ color: BRAND.muted }}>
+              <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
                 Columns expected: <b>pillar</b>, <b>question_text</b>, optional: display_order, weight, version, active, audience
               </div>
             </div>
@@ -289,7 +280,7 @@ export default function QuestionIngestPage() {
                 style={{ borderColor: BRAND.border }}
                 placeholder="1"
               />
-              <div className="mt-2 text-xs" style={{ color: BRAND.muted }}>
+              <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
                 This sets <b>body.version</b> for the ingest call. (CSV “version” column is ignored in MVP.)
               </div>
             </div>
@@ -305,7 +296,7 @@ export default function QuestionIngestPage() {
   {importing ? "Importing…" : "Import Questions"}
 </button>
 
-            <div className="text-xs" style={{ color: BRAND.muted }}>
+            <div className="text-xs" style={{ color: BRAND.greyBlue }}>
               Only rows in the CSV are created/updated. Anything not in the CSV is left unchanged.
             </div>
           </div>
@@ -319,7 +310,7 @@ export default function QuestionIngestPage() {
           {importResult && (
             <div
               className="mt-4 rounded-lg border p-4 text-sm"
-              style={{ borderColor: BRAND.borderLight, background: "#f9fafb" }}
+              style={{ borderColor: BRAND.border, background: "#f9fafb" }}
             >
               {importResult.ok ? (
                 <div className="grid gap-2">
@@ -331,12 +322,12 @@ export default function QuestionIngestPage() {
                     Created: <b>{importResult.created}</b> • Updated: <b>{importResult.updated}</b>
                   </div>
                   {(importResult.invalidPillars?.length ?? 0) > 0 && (
-                    <div className="text-xs" style={{ color: BRAND.muted }}>
+                    <div className="text-xs" style={{ color: BRAND.greyBlue }}>
                       Invalid pillars: {JSON.stringify(importResult.invalidPillars)}
                     </div>
                   )}
                   {(importResult.skippedQuestions?.length ?? 0) > 0 && (
-                    <div className="text-xs" style={{ color: BRAND.muted }}>
+                    <div className="text-xs" style={{ color: BRAND.greyBlue }}>
                       Skipped questions: {JSON.stringify(importResult.skippedQuestions)}
                     </div>
                   )}
@@ -348,7 +339,7 @@ export default function QuestionIngestPage() {
                     {(importResult.error ?? "Error") + (importResult.message ? `: ${importResult.message}` : "")}
                   </div>
                   {importResult.issues && (
-                    <pre className="text-xs overflow-auto p-2 rounded border bg-white" style={{ borderColor: BRAND.borderLight }}>
+                    <pre className="text-xs overflow-auto p-2 rounded border bg-white" style={{ borderColor: BRAND.border }}>
                       {JSON.stringify(importResult.issues, null, 2)}
                     </pre>
                   )}
@@ -360,11 +351,11 @@ export default function QuestionIngestPage() {
           {rawRows.length > 0 && (
             <div className="mt-6 overflow-auto">
               <div className="text-sm font-semibold mb-2">Preview ({rawRows.length} rows)</div>
-              <table className="min-w-full border text-sm" style={{ borderColor: BRAND.borderLight }}>
+              <table className="min-w-full border text-sm" style={{ borderColor: BRAND.border }}>
                 <thead style={{ background: "#f6f8fc" }}>
                   <tr>
                     {columns.map((key) => (
-                      <th key={key} className="border px-3 py-2 text-left font-medium" style={{ borderColor: BRAND.borderLight }}>
+                      <th key={key} className="border px-3 py-2 text-left font-medium" style={{ borderColor: BRAND.border }}>
                         {key}
                       </th>
                     ))}
@@ -372,9 +363,9 @@ export default function QuestionIngestPage() {
                 </thead>
                 <tbody>
                   {rawRows.slice(0, 25).map((row, i) => (
-                    <tr key={i} className="border-t" style={{ borderColor: BRAND.borderLight }}>
+                    <tr key={i} className="border-t" style={{ borderColor: BRAND.border }}>
                       {columns.map((k) => (
-                        <td key={k} className="border px-3 py-2" style={{ borderColor: BRAND.borderLight }}>
+                        <td key={k} className="border px-3 py-2" style={{ borderColor: BRAND.border }}>
                           {row[k]}
                         </td>
                       ))}
@@ -383,7 +374,7 @@ export default function QuestionIngestPage() {
                 </tbody>
               </table>
               {rawRows.length > 25 && (
-                <div className="mt-2 text-xs" style={{ color: BRAND.muted }}>
+                <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
                   Showing first 25 rows.
                 </div>
               )}
@@ -398,14 +389,14 @@ export default function QuestionIngestPage() {
           <div className="text-sm font-semibold">CSV template (copy/paste)</div>
           <pre
             className="mt-2 overflow-auto rounded-lg border p-3 text-xs"
-            style={{ borderColor: BRAND.borderLight, background: "#f9fafb" }}
+            style={{ borderColor: BRAND.border, background: "#f9fafb" }}
           >
 pillar,display_order,question_text,weight,active,audience
 STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL
 STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES
 SYSTEM_INTEGRITY,3,"Test question — System Integrity",1,true,ALL
           </pre>
-          <div className="mt-2 text-xs" style={{ color: BRAND.muted }}>
+          <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
             Note: if your question text contains commas, wrap it in quotes like the examples above.
           </div>
         </div>

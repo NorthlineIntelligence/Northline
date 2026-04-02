@@ -3,25 +3,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { briefForRiskFlag } from "@/lib/riskBriefs";
-import { Montserrat } from "next/font/google";
+import { Open_Sans } from "next/font/google";
+import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
-const montserrat = Montserrat({
+const openSans = Open_Sans({
   subsets: ["latin"],
-  weight: ["500", "600", "700", "800", "900"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  bg: "#F6F8FC",
-  card: "#FFFFFF",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-  danger: "#b42318",
-};
 
 type NarrativeApiResponse =
   | { ok: true; cached: boolean; narrative: any }
@@ -1073,11 +1062,11 @@ const participantsTotal =
       : null;
   return (
     <main
-      className={montserrat.className}
       style={{
         minHeight: "100vh",
-        background: BRAND.bg,
+        background: shellBackground,
         padding: 32,
+        fontFamily: openSans.style.fontFamily,
         color: BRAND.text,
       }}
     >

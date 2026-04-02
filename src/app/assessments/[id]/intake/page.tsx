@@ -3,6 +3,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Montserrat, Open_Sans } from "next/font/google";
+import {
+  NORTHLINE_BRAND as BRAND,
+  NORTHLINE_GLASS_CARD as glassCard,
+  NORTHLINE_SHELL_BG as shellBackground,
+  PARTICIPANT_DEPARTMENT_CODES,
+  type ParticipantDepartmentCode,
+} from "@/lib/northlineBrand";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -12,32 +19,9 @@ const montserrat = Montserrat({
 
 const openSans = Open_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  lightAzure: "#cdd8df",
-  lightBlue: "#fcfcfe",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-};
-
-const shellBackground = `radial-gradient(ellipse 100% 80% at 100% -10%, rgba(52, 176, 180, 0.11) 0%, transparent 55%),
-  radial-gradient(ellipse 80% 60% at -5% 100%, rgba(23, 52, 100, 0.08) 0%, transparent 48%),
-  ${BRAND.lightBlue}`;
-
-const glassCard = {
-  background: "rgba(255, 255, 255, 0.92)",
-  backdropFilter: "saturate(160%) blur(14px)",
-  WebkitBackdropFilter: "saturate(160%) blur(14px)",
-  border: `1px solid rgba(205, 216, 223, 0.65)`,
-  boxShadow: "0 4px 28px rgba(23, 52, 100, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)",
-} as const;
 
 function BrandWordmark() {
   return (
@@ -45,7 +29,7 @@ function BrandWordmark() {
       <div
         style={{
           fontFamily: montserrat.style.fontFamily,
-          fontWeight: 800,
+          fontWeight: 900,
           fontSize: 11,
           letterSpacing: "0.12em",
           color: BRAND.dark,
@@ -57,7 +41,7 @@ function BrandWordmark() {
       <div
         style={{
           fontFamily: openSans.style.fontFamily,
-          fontWeight: 700,
+          fontWeight: 800,
           fontSize: 9,
           letterSpacing: "0.2em",
           color: BRAND.greyBlue,
@@ -70,18 +54,6 @@ function BrandWordmark() {
     </div>
   );
 }
-
-const DEPARTMENTS = [
-  "ALL",
-  "SALES",
-  "MARKETING",
-  "CUSTOMER_SUCCESS",
-  "OPS",
-  "REVOPS",
-  "ENGINEERING",
-  "PRODUCT",
-  "GTM",
-] as const;
 
 const SENIORITY = [
   "Individual Contributor",
@@ -100,7 +72,7 @@ export default function AssessmentIntakePage() {
   const [orgName, setOrgName] = useState<string>("—");
   const [loadingOrg, setLoadingOrg] = useState(false);
 
-  const [department, setDepartment] = useState<(typeof DEPARTMENTS)[number] | "">("");
+  const [department, setDepartment] = useState<ParticipantDepartmentCode | "">("");
   const [seniority, setSeniority] = useState<(typeof SENIORITY)[number] | "">("");
   const [notes, setNotes] = useState("");
 
@@ -236,11 +208,17 @@ export default function AssessmentIntakePage() {
                 textTransform: "uppercase",
               }}
             >
-              Department
+              Department or team
+            </div>
+            <div style={{ color: BRAND.muted, fontSize: 13, marginBottom: 8, lineHeight: 1.45 }}>
+              Your primary function for reporting. This does not change which assessment questions you receive—those are
+              set by your organization’s assessment configuration.
             </div>
             <select
               value={department}
-              onChange={(e) => setDepartment(e.target.value as any)}
+              onChange={(e) =>
+                setDepartment((e.target.value || "") as ParticipantDepartmentCode | "")
+              }
               style={{
                 width: "100%",
                 padding: 14,
@@ -252,7 +230,7 @@ export default function AssessmentIntakePage() {
               }}
             >
               <option value="">Select…</option>
-              {DEPARTMENTS.map((d) => (
+              {PARTICIPANT_DEPARTMENT_CODES.map((d) => (
                 <option key={d} value={d}>
                   {d.replaceAll("_", " ")}
                 </option>

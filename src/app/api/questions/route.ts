@@ -7,44 +7,42 @@ export async function GET(req: NextRequest) {
   const active = (searchParams.get("active") ?? "true") === "true";
   const version = searchParams.get("version") ?? "1";
 
-  // New: optional context for audience filtering
+  // Optional: scope the bank to an assessment configuration (admin setup).
   const assessmentId = searchParams.get("assessmentId");
   const participantId = searchParams.get("participantId");
 
-  // Back-compat: if no assessmentId is provided, return the unfiltered bank (current behavior)
+  // Back-compat: if no assessmentId is provided, return the unfiltered bank
   let audienceFilter: Department[] | null = null;
+  let assessmentType: string | null = null;
 
   if (assessmentId) {
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      select: { locked_department: true },
+      select: { locked_department: true, type: true },
     });
 
     if (!assessment) {
       return NextResponse.json({ error: "Assessment not found" }, { status: 404 });
     }
 
+    assessmentType = assessment.type;
+
     if (assessment.locked_department) {
-      // Team-only locked: ALL + locked_department
+      // Department-mode assessment (admin): org-wide items + locked department variants only.
       audienceFilter = [Department.ALL, assessment.locked_department];
     } else {
-      // Org-wide: ALL + participant.department (if missing/null => ALL only)
-      if (participantId) {
-        const participant = await prisma.participant.findUnique({
-          where: { id: participantId },
-          select: { department: true },
-        });
+      // Org-wide assessment: ONLY audience ALL. Participant department (intake) is demographic
+      // reporting only and must not pull department-specific question rows (e.g. OPS).
+      audienceFilter = [Department.ALL];
+    }
 
-        if (!participant) {
-          return NextResponse.json({ error: "Participant not found" }, { status: 404 });
-        }
-
-        audienceFilter = participant.department
-          ? [Department.ALL, participant.department]
-          : [Department.ALL];
-      } else {
-        // No participant provided => treat as ALL
-        audienceFilter = [Department.ALL];
+    if (participantId) {
+      const participantExists = await prisma.participant.findFirst({
+        where: { id: participantId, assessment_id: assessmentId },
+        select: { id: true },
+      });
+      if (!participantExists) {
+        return NextResponse.json({ error: "Participant not found for this assessment" }, { status: 404 });
       }
     }
   }
@@ -81,6 +79,7 @@ export async function GET(req: NextRequest) {
     active,
     assessmentId,
     participantId,
+    assessmentType,
     audienceFilter,
     pillars: grouped,
   });

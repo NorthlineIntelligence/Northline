@@ -2,17 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  bg: "#F6F8FC",
-  card: "#FFFFFF",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-};
+import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
 type OrgPayload = {
   id: string;
@@ -439,7 +429,7 @@ async function deleteParticipant(participantId: string) {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
+          background: shellBackground,
           padding: 32,
           fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
           color: BRAND.text,
@@ -470,7 +460,7 @@ async function deleteParticipant(participantId: string) {
       <main
         style={{
           minHeight: "100vh",
-          background: BRAND.bg,
+          background: shellBackground,
           padding: 32,
           fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
           color: BRAND.text,
@@ -507,7 +497,7 @@ async function deleteParticipant(participantId: string) {
     <main
       style={{
         minHeight: "100vh",
-        background: BRAND.bg,
+        background: shellBackground,
         padding: 32,
         fontFamily: "system-ui, -apple-system, Segoe UI, Roboto",
         color: BRAND.text,

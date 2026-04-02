@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { Department } from "@prisma/client";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
-const BodySchema = z.object({
-  department: z.string().min(1),
-  seniority_level: z.string().min(1).max(120),
-  ai_opportunities_notes: z.string().min(1).max(8000),
-});
+const BodySchema = z
+  .object({
+    department: z.nativeEnum(Department),
+    seniority_level: z.string().min(1).max(120),
+    ai_opportunities_notes: z.string().min(1).max(8000),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.department === Department.ALL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["department"],
+        message: "Select your current department or team (not org-wide ALL).",
+      });
+    }
+  });
 
 async function getSupabaseServerClient() {
   const cookieStore = await cookies();

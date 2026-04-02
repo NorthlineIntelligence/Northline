@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Montserrat, Open_Sans } from "next/font/google";
+import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -13,21 +14,9 @@ const montserrat = Montserrat({
 
 const openSans = Open_Sans({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
-
-const BRAND = {
-  dark: "#173464",
-  cyan: "#34b0b4",
-  greyBlue: "#66819e",
-  bg: "#F6F8FC",
-  card: "#FFFFFF",
-  border: "#E6EAF2",
-  text: "#0B1220",
-  muted: "#4B5565",
-  wash: "#f3f6fb",
-};
 
 function inviteStorageKey(assessmentId: string) {
   return `nl_invite_${assessmentId}`;
@@ -291,9 +280,9 @@ export default function ProjectScopePage() {
     <div
       style={{
         minHeight: "100vh",
-        background: BRAND.bg,
+        background: shellBackground,
         color: BRAND.text,
-        fontFamily: montserrat.style.fontFamily,
+        fontFamily: openSans.style.fontFamily,
       }}
     >
       <div style={{ maxWidth: 920, margin: "0 auto", padding: "24px 20px 48px" }}>

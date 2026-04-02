@@ -13,6 +13,13 @@ import { createServerClient } from "@supabase/ssr";
 import { prisma } from "@/lib/prisma";
 import { buildAssessmentResultsPayload } from "@/lib/assessmentResultsEngine";
 import { isAdminEmail } from "@/lib/admin";
+import {
+  fetchPublicWebsiteExcerpt,
+  isWebEnrichmentEnabled,
+  normalizePublicWebsiteUrl,
+  summarizePublicWebExcerptForMemo,
+} from "@/lib/publicWebsiteEnrichment";
+import { redactLegalNameFromString } from "@/lib/redactOrgName";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 const DEFAULT_NARRATIVE_MODEL = "claude-sonnet-4-6";
@@ -690,8 +697,12 @@ async function generateNarrativeJsonWithAI(args: {
   org: { industry?: string | null; size?: string | null };
   resultsBody: any;
   docCount: number;
+  /** Used only for redaction before the model; never sent as-is to the LLM. */
+  orgLegalName?: string | null;
+  /** Anonymized bullets from a separate web-enrichment step (no URL). */
+  publicWebSummary?: string | null;
 }) {
-  const { assessmentId, org, resultsBody, docCount } = args;
+  const { assessmentId, org, resultsBody, docCount, orgLegalName, publicWebSummary } = args;
 
   const maturity = resultsBody?.maturity ?? null;
   const riskFlags = Array.isArray(resultsBody?.riskFlags) ? resultsBody.riskFlags : [];
@@ -702,35 +713,67 @@ async function generateNarrativeJsonWithAI(args: {
     weightedAverage: typeof v?.weightedAverage === "number" ? v.weightedAverage : null,
   }));
 
-  const companyReference =
-    resultsBody?.narrativeContext?.reference?.companyDescriptor ?? "the company";
-
   const businessContext = resultsBody?.narrativeContext?.businessContext ?? {};
   const evidence = resultsBody?.narrativeContext?.evidence ?? {};
 
-  const freeTextResponses = Array.isArray(evidence?.freeTextResponses)
+  const contextNotesRedacted = redactLegalNameFromString(
+    typeof businessContext?.contextNotes === "string" ? businessContext.contextNotes : null,
+    orgLegalName ?? null
+  );
+
+  const freeTextResponsesRaw = Array.isArray(evidence?.freeTextResponses)
     ? evidence.freeTextResponses
     : [];
 
-  const participantOpportunityNotes = Array.isArray(evidence?.participantOpportunityNotes)
+  const freeTextResponses = freeTextResponsesRaw.map((row: any) => {
+    if (!row || typeof row !== "object") return row;
+    const answer =
+      typeof row.answer === "string"
+        ? redactLegalNameFromString(row.answer, orgLegalName ?? null)
+        : row.answer;
+    const qtext =
+      typeof row.question === "string"
+        ? redactLegalNameFromString(row.question, orgLegalName ?? null)
+        : row.question;
+    return { ...row, question: qtext, answer };
+  });
+
+  const participantOpportunityNotesRaw = Array.isArray(evidence?.participantOpportunityNotes)
     ? evidence.participantOpportunityNotes
     : [];
+
+  const participantOpportunityNotes = participantOpportunityNotesRaw.map((row: any) => {
+    if (!row || typeof row !== "object") return row;
+    const note =
+      typeof row.note === "string"
+        ? redactLegalNameFromString(row.note, orgLegalName ?? null)
+        : row.note;
+    return { ...row, note };
+  });
+
+  /** Neutral label only — never a legal name or domain (see narrativeContext in DB for display descriptor). */
+  const aiOrgReference = "the organization";
 
   const aiInput = {
     assessmentId,
     organization: {
-      reference: companyReference,
+      reference: aiOrgReference,
       industry: org.industry ?? null,
       size: org.size ?? null,
     },
     businessContext: {
       industry: businessContext?.industry ?? null,
-      website: businessContext?.website ?? null,
-      contextNotes: businessContext?.contextNotes ?? null,
+      contextNotes: contextNotesRedacted,
       primaryPressures: businessContext?.primaryPressures ?? null,
       growthStage: businessContext?.growthStage ?? null,
       size: businessContext?.size ?? null,
     },
+    publicWebContext: publicWebSummary
+      ? {
+          source: "anonymized_public_website_briefing",
+          briefing: publicWebSummary,
+        }
+      : null,
     evidence: {
       freeTextResponses,
       participantOpportunityNotes,
@@ -763,9 +806,16 @@ async function generateNarrativeJsonWithAI(args: {
     "- Treat the results payload as protected truth and do not contradict it.",
     "",
     "ANONYMIZATION RULE:",
-    "- Do NOT use any real company name.",
+    "- Do NOT use any real company name, DBA, brand, or domain.",
     '- Refer to the organization only as the provided organization.reference value or as "the company".',
     "- Never address the output to a named company.",
+    "- Do NOT infer or insert a legal name from website briefing, domains, email addresses, or participant text.",
+    "- The INPUT deliberately excludes raw website URLs and legal entity names.",
+    "",
+    "PUBLIC WEBSITE CONTEXT:",
+    "- When publicWebContext.briefing is present, it is from a separate anonymized review of their public site.",
+    "- Use it to ground opportunities, pilots, and memo tone in how they operate and who they serve—without naming them.",
+    "- If publicWebContext is null, proceed using only assessment results and evidence.",
     "",
     "EVIDENCE RULE:",
     "- You MUST use the free-text responses and participant opportunity notes as evidence.",
@@ -842,7 +892,7 @@ async function generateNarrativeJsonWithAI(args: {
   const userText =
     "Generate a workshop-ready executive AI readout that matches the required JSON shape.\n\n" +
     "Important requirements:\n" +
-    "- Do not use a real company name.\n" +
+    "- Do not use a real company name, brand, or domain.\n" +
     "- Use only the provided organization.reference value or 'the company'.\n" +
     "- Use the free-text evidence in the analysis.\n" +
     "- Keep every recommendation practical and grounded in the assessment data.\n" +
@@ -1595,6 +1645,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         size: true,
         growth_stage: true,
         primary_pressures: true,
+        website: true,
       },
     });
 
@@ -1675,6 +1726,29 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       return out;
     }
 
+    let webContextForHash: { excerpt_sha256: string | null; summary_present: boolean } = {
+      excerpt_sha256: null,
+      summary_present: false,
+    };
+    let publicWebSummaryForAi: string | null = null;
+
+    if (isNarrativeAIEnabled() && isWebEnrichmentEnabled() && org.website) {
+      const siteUrl = normalizePublicWebsiteUrl(org.website);
+      if (siteUrl) {
+        const fetched = await fetchPublicWebsiteExcerpt(siteUrl);
+        if (fetched) {
+          publicWebSummaryForAi = await summarizePublicWebExcerptForMemo({
+            excerpt: fetched.excerpt,
+            industry: org.industry ?? null,
+          });
+          webContextForHash = {
+            excerpt_sha256: fetched.excerptSha256,
+            summary_present: Boolean(publicWebSummaryForAi),
+          };
+        }
+      }
+    }
+
     const canonicalInput = {
       engine_version: "v2.0",
       schema_version: "2.0",
@@ -1687,6 +1761,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         growth_stage: org.growth_stage ?? null,
         primary_pressures: org.primary_pressures ?? null,
       },
+      web_context: webContextForHash,
       results: normalizeForHash(resultsBody),
       documents: docFingerprints,
     };
@@ -1756,6 +1831,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           },
           resultsBody: results.body,
           docCount: docs.length,
+          orgLegalName: org.name ?? null,
+          publicWebSummary: publicWebSummaryForAi,
         });
         usedAI = true;
       } catch (e: any) {
@@ -1801,7 +1878,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         input_hash,
         engine_version: "v2.0",
         schema_version: "2.0",
-        prompt_version: usedAI ? "northline-workshop-v2" : "placeholder-v2",
+        prompt_version: usedAI ? "northline-workshop-v2.1" : "placeholder-v2",
         model_provider: usedAI ? "anthropic" : null,
         model_name: usedAI ? (process.env.NARRATIVE_AI_MODEL || DEFAULT_NARRATIVE_MODEL) : null,
         narrative_json,
