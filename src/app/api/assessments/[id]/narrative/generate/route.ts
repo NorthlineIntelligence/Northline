@@ -198,6 +198,14 @@ const NarrativeSchema = z
       .object({
         flags: z.array(z.any()).max(25).default([]),
         implications: TrimmedText,
+        pillarRiskInterpretation: z
+          .object({
+            systemIntegrity: TrimmedText,
+            humanAlignment: TrimmedText,
+            strategicCoherence: TrimmedText,
+            sustainabilityPractice: TrimmedText,
+          })
+          .strip(),
       })
       .strip(),
 
@@ -400,6 +408,16 @@ function coerceNarrativeForSchema(
 
   if (out.risks && typeof out.risks === "object") {
     const r = out.risks;
+    const priRaw =
+      r.pillarRiskInterpretation && typeof r.pillarRiskInterpretation === "object"
+        ? r.pillarRiskInterpretation
+        : {};
+    const pillarFb =
+      "Full pillar interpretation was not returned for this section. Review the pillar score on the diagnostic radar and the detailed risk flags below.";
+    const pillar = (v: unknown) => {
+      const t = typeof v === "string" ? v.trim() : "";
+      return t.length >= 50 ? clipStr(t, 4500) : pillarFb;
+    };
     out.risks = {
       flags: Array.isArray(r.flags) ? r.flags.slice(0, 25) : [],
       implications: nonEmptyStr(
@@ -407,6 +425,12 @@ function coerceNarrativeForSchema(
         "Consider sequencing, ownership, and guardrails as you scale AI use.",
         8000
       ),
+      pillarRiskInterpretation: {
+        systemIntegrity: pillar((priRaw as any).systemIntegrity),
+        humanAlignment: pillar((priRaw as any).humanAlignment),
+        strategicCoherence: pillar((priRaw as any).strategicCoherence),
+        sustainabilityPractice: pillar((priRaw as any).sustainabilityPractice),
+      },
     };
   }
 
@@ -521,7 +545,16 @@ function sanitizeNarrativeJson(
           risks:
             input.risks && typeof input.risks === "object"
               ? input.risks
-              : { flags: [], implications: "TBD (insufficient context)." },
+              : {
+                  flags: [],
+                  implications: "TBD (insufficient context).",
+                  pillarRiskInterpretation: {
+                    systemIntegrity: "TBD (insufficient context).",
+                    humanAlignment: "TBD (insufficient context).",
+                    strategicCoherence: "TBD (insufficient context).",
+                    sustainabilityPractice: "TBD (insufficient context).",
+                  },
+                },
 
           evidenceUsed:
             input.evidenceUsed && typeof input.evidenceUsed === "object"
@@ -619,6 +652,16 @@ function sanitizeNarrativeJson(
       flags: [],
       implications:
         "Narrative validation failed; review risk signals and protected scoring directly in the assessment results payload.",
+      pillarRiskInterpretation: {
+        systemIntegrity:
+          "Validation failed for this narrative. Use System Integrity scores and risk flags in the results payload as the source of truth.",
+        humanAlignment:
+          "Validation failed for this narrative. Use Human Alignment scores and evidence as the source of truth.",
+        strategicCoherence:
+          "Validation failed for this narrative. Use Strategic Coherence scores as the source of truth.",
+        sustainabilityPractice:
+          "Validation failed for this narrative. Use Sustainability Practice scores as the source of truth.",
+      },
     },
     evidenceUsed: {
       freeTextThemes: [],
@@ -779,7 +822,11 @@ async function generateNarrativeJsonWithAI(args: {
     "",
     "9. risks",
     "- Use provided risk flags when present.",
-    "- implications should explain what failure or delay would look like if sequencing is ignored.",
+    "- implications should be a short paragraph (not the long pillar write-up) on what failure or delay looks like if sequencing is ignored.",
+    "- pillarRiskInterpretation is REQUIRED: four camelCase keys: systemIntegrity, humanAlignment, strategicCoherence, sustainabilityPractice.",
+    "- Each pillar field must be ~90–110 words (~400 words total). Plain English, executive-readable paragraphs (can be 2–3 sentences each).",
+    "- Each paragraph must tie to that pillar's score from INPUT.results.pillars and reference risk flags that touch that pillar when relevant.",
+    "- Explain what the score implies for AI adoption risk (scope, governance, sequencing)—not generic advice.",
     "",
     "10. evidenceUsed",
     "- freeTextThemes: short bullets summarizing patterns seen in free-text responses.",
@@ -964,10 +1011,26 @@ async function generateNarrativeJsonWithAI(args: {
       risks: {
         type: "object",
         additionalProperties: false,
-        required: ["flags", "implications"],
+        required: ["flags", "implications", "pillarRiskInterpretation"],
         properties: {
           flags: { type: "array", items: {} },
           implications: { type: "string" },
+          pillarRiskInterpretation: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "systemIntegrity",
+              "humanAlignment",
+              "strategicCoherence",
+              "sustainabilityPractice",
+            ],
+            properties: {
+              systemIntegrity: { type: "string", maxLength: 4800 },
+              humanAlignment: { type: "string", maxLength: 4800 },
+              strategicCoherence: { type: "string", maxLength: 4800 },
+              sustainabilityPractice: { type: "string", maxLength: 4800 },
+            },
+          },
         },
       },
       evidenceUsed: {
@@ -989,7 +1052,7 @@ async function generateNarrativeJsonWithAI(args: {
 
   const response = await client.messages.create({
     model,
-    max_tokens: 2600,
+    max_tokens: 4096,
     system: systemText,
     messages: [{ role: "user", content: userText }],
     tools: [
@@ -1045,6 +1108,44 @@ function sha256(input: string): string {
 function sha256NullableText(input: string | null | undefined): string | null {
   if (!input) return null;
   return sha256(input);
+}
+
+function fmtPillarScore(results: any, key: string) {
+  const v = results?.aggregate?.pillars?.[key]?.weightedAverage;
+  return typeof v === "number" ? v.toFixed(2) : "n/a";
+}
+
+function placeholderPillarRiskInterpretation(results: any, riskFlags: any[]) {
+  const si = fmtPillarScore(results, "SYSTEM_INTEGRITY");
+  const ha = fmtPillarScore(results, "HUMAN_ALIGNMENT");
+  const sc = fmtPillarScore(results, "STRATEGIC_COHERENCE");
+  const sp = fmtPillarScore(results, "SUSTAINABILITY_PRACTICE");
+  const anyFlags = Array.isArray(riskFlags) && riskFlags.length > 0;
+
+  return {
+    systemIntegrity: [
+      `System Integrity is at ${si} on a 1–5 scale. This pillar speaks to whether data, workflows, and operational discipline can support AI without amplifying errors or ambiguity.`,
+      anyFlags
+        ? "Structural risk signals are present in the assessment—treat weak foundations as a constraint on automation breadth until ownership and data access are clarified."
+        : "Even without triggered doctrine flags, use this score as a practical gate for how much autonomy any model should have in production-like workflows.",
+      "Enable full AI narrative generation for a deeper, evidence-grounded interpretation.",
+    ].join(" "),
+    humanAlignment: [
+      `Human Alignment reads ${ha}. It reflects training, trust, review habits, and how teams absorb new ways of working.`,
+      "Low to middling scores usually mean narrower pilots, clearer human review checkpoints, and simpler user experiences—not smaller ambitions across every team at once.",
+      "Use participant evidence and opportunity notes to name where friction will show up first.",
+    ].join(" "),
+    strategicCoherence: [
+      `Strategic Coherence is ${sc}. It captures whether efforts line up with stated priorities, customers, and measurable outcomes.`,
+      "When this pillar lags, AI work can still be useful, but it should be tied to one or two executive-owned outcomes so it does not become an orphan initiative.",
+      "The radar view alongside this memo should make gaps obvious for leadership discussion.",
+    ].join(" "),
+    sustainabilityPractice: [
+      `Sustainability Practice scores ${sp}. It covers governance rhythms, maintenance expectations, and whether change will stick after the workshop.`,
+      "Strong launch plans fail when no one owns monitoring, retraining, and policy updates; call that out plainly in sequencing and pilot adoption rules.",
+      "Regenerate with AI enabled for pillar narratives tuned to this organization's actual responses.",
+    ].join(" "),
+  };
 }
 
 function buildPlaceholderNarrative(args: {
@@ -1150,6 +1251,7 @@ function buildPlaceholderNarrative(args: {
         riskFlags.length > 0
           ? "Structural risks are present and should influence sequencing, ownership, and guardrails."
           : "No major doctrine-based risk flags were triggered, but early efforts should still stay narrow and measurable.",
+      pillarRiskInterpretation: placeholderPillarRiskInterpretation(results, riskFlags),
     },
     evidenceUsed: {
       freeTextThemes: freeTextResponses

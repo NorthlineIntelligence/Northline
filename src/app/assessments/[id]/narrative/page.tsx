@@ -71,6 +71,26 @@ function prettyPillarLabel(key: string) {
   }
 }
 
+/** AI narrative field keys ↔ results pillar keys for risk interpretation cards */
+const PILLAR_RISK_INTERPRETATION_ORDER = [
+  { jsonKey: "systemIntegrity", pillarKey: "SYSTEM_INTEGRITY" },
+  { jsonKey: "humanAlignment", pillarKey: "HUMAN_ALIGNMENT" },
+  { jsonKey: "strategicCoherence", pillarKey: "STRATEGIC_COHERENCE" },
+  { jsonKey: "sustainabilityPractice", pillarKey: "SUSTAINABILITY_PRACTICE" },
+] as const;
+
+function parsePillarRiskInterpretation(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const { jsonKey } of PILLAR_RISK_INTERPRETATION_ORDER) {
+    const t = typeof o[jsonKey] === "string" ? (o[jsonKey] as string).trim() : "";
+    if (t.length < 20) return null;
+    out[jsonKey] = t;
+  }
+  return out;
+}
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -936,6 +956,11 @@ const showProjectScopeLink = Boolean(
     return Array.isArray(arr) ? arr : [];
   }, [diagnosticData]);
 
+  const pillarRiskInterpretationMap = useMemo(
+    () => parsePillarRiskInterpretation(narrativeJson?.risks?.pillarRiskInterpretation),
+    [narrativeJson]
+  );
+
   const missingInputs: string[] = useMemo(() => {
     const arr = narrativeJson?.missingInputs;
     return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
@@ -1799,18 +1824,177 @@ const participantsTotal =
                 border: `1px solid ${BRAND.border}`,
                 background: "#F8FAFC",
                 borderRadius: 16,
-                padding: 16,
+                padding: 18,
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue }}>Interpretation</div>
-
-              <div style={{ marginTop: 8, color: BRAND.text, fontWeight: 700, lineHeight: 1.7, fontSize: 14 }}>
-                {typeof narrativeJson?.risks?.implications === "string" && narrativeJson.risks.implications.trim()
-                  ? narrativeJson.risks.implications
-                  : riskFlags.length > 0
-                    ? "Risk signals were detected, but a narrative interpretation was not provided. Regenerate to refresh the memo."
-                    : "No structural triggers were detected under current rules. Continue monitoring for divergence or uneven adoption patterns."}
+              <div style={{ fontSize: 13, fontWeight: 900, color: BRAND.dark, letterSpacing: "-0.02em" }}>
+                Interpretation
               </div>
+              <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700, color: BRAND.greyBlue, lineHeight: 1.45 }}>
+                Plain-language context for structural risk, grounded in each readiness pillar. Regenerate Executive
+                Insights to refresh this section after new results.
+              </div>
+
+              {pillarRiskInterpretationMap ? (
+                <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
+                  <div
+                    style={{
+                      background: "#FFFFFF",
+                      borderRadius: 14,
+                      border: `1px solid ${BRAND.border}`,
+                      padding: "14px 16px",
+                      boxShadow: "0 4px 18px rgba(15, 23, 42, 0.04)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 900,
+                        letterSpacing: "0.08em",
+                        color: BRAND.greyBlue,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      In brief
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 10,
+                        color: BRAND.text,
+                        fontWeight: 700,
+                        lineHeight: 1.65,
+                        fontSize: 14,
+                      }}
+                    >
+                      {typeof narrativeJson?.risks?.implications === "string" && narrativeJson.risks.implications.trim()
+                        ? narrativeJson.risks.implications
+                        : riskFlags.length > 0
+                          ? "Structural risk signals are active—use the pillar notes below to align scope, ownership, and guardrails."
+                          : "No structural doctrine flags fired on this snapshot; the pillar notes still explain where AI adoption could strain the organization."}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 900,
+                      letterSpacing: "0.08em",
+                      color: BRAND.greyBlue,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    By readiness pillar (~400 words, AI-generated)
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(272px, 1fr))",
+                      gap: 14,
+                    }}
+                  >
+                    {PILLAR_RISK_INTERPRETATION_ORDER.map(({ jsonKey, pillarKey }) => {
+                      const body = pillarRiskInterpretationMap[jsonKey];
+                      const score = extractPillarScore(diagnosticData, pillarKey);
+                      return (
+                        <div
+                          key={jsonKey}
+                          style={{
+                            background: "#FFFFFF",
+                            borderRadius: 16,
+                            border: `1px solid ${BRAND.border}`,
+                            padding: "16px 16px 16px 14px",
+                            boxShadow: "0 6px 22px rgba(15, 23, 42, 0.05)",
+                            position: "relative",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            aria-hidden
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: 4,
+                              background: `linear-gradient(180deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                              opacity: 0.95,
+                              borderRadius: "16px 0 0 16px",
+                            }}
+                          />
+                          <div style={{ paddingLeft: 8 }}>
+                            <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 15, lineHeight: 1.3 }}>
+                              {prettyPillarLabel(pillarKey)}
+                            </div>
+                            {typeof score === "number" ? (
+                              <div
+                                style={{
+                                  marginTop: 6,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  fontSize: 12,
+                                  fontWeight: 900,
+                                  color: BRAND.dark,
+                                  background: "rgba(52, 176, 180, 0.18)",
+                                  padding: "4px 10px",
+                                  borderRadius: 999,
+                                }}
+                              >
+                                Pillar score {score.toFixed(2)}
+                                <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>/ 5</span>
+                              </div>
+                            ) : null}
+                            <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+                              {body
+                                .split(/\n\s*\n+/)
+                                .map((c) => c.trim())
+                                .filter(Boolean)
+                                .map((chunk, i) => (
+                                  <div
+                                    key={i}
+                                    style={{ display: "flex", gap: 14, alignItems: "flex-start" }}
+                                  >
+                                    <span
+                                      aria-hidden
+                                      style={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: "50%",
+                                        background: BRAND.cyan,
+                                        marginTop: 8,
+                                        flexShrink: 0,
+                                        boxShadow: "0 0 0 3px rgba(52, 176, 180, 0.2)",
+                                      }}
+                                    />
+                                    <span
+                                      style={{
+                                        fontSize: 14,
+                                        fontWeight: 600,
+                                        lineHeight: 1.75,
+                                        color: BRAND.text,
+                                      }}
+                                    >
+                                      {chunk}
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, color: BRAND.text, fontWeight: 700, lineHeight: 1.7, fontSize: 14 }}>
+                  {typeof narrativeJson?.risks?.implications === "string" && narrativeJson.risks.implications.trim()
+                    ? narrativeJson.risks.implications
+                    : riskFlags.length > 0
+                      ? "Risk signals were detected, but pillar-level interpretation is not in this memo version. Click Generate / Refresh for the latest narrative (includes AI pillar risk write-up)."
+                      : "No structural triggers were detected under current rules. Continue monitoring for divergence or uneven adoption patterns. Generate / Refresh to add pillar-level AI interpretation."}
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: 14, display: "grid", gap: 10 }}>

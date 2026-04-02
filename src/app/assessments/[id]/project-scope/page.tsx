@@ -3,11 +3,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Montserrat } from "next/font/google";
+import { Montserrat, Open_Sans } from "next/font/google";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
   weight: ["600", "700", "800", "900"],
+  display: "swap",
+});
+
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
   display: "swap",
 });
 
@@ -20,6 +26,7 @@ const BRAND = {
   border: "#E6EAF2",
   text: "#0B1220",
   muted: "#4B5565",
+  wash: "#f3f6fb",
 };
 
 function inviteStorageKey(assessmentId: string) {
@@ -35,6 +42,126 @@ function costLabel(c: string) {
     "medium-high": "Medium–High",
   };
   return m[c] ?? c;
+}
+
+function SectionLabel({ children, first }: { children: React.ReactNode; first?: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginTop: first ? 0 : 20,
+        marginBottom: 10,
+      }}
+    >
+      <span
+        style={{
+          width: 4,
+          height: 22,
+          borderRadius: 2,
+          background: `linear-gradient(180deg, ${BRAND.cyan} 0%, ${BRAND.dark} 100%)`,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontFamily: montserrat.style.fontFamily,
+          fontSize: 11,
+          fontWeight: 900,
+          letterSpacing: "0.1em",
+          color: BRAND.greyBlue,
+          textTransform: "uppercase",
+        }}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function BulletList({ items }: { items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <ul
+      style={{
+        margin: 0,
+        padding: 0,
+        listStyle: "none",
+        display: "grid",
+        gap: 14,
+      }}
+    >
+      {items.map((text, i) => (
+        <li
+          key={i}
+          style={{
+            display: "flex",
+            gap: 14,
+            alignItems: "flex-start",
+            fontFamily: openSans.style.fontFamily,
+            fontSize: 15,
+            fontWeight: 600,
+            lineHeight: 1.62,
+            color: BRAND.text,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              flexShrink: 0,
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: BRAND.cyan,
+              marginTop: 8,
+              boxShadow: "0 0 0 3px rgba(52, 176, 180, 0.2)",
+            }}
+          />
+          <span>{text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ProseBlock({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontFamily: openSans.style.fontFamily,
+        fontSize: 15,
+        fontWeight: 600,
+        lineHeight: 1.68,
+        color: BRAND.text,
+        padding: "16px 18px",
+        background: BRAND.wash,
+        borderRadius: 12,
+        border: `1px solid rgba(205, 216, 223, 0.85)`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Prefer newline breaks; otherwise break long memos into sentence bullets when there are several. */
+function executiveMemoBlocks(
+  text: string
+): { kind: "bullets"; items: string[] } | { kind: "text"; text: string } {
+  const t = text.trim();
+  if (!t) return { kind: "text", text: "" };
+  const byLine = t
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (byLine.length > 1) return { kind: "bullets", items: byLine };
+  const sentences = t
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 10);
+  if (sentences.length >= 3) return { kind: "bullets", items: sentences };
+  return { kind: "text", text: t };
 }
 
 export default function ProjectScopePage() {
@@ -186,10 +313,22 @@ export default function ProjectScopePage() {
           <h1 style={{ margin: "8px 0 0", fontSize: 28, fontWeight: 900, color: BRAND.dark, letterSpacing: "-0.02em" }}>
             Project Scope Overview
           </h1>
-          <p style={{ marginTop: 10, color: BRAND.muted, fontWeight: 600, lineHeight: 1.5, maxWidth: 640 }}>
-            Executive-level scope, outcomes, cost band, risks, and timelines for each high-value entry point. Estimates
-            are conservative and subject to change as requirements evolve.
-          </p>
+          <ul
+            style={{
+              margin: "12px 0 0",
+              paddingLeft: 22,
+              maxWidth: 680,
+              fontFamily: openSans.style.fontFamily,
+              color: BRAND.muted,
+              fontWeight: 600,
+              fontSize: 15,
+              lineHeight: 1.65,
+            }}
+          >
+            <li style={{ marginBottom: 6 }}>One card per high-value entry point: scope, objectives, and outcomes.</li>
+            <li style={{ marginBottom: 6 }}>Cost bands and timelines are conservative planning aids—not fixed quotes.</li>
+            <li>All detail is subject to change as you add facts, owners, and constraints.</li>
+          </ul>
         </header>
 
         {featureDisabled ? (
@@ -267,134 +406,337 @@ export default function ProjectScopePage() {
         {loading ? <div style={{ color: BRAND.muted, fontWeight: 700 }}>Loading…</div> : null}
 
         {!loading && !featureDisabled && doc ? (
-          <div style={{ display: "grid", gap: 20 }}>
+          <div style={{ display: "grid", gap: 24 }}>
             {typeof doc.disclaimer === "string" ? (
-              <div
+              <aside
                 style={{
-                  fontSize: 13,
-                  color: BRAND.muted,
-                  fontWeight: 600,
-                  lineHeight: 1.5,
-                  padding: 16,
+                  padding: "18px 20px",
                   background: BRAND.card,
-                  borderRadius: 14,
+                  borderRadius: 16,
                   border: `1px solid ${BRAND.border}`,
+                  boxShadow: "0 4px 20px rgba(23, 52, 100, 0.04)",
                 }}
               >
-                {doc.disclaimer}
-              </div>
+                <SectionLabel first>Important</SectionLabel>
+                <BulletList items={[doc.disclaimer]} />
+              </aside>
             ) : null}
 
             {(metrics?.protectedReadinessScore != null || metrics?.readinessBand) && (
               <section
                 style={{
-                  padding: 22,
+                  position: "relative",
+                  padding: "26px 26px 26px 22px",
                   background: BRAND.card,
                   borderRadius: 18,
                   border: `1px solid ${BRAND.border}`,
-                  boxShadow: "0 8px 28px rgba(23, 52, 100, 0.06)",
+                  boxShadow: "0 12px 36px rgba(23, 52, 100, 0.07)",
+                  overflow: "hidden",
                 }}
               >
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: BRAND.dark }}>Readiness</h2>
-                <div style={{ marginTop: 8, fontWeight: 800, color: BRAND.greyBlue, fontSize: 14 }}>
-                  {metrics?.readinessBand ? String(metrics.readinessBand) : ""}
-                  {metrics?.protectedReadinessScore != null
-                    ? ` · Score ${Number(metrics.protectedReadinessScore).toFixed(2)} / 5`
-                    : ""}
+                <div
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 5,
+                    background: `linear-gradient(180deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                  }}
+                />
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 20,
+                    fontWeight: 900,
+                    color: BRAND.dark,
+                    fontFamily: montserrat.style.fontFamily,
+                    letterSpacing: "-0.02em",
+                  }}
+                >
+                  Readiness overview
+                </h2>
+                <div
+                  style={{
+                    marginTop: 14,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  {metrics?.readinessBand ? (
+                    <span
+                      style={{
+                        fontFamily: montserrat.style.fontFamily,
+                        fontSize: 13,
+                        fontWeight: 900,
+                        color: BRAND.dark,
+                        background: "rgba(52, 176, 180, 0.22)",
+                        padding: "8px 14px",
+                        borderRadius: 999,
+                      }}
+                    >
+                      {String(metrics.readinessBand)}
+                    </span>
+                  ) : null}
+                  {metrics?.protectedReadinessScore != null ? (
+                    <span
+                      style={{
+                        fontFamily: montserrat.style.fontFamily,
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: BRAND.greyBlue,
+                        background: BRAND.wash,
+                        padding: "8px 14px",
+                        borderRadius: 999,
+                        border: `1px solid ${BRAND.border}`,
+                      }}
+                    >
+                      Protected readiness score: {Number(metrics.protectedReadinessScore).toFixed(2)} / 5
+                    </span>
+                  ) : null}
                 </div>
-                {typeof readiness.executiveMemo === "string" ? (
-                  <p style={{ marginTop: 14, fontWeight: 600, lineHeight: 1.55, color: BRAND.text, fontSize: 15 }}>
-                    {readiness.executiveMemo}
-                  </p>
+
+                {typeof readiness.executiveMemo === "string" && readiness.executiveMemo.trim() ? (
+                  <div style={{ marginTop: 18 }}>
+                    <SectionLabel first>Executive memo</SectionLabel>
+                    {(() => {
+                      const blocks = executiveMemoBlocks(readiness.executiveMemo);
+                      if (blocks.kind === "bullets") {
+                        return <BulletList items={blocks.items} />;
+                      }
+                      return <ProseBlock>{blocks.text}</ProseBlock>;
+                    })()}
+                  </div>
                 ) : null}
+
                 {Array.isArray(readiness.stabilizeFirstAccelerators) && readiness.stabilizeFirstAccelerators.length > 0 ? (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontWeight: 900, color: BRAND.dark, marginBottom: 8 }}>Move the needle faster</div>
-                    <ul style={{ margin: 0, paddingLeft: 20, fontWeight: 600, color: BRAND.muted, lineHeight: 1.5 }}>
-                      {readiness.stabilizeFirstAccelerators.map((x: string, i: number) => (
-                        <li key={i}>{x}</li>
-                      ))}
-                    </ul>
+                  <div style={{ marginTop: 8 }}>
+                    <SectionLabel>Suggested actions (stabilize first)</SectionLabel>
+                    <div
+                      style={{
+                        padding: "16px 18px",
+                        borderRadius: 12,
+                        background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)",
+                        border: `1px solid rgba(102, 129, 158, 0.25)`,
+                      }}
+                    >
+                      <BulletList items={readiness.stabilizeFirstAccelerators.filter(Boolean)} />
+                    </div>
                   </div>
                 ) : null}
               </section>
             )}
 
+            {projects.length > 0 ? (
+              <div
+                style={{
+                  fontFamily: montserrat.style.fontFamily,
+                  fontSize: 12,
+                  fontWeight: 900,
+                  letterSpacing: "0.08em",
+                  color: BRAND.greyBlue,
+                  textTransform: "uppercase",
+                }}
+              >
+                High-value entry points ({projects.length})
+              </div>
+            ) : null}
+
             {projects.map((p: any, idx: number) => (
               <section
                 key={idx}
                 style={{
-                  padding: 22,
+                  position: "relative",
+                  padding: "26px 26px 26px 22px",
                   background: BRAND.card,
                   borderRadius: 18,
                   border: `1px solid ${BRAND.border}`,
-                  boxShadow: "0 8px 28px rgba(23, 52, 100, 0.06)",
+                  boxShadow: "0 12px 36px rgba(23, 52, 100, 0.06)",
+                  overflow: "hidden",
                 }}
               >
-                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12 }}>
-                  <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, color: BRAND.dark }}>{p.name ?? `Project ${idx + 1}`}</h2>
+                <div
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 5,
+                    background: `linear-gradient(180deg, ${BRAND.greyBlue} 0%, ${BRAND.cyan} 100%)`,
+                  }}
+                />
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 14,
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: "1 1 240px" }}>
+                    <div
+                      style={{
+                        fontFamily: montserrat.style.fontFamily,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color: BRAND.cyan,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Entry point {idx + 1} of {projects.length}
+                    </div>
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: 21,
+                        fontWeight: 900,
+                        color: BRAND.dark,
+                        fontFamily: montserrat.style.fontFamily,
+                        letterSpacing: "-0.03em",
+                        lineHeight: 1.25,
+                      }}
+                    >
+                      {p.name ?? `Project ${idx + 1}`}
+                    </h2>
+                  </div>
                   <div
                     style={{
+                      fontFamily: montserrat.style.fontFamily,
                       fontSize: 13,
                       fontWeight: 900,
                       color: BRAND.dark,
-                      background: "rgba(52, 176, 180, 0.2)",
-                      padding: "6px 12px",
+                      background: "rgba(52, 176, 180, 0.24)",
+                      padding: "10px 16px",
                       borderRadius: 999,
+                      border: `1px solid rgba(52, 176, 180, 0.35)`,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    Cost: {costLabel(String(p.costEstimate ?? "medium"))}
+                    Estimated cost: {costLabel(String(p.costEstimate ?? "medium"))}
                   </div>
                 </div>
 
-                <div style={{ marginTop: 14, fontWeight: 800, color: BRAND.greyBlue, fontSize: 13 }}>Scope</div>
-                <p style={{ margin: "6px 0 0", fontWeight: 600, lineHeight: 1.55, fontSize: 15 }}>{p.scopeOfWork}</p>
+                <SectionLabel first>Scope of work</SectionLabel>
+                {p.scopeOfWork ? <ProseBlock>{String(p.scopeOfWork)}</ProseBlock> : null}
 
-                <div style={{ marginTop: 14, fontWeight: 800, color: BRAND.greyBlue, fontSize: 13 }}>Objectives</div>
-                <p style={{ margin: "6px 0 0", fontWeight: 600, lineHeight: 1.55, fontSize: 15 }}>{p.objectives}</p>
+                <SectionLabel>What we’re trying to accomplish</SectionLabel>
+                {p.objectives ? <ProseBlock>{String(p.objectives)}</ProseBlock> : null}
 
-                <div style={{ marginTop: 14, fontWeight: 800, color: BRAND.greyBlue, fontSize: 13 }}>Expected outcomes</div>
-                <ul style={{ margin: "6px 0 0", paddingLeft: 20, fontWeight: 600, lineHeight: 1.5 }}>
-                  {(Array.isArray(p.expectedOutcomes) ? p.expectedOutcomes : []).map((o: string, i: number) => (
-                    <li key={i}>{o}</li>
-                  ))}
-                </ul>
+                <SectionLabel>Expected outcomes</SectionLabel>
+                <BulletList items={(Array.isArray(p.expectedOutcomes) ? p.expectedOutcomes : []).filter(Boolean)} />
 
-                <div style={{ marginTop: 14, fontWeight: 800, color: BRAND.greyBlue, fontSize: 13 }}>Risks & barriers</div>
-                <ul style={{ margin: "6px 0 0", paddingLeft: 20, fontWeight: 600, lineHeight: 1.5 }}>
-                  {(Array.isArray(p.risksAndBarriers) ? p.risksAndBarriers : []).map((o: string, i: number) => (
-                    <li key={i}>{o}</li>
-                  ))}
-                </ul>
+                <SectionLabel>Risks & barriers</SectionLabel>
+                <div
+                  style={{
+                    padding: "16px 18px",
+                    borderRadius: 12,
+                    background: "#fffbf8",
+                    border: "1px solid rgba(180, 83, 9, 0.18)",
+                  }}
+                >
+                  <BulletList
+                    items={(Array.isArray(p.risksAndBarriers) ? p.risksAndBarriers : []).filter(Boolean)}
+                  />
+                  {(Array.isArray(p.risksAndBarriers) ? p.risksAndBarriers : []).length === 0 ? (
+                    <p
+                      style={{
+                        margin: 0,
+                        fontFamily: openSans.style.fontFamily,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: BRAND.muted,
+                      }}
+                    >
+                      None called out in this pass—validate with your team during planning.
+                    </p>
+                  ) : null}
+                </div>
 
                 {p.timeline ? (
-                  <div style={{ marginTop: 18 }}>
-                    <div style={{ fontWeight: 800, color: BRAND.greyBlue, fontSize: 13, marginBottom: 8 }}>Timeline</div>
-                    <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 15 }}>{p.timeline.displayLabel}</div>
+                  <div style={{ marginTop: 4 }}>
+                    <SectionLabel>Timeline</SectionLabel>
+                    <ProseBlock>
+                      <strong style={{ color: BRAND.dark, fontFamily: montserrat.style.fontFamily, fontWeight: 900 }}>
+                        Duration
+                      </strong>
+                      <span style={{ display: "block", marginTop: 8 }}>{p.timeline.displayLabel}</span>
+                      {p.timeline.valueBuffered != null && p.timeline.valueRealistic != null ? (
+                        <span
+                          style={{
+                            display: "block",
+                            marginTop: 8,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: BRAND.greyBlue,
+                          }}
+                        >
+                          Planning basis: ~{p.timeline.valueRealistic} {p.timeline.unit} realistic → ~{p.timeline.valueBuffered}{" "}
+                          {p.timeline.unit} with buffer applied.
+                        </span>
+                      ) : null}
+                    </ProseBlock>
                     {Array.isArray(p.timelinePhases) && p.timelinePhases.length > 0 ? (
-                      <div style={{ marginTop: 12, display: "flex", height: 12, borderRadius: 8, overflow: "hidden" }}>
-                        {p.timelinePhases.map((ph: any, i: number) => (
-                          <div
-                            key={i}
-                            title={`${ph.label ?? ""} — ${ph.durationLabel ?? ""}`}
-                            style={{
-                              flex: Number(ph.portionPct) || 1,
-                              background: i % 2 === 0 ? BRAND.cyan : BRAND.dark,
-                              opacity: 0.75 + (i % 3) * 0.08,
-                              minWidth: 8,
-                            }}
-                          />
-                        ))}
+                      <div style={{ marginTop: 14 }}>
+                        <div
+                          style={{
+                            fontFamily: montserrat.style.fontFamily,
+                            fontSize: 11,
+                            fontWeight: 900,
+                            letterSpacing: "0.08em",
+                            color: BRAND.greyBlue,
+                            textTransform: "uppercase",
+                            marginBottom: 10,
+                          }}
+                        >
+                          Phase breakdown
+                        </div>
+                        <div style={{ display: "flex", height: 14, borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
+                          {p.timelinePhases.map((ph: any, i: number) => (
+                            <div
+                              key={i}
+                              title={`${ph.label ?? ""} — ${ph.durationLabel ?? ""}`}
+                              style={{
+                                flex: Number(ph.portionPct) || 1,
+                                background: i % 2 === 0 ? BRAND.cyan : BRAND.dark,
+                                opacity: 0.78 + (i % 3) * 0.07,
+                                minWidth: 10,
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <ol
+                          style={{
+                            margin: 0,
+                            paddingLeft: 22,
+                            fontFamily: openSans.style.fontFamily,
+                            fontSize: 14,
+                            fontWeight: 600,
+                            lineHeight: 1.65,
+                            color: BRAND.text,
+                          }}
+                        >
+                          {p.timelinePhases.map((ph: any, i: number) => (
+                            <li key={i} style={{ marginBottom: 10 }}>
+                              <span style={{ color: BRAND.dark, fontWeight: 700 }}>{ph.label}</span>
+                              {ph.portionPct != null ? (
+                                <span style={{ color: BRAND.greyBlue }}> — ~{ph.portionPct}% of effort</span>
+                              ) : null}
+                              {ph.durationLabel ? (
+                                <span style={{ display: "block", color: BRAND.muted, marginTop: 4 }}>
+                                  {ph.durationLabel}
+                                </span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
                       </div>
                     ) : null}
-                    {Array.isArray(p.timelinePhases)
-                      ? p.timelinePhases.map((ph: any, i: number) => (
-                          <div key={i} style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: BRAND.muted }}>
-                            <span style={{ color: BRAND.dark, fontWeight: 800 }}>{ph.label}</span>
-                            {ph.durationLabel ? ` — ${ph.durationLabel}` : ""}
-                          </div>
-                        ))
-                      : null}
                   </div>
                 ) : null}
               </section>
