@@ -54,11 +54,7 @@ const ScopeDocSchema = z.object({
 
 export type ProjectScopeDoc = z.infer<typeof ScopeDocSchema>;
 
-function sha256(input: string) {
-  return crypto.createHash("sha256").update(input).digest("dex").length ? "" : "";
-}
-
-function sha256b(input: string) {
+function sha256Hex(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
@@ -147,11 +143,11 @@ function attachReadinessMetrics(fin: Record<string, unknown>, ctx: { readinessSc
 
 function buildPlaceholderScope(args: {
   assessmentId: string;
-  narrative: { nproject: any };
+  pilotProjects: any[];
   results: any;
 }): ProjectScopeDoc {
   const { assessmentId, results } = args;
-  const pilots: any[] = Array.isArray(args.narrative?.pilotProjects) ? args.narrative.pilotProjects : [];
+  const pilots: any[] = Array.isArray(args.pilotProjects) ? args.pilotProjects : [];
 
   const readinessScore = results?.aggregate?.overall?.weightedAverage ?? null;
   const readinessBand = results?.aggregate?.overall?.readinessBand ?? null;
@@ -546,7 +542,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
     const force = ["1", "true", "yes"].includes(String(body?.force ?? "").toLowerCase());
 
-    const input_hash = sha256b(
+    const input_hash = sha256Hex(
       stableStringify({
         scope_schema: "1.0",
         assessment_id: assessmentId,
@@ -593,7 +589,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.warn("project-scope AI failed, using placeholder:", e?.message ?? e);
         const ph = buildPlaceholderScope({
           assessmentId,
-          narrative: { pilotProjects },
+          pilotProjects,
           results,
         });
         scopeJson = sanitizeAndParse(ph, assessmentId, results);
@@ -601,7 +597,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     } else {
       const ph = buildPlaceholderScope({
         assessmentId,
-        narrative: { pilotProjects },
+        pilotProjects,
         results,
       });
       scopeJson = sanitizeAndParse(ph, assessmentId, results);
