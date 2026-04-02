@@ -818,16 +818,21 @@ const canAttemptGenerate = Boolean(assessmentId) && (showAdminControls || hasInv
     typeof diagnosticData?.protectionExplanation === "string" ? diagnosticData.protectionExplanation : null;
 
   const organizationName =
-  (typeof diagnosticData?.assessment?.organization?.name === "string" && diagnosticData.assessment.organization.name.trim()
-    ? diagnosticData.assessment.organization.name.trim()
-    : null) ??
-  (typeof diagnosticData?.organization?.name === "string" && diagnosticData.organization.name.trim()
-    ? diagnosticData.organization.name.trim()
-    : null) ??
-  (typeof diagnosticData?.organizationName === "string" && diagnosticData.organizationName.trim()
-    ? diagnosticData.organizationName.trim()
-    : null) ??
-  "No org name present";
+    (typeof diagnosticData?.assessment?.organization_name === "string" &&
+    diagnosticData.assessment.organization_name.trim()
+      ? diagnosticData.assessment.organization_name.trim()
+      : null) ??
+    (typeof diagnosticData?.assessment?.organization?.name === "string" &&
+    diagnosticData.assessment.organization.name.trim()
+      ? diagnosticData.assessment.organization.name.trim()
+      : null) ??
+    (typeof diagnosticData?.organization?.name === "string" && diagnosticData.organization.name.trim()
+      ? diagnosticData.organization.name.trim()
+      : null) ??
+    (typeof diagnosticData?.organizationName === "string" && diagnosticData.organizationName.trim()
+      ? diagnosticData.organizationName.trim()
+      : null) ??
+    "No org name present";
   const participantsCompleted =
   typeof diagnosticData?.participantsCompleted === "number"
     ? diagnosticData.participantsCompleted

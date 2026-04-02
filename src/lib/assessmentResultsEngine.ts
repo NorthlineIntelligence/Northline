@@ -459,11 +459,15 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
     ok: true,
     status: 200,
     body: {
+      organizationName: assessment.organization?.name ?? null,
       assessment: {
         id: assessment.id,
         name: assessment.name,
         organization_id: assessment.organization_id,
         organization_name: assessment.organization?.name ?? null,
+        organization: assessment.organization
+          ? { id: assessment.organization.id, name: assessment.organization.name }
+          : null,
         type: assessment.type,
         status: assessment.status,
         created_at: assessment.created_at,

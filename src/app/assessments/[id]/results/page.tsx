@@ -712,9 +712,21 @@ export default function AssessmentResultsPage() {
   const legend = diagnosticData?.bands?.legend ?? null;
 
   const orgName =
-    typeof diagnosticData?.organizationName === "string" && diagnosticData.organizationName.trim()
+    (typeof diagnosticData?.assessment?.organization_name === "string" &&
+    diagnosticData.assessment.organization_name.trim()
+      ? diagnosticData.assessment.organization_name.trim()
+      : null) ??
+    (typeof diagnosticData?.assessment?.organization?.name === "string" &&
+    diagnosticData.assessment.organization.name.trim()
+      ? diagnosticData.assessment.organization.name.trim()
+      : null) ??
+    (typeof diagnosticData?.organization?.name === "string" && diagnosticData.organization.name.trim()
+      ? diagnosticData.organization.name.trim()
+      : null) ??
+    (typeof diagnosticData?.organizationName === "string" && diagnosticData.organizationName.trim()
       ? diagnosticData.organizationName.trim()
-      : "No org name present";
+      : null) ??
+    "No org name present";
 
   return (
     <>

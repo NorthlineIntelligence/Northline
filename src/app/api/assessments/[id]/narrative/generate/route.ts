@@ -79,8 +79,18 @@ const NarrativeSchema = z
     organization: z
       .object({
         reference: TrimmedText,
-        industry: z.union([TrimmedText, z.null()]).optional(),
-        size: z.union([TrimmedText, z.null()]).optional(),
+        industry: z
+          .preprocess(
+            (v) => (v === "" || v === undefined ? null : v),
+            z.union([TrimmedText, z.null()])
+          )
+          .optional(),
+        size: z
+          .preprocess(
+            (v) => (v === "" || v === undefined ? null : v),
+            z.union([TrimmedText, z.null()])
+          )
+          .optional(),
       })
       .strip(),
 
@@ -91,8 +101,18 @@ const NarrativeSchema = z
         anchorTruth: TrimmedText,
         tier: z
           .object({
-            label: z.union([TrimmedText, z.null()]).optional(),
-            posture: z.union([TrimmedText, z.null()]).optional(),
+            label: z
+              .preprocess(
+                (v) => (v === "" || v === undefined ? null : v),
+                z.union([z.string().trim().min(1).max(400), z.null()])
+              )
+              .optional(),
+            posture: z
+              .preprocess(
+                (v) => (v === "" || v === undefined ? null : v),
+                z.union([z.string().trim().min(1).max(400), z.null()])
+              )
+              .optional(),
             protectedScore: z.union([z.number(), z.null()]).optional(),
           })
           .strip(),
@@ -192,6 +212,217 @@ const NarrativeSchema = z
   })
   .strip();
 
+const FALLBACK_PILOT_PROJECTS: [
+  {
+    name: string;
+    businessProblem: string;
+    aiRole: string;
+    expectedOutcome: string;
+    whyThisIsAGoodStart: string;
+  },
+  {
+    name: string;
+    businessProblem: string;
+    aiRole: string;
+    expectedOutcome: string;
+    whyThisIsAGoodStart: string;
+  },
+] = [
+  {
+    name: "Operations Knowledge Support Pilot",
+    businessProblem:
+      "Teams may be losing time finding information, clarifying steps, or handling repeat requests manually.",
+    aiRole:
+      "Use AI to surface approved internal knowledge and support faster execution in a narrow workflow.",
+    expectedOutcome: "Reduce repeat manual effort and improve consistency in routine decisions.",
+    whyThisIsAGoodStart:
+      "It is practical, bounded, and easier to govern than a broad automation rollout.",
+  },
+  {
+    name: "Manual Workflow Reduction Pilot",
+    businessProblem:
+      "The assessment suggests there may be opportunities to reduce repetitive coordination or administrative work.",
+    aiRole:
+      "Use AI assistance to summarize, draft, classify, or route work inside one defined process.",
+    expectedOutcome: "Save time, reduce friction, and show measurable value quickly.",
+    whyThisIsAGoodStart:
+      "It is easier to test and measure before expanding into broader transformation work.",
+  },
+];
+
+function clipStr(s: string, max: number) {
+  if (s.length <= max) return s;
+  return s.slice(0, max);
+}
+
+function nonEmptyStr(s: unknown, fallback: string, max: number): string {
+  const t = typeof s === "string" ? s.trim() : "";
+  return t.length ? clipStr(t, max) : fallback;
+}
+
+function cleanBulletArray(arr: unknown, maxItems: number, maxLen: number): string[] {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((x) => (typeof x === "string" ? clipStr(x.trim(), maxLen) : ""))
+    .filter((x) => x.length > 0)
+    .slice(0, maxItems);
+}
+
+/**
+ * Normalizes model output so Zod validation matches what the Anthropic tool schema allows
+ * (empty strings, casing on enums, short pilot lists, assessmentId quirks).
+ */
+function coerceNarrativeForSchema(
+  raw: Record<string, any>,
+  ctx: {
+    assessmentId: string;
+    companyReference: string;
+    industry?: string | null;
+    size?: string | null;
+  }
+): Record<string, any> {
+  const out = { ...raw };
+
+  out.assessmentId = ctx.assessmentId;
+
+  if (out.organization && typeof out.organization === "object") {
+    const o = { ...out.organization };
+    o.reference = nonEmptyStr(o.reference, ctx.companyReference, 8000);
+    if (typeof o.industry === "string" && !o.industry.trim()) o.industry = ctx.industry ?? null;
+    if (typeof o.industry === "string" && o.industry.trim()) o.industry = clipStr(o.industry.trim(), 8000);
+    if (typeof o.size === "string" && !o.size.trim()) o.size = ctx.size ?? null;
+    if (typeof o.size === "string" && o.size.trim()) o.size = clipStr(o.size.trim(), 8000);
+    out.organization = o;
+  }
+
+  if (out.maturityInterpretation?.tier && typeof out.maturityInterpretation.tier === "object") {
+    const t = { ...out.maturityInterpretation.tier };
+    if (typeof t.label === "string" && !t.label.trim()) t.label = null;
+    if (typeof t.label === "string" && t.label.trim()) t.label = clipStr(t.label.trim(), 400);
+    if (typeof t.posture === "string" && !t.posture.trim()) t.posture = null;
+    if (typeof t.posture === "string" && t.posture.trim()) t.posture = clipStr(t.posture.trim(), 400);
+    if (typeof t.protectedScore !== "number" || Number.isNaN(t.protectedScore)) t.protectedScore = null;
+    out.maturityInterpretation = { ...out.maturityInterpretation, tier: t };
+  }
+
+  out.executiveSummaryBullets = cleanBulletArray(out.executiveSummaryBullets, 6, 600);
+  if (out.executiveSummaryBullets.length === 0) {
+    out.executiveSummaryBullets = [
+      `Executive summary grounded in the latest assessment inputs for ${ctx.companyReference}.`,
+    ];
+  }
+
+  if (out.maturityInterpretation && typeof out.maturityInterpretation === "object") {
+    const mi = out.maturityInterpretation;
+    out.maturityInterpretation = {
+      ...mi,
+      anchorTruth: nonEmptyStr(
+        mi.anchorTruth,
+        "Maturity represents structural capability, while readiness indicates how safely the company can move into practical AI execution.",
+        8000
+      ),
+      explanation: nonEmptyStr(mi.explanation, "Assessment interpretation from structured results and evidence.", 8000),
+    };
+  }
+
+  if (out.currentState && typeof out.currentState === "object") {
+    const cs = out.currentState;
+    out.currentState = {
+      strengths: cleanBulletArray(cs.strengths, 8, 600),
+      gaps: cleanBulletArray(cs.gaps, 8, 600),
+      blockers: cleanBulletArray(cs.blockers, 8, 600),
+    };
+  }
+
+  if (out.opportunities && typeof out.opportunities === "object") {
+    const opp = out.opportunities;
+    out.opportunities = {
+      note: nonEmptyStr(opp.note, "Practical opportunity areas grounded in assessment context.", 8000),
+      items: cleanBulletArray(opp.items, 8, 600),
+    };
+  }
+
+  let pilots = Array.isArray(out.pilotProjects) ? out.pilotProjects.filter((p) => p && typeof p === "object") : [];
+  pilots = pilots.slice(0, 3);
+  while (pilots.length < 2) {
+    pilots.push({ ...FALLBACK_PILOT_PROJECTS[pilots.length] });
+  }
+  out.pilotProjects = pilots.map((p, idx) => ({
+    name: nonEmptyStr(p.name, `Pilot initiative ${idx + 1}`, 600),
+    businessProblem: nonEmptyStr(
+      p.businessProblem,
+      "Define a narrow business problem with clear workflow boundaries.",
+      8000
+    ),
+    aiRole: nonEmptyStr(p.aiRole, "Apply AI assistance within explicit human review boundaries.", 8000),
+    expectedOutcome: nonEmptyStr(p.expectedOutcome, "Achieve a measurable improvement in time, quality, or risk.", 8000),
+    whyThisIsAGoodStart: nonEmptyStr(
+      p.whyThisIsAGoodStart,
+      "Limited scope keeps governance manageable while proving value.",
+      8000
+    ),
+  }));
+
+  if (out.guardrails && typeof out.guardrails === "object") {
+    const g = out.guardrails;
+    out.guardrails = {
+      dataProtection: cleanBulletArray(g.dataProtection, 6, 600),
+      humanOversight: cleanBulletArray(g.humanOversight, 6, 600),
+      toolGovernance: cleanBulletArray(g.toolGovernance, 6, 600),
+      adoptionRisks: cleanBulletArray(g.adoptionRisks, 6, 600),
+    };
+  }
+
+  if (out.actionPlan90Days && typeof out.actionPlan90Days === "object") {
+    const ap = out.actionPlan90Days;
+    const phase = (ph: any) => ({
+      actions: cleanBulletArray(ph?.actions, 8, 600),
+      owners: cleanBulletArray(ph?.owners, 8, 600),
+      successIndicators: cleanBulletArray(ph?.successIndicators, 8, 600),
+    });
+    out.actionPlan90Days = {
+      days0to30: phase(ap.days0to30),
+      days31to60: phase(ap.days31to60),
+      days61to90: phase(ap.days61to90),
+    };
+  }
+
+  if (out.leadershipAlignment && typeof out.leadershipAlignment === "object") {
+    const la = out.leadershipAlignment;
+    const inv = String(la.suggestedInvestmentLevel ?? "").trim().toLowerCase();
+    const level = ["low", "moderate", "strategic"].includes(inv) ? inv : "moderate";
+    out.leadershipAlignment = {
+      whereToStart: nonEmptyStr(la.whereToStart, "Prioritize one measurable pilot with clear ownership.", 8000),
+      whatToPrioritize: cleanBulletArray(la.whatToPrioritize, 6, 600),
+      suggestedInvestmentLevel: level,
+    };
+  }
+
+  if (out.risks && typeof out.risks === "object") {
+    const r = out.risks;
+    out.risks = {
+      flags: Array.isArray(r.flags) ? r.flags.slice(0, 25) : [],
+      implications: nonEmptyStr(
+        r.implications,
+        "Consider sequencing, ownership, and guardrails as you scale AI use.",
+        8000
+      ),
+    };
+  }
+
+  if (out.evidenceUsed && typeof out.evidenceUsed === "object") {
+    const ev = out.evidenceUsed;
+    out.evidenceUsed = {
+      freeTextThemes: cleanBulletArray(ev.freeTextThemes, 10, 600),
+      participantOpportunityThemes: cleanBulletArray(ev.participantOpportunityThemes, 10, 600),
+    };
+  }
+
+  out.missingInputs = cleanBulletArray(out.missingInputs, 20, 600);
+
+  return out;
+}
+
 function sanitizeNarrativeJson(
   input: any,
   ctx: {
@@ -209,8 +440,7 @@ function sanitizeNarrativeJson(
           schemaVersion:
             typeof input.schemaVersion === "string" ? input.schemaVersion : "2.0",
 
-          assessmentId:
-            typeof input.assessmentId === "string" ? input.assessmentId : ctx.assessmentId,
+          assessmentId: ctx.assessmentId,
 
           organization:
             input.organization && typeof input.organization === "object"
@@ -302,7 +532,12 @@ function sanitizeNarrativeJson(
         }
       : input;
 
-  const parsed = NarrativeSchema.safeParse(normalized);
+  const candidate =
+    normalized && typeof normalized === "object"
+      ? coerceNarrativeForSchema(normalized as Record<string, any>, ctx)
+      : normalized;
+
+  const parsed = NarrativeSchema.safeParse(candidate);
   if (parsed.success) return parsed.data;
 
   console.warn("NarrativeSchema validation failed (Zod):", {

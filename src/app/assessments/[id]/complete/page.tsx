@@ -100,13 +100,13 @@ export default function AssessmentCompletePage() {
         </div>
 
         <div style={{ marginTop: 8, color: BRAND.muted, fontWeight: 700, lineHeight: 1.45 }}>
-          Your responses have been recorded. Next, review your results and executive narrative (once available).
+          Your responses have been recorded. Next, open your executive narrative when it is available.
         </div>
 
         {/* Helpful warning if invite auth is missing */}
         {!inviteEmail || !inviteToken ? (
           <div style={{ marginTop: 12, color: "#b42318", fontWeight: 800, fontSize: 12 }}>
-            This page is missing your invite email/token. If you hit issues accessing results, ask your admin to resend
+            This page is missing your invite email/token. If you hit issues accessing your narrative, ask your admin to resend
             the invite link.
           </div>
         ) : null}
@@ -115,7 +115,7 @@ export default function AssessmentCompletePage() {
           <button
             onClick={() => {
               if (!assessmentId) return;
-              router.push(`/assessments/${assessmentId}/results${authQs}`);
+              router.push(`/assessments/${assessmentId}/narrative${authQs}`);
             }}
             disabled={!assessmentId}
             style={{
@@ -125,26 +125,6 @@ export default function AssessmentCompletePage() {
               padding: "10px 14px",
               borderRadius: 12,
               fontWeight: 950,
-              cursor: assessmentId ? "pointer" : "not-allowed",
-              opacity: assessmentId ? 1 : 0.6,
-            }}
-          >
-            View results →
-          </button>
-
-          <button
-            onClick={() => {
-              if (!assessmentId) return;
-              router.push(`/assessments/${assessmentId}/narrative${authQs}`);
-            }}
-            disabled={!assessmentId}
-            style={{
-              background: "#FFFFFF",
-              color: BRAND.dark,
-              border: `1px solid ${BRAND.border}`,
-              padding: "10px 14px",
-              borderRadius: 12,
-              fontWeight: 850,
               cursor: assessmentId ? "pointer" : "not-allowed",
               opacity: assessmentId ? 1 : 0.6,
             }}
