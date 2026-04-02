@@ -3,12 +3,14 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function AdminControlsToggleButton(props: {
+/**
+ * Enables the "Project Scope" entry point on Executive Insights for this org’s assessments.
+ */
+export default function ProjectScopeToggleButton(props: {
   organizationId: string;
   initialEnabled: boolean;
 }) {
   const { organizationId, initialEnabled } = props;
-
   const router = useRouter();
 
   const [enabled, setEnabled] = useState<boolean>(initialEnabled);
@@ -16,14 +18,14 @@ export default function AdminControlsToggleButton(props: {
   const [err, setErr] = useState<string | null>(null);
 
   async function onToggle(e: React.MouseEvent) {
-    e.preventDefault(); // IMPORTANT: prevents clicking the org row link
+    e.preventDefault();
     e.stopPropagation();
 
     setSaving(true);
     setErr(null);
 
     try {
-      const res = await fetch("/api/admin/organization/toggle-admin-controls", {
+      const res = await fetch("/api/admin/organization/toggle-project-scope", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -37,13 +39,10 @@ export default function AdminControlsToggleButton(props: {
         return;
       }
 
-      const nextEnabled = Boolean(json.show_admin_controls);
-      setEnabled(nextEnabled);
-
-      // Force server components/data to re-fetch so admin-only controls appear immediately.
+      setEnabled(Boolean(json.show_project_scope_review));
       router.refresh();
-    } catch (e: any) {
-      setErr(e?.message ?? String(e));
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -61,19 +60,27 @@ export default function AdminControlsToggleButton(props: {
           fontSize: 12,
           fontWeight: 800,
           border: "1px solid #cdd8df",
-          background: enabled ? "#173464" : "#ffffff",
-          color: enabled ? "#ffffff" : "#173464",
+          background: enabled ? "#34b0b4" : "#ffffff",
+          color: enabled ? "#173464" : "#173464",
           opacity: saving ? 0.7 : 1,
           cursor: saving ? "not-allowed" : "pointer",
           whiteSpace: "nowrap",
         }}
-        title="Toggles visibility of Raw JSON + Debug controls for this org"
+        title="When on, Executive Insights shows a Project Scope button for this organization"
       >
-        {saving ? "Saving…" : enabled ? "Admin controls: ON" : "Admin controls: OFF"}
+        {saving ? "Saving…" : enabled ? "Project scope: ON" : "Project scope: OFF"}
       </button>
 
       {err ? (
-        <div style={{ fontSize: 11, color: "#b42318", fontWeight: 700, maxWidth: 220, textAlign: "right" }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "#b42318",
+            fontWeight: 700,
+            maxWidth: 220,
+            textAlign: "right",
+          }}
+        >
           {err}
         </div>
       ) : null}

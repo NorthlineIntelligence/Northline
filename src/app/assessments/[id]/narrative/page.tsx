@@ -796,6 +796,11 @@ const allParticipantsCompleted =
 const participantLocked = !showAdminControls && allParticipantsCompleted === false;
 const hasInviteAuth = Boolean(inviteEmail && inviteToken);
 const canAttemptGenerate = Boolean(assessmentId) && (showAdminControls || hasInviteAuth);
+
+const showProjectScopeLink = Boolean(
+  diagnosticData?.assessment?.organization?.show_project_scope_review
+);
+
   // Results loader (retry once on 404)
   useEffect(() => {
     if (!assessmentId) return;
@@ -1260,6 +1265,39 @@ const participantsTotal =
       >
         {submitting ? "Generating…" : "Generate / Refresh"}
       </button>
+
+      {showProjectScopeLink ? (
+        <a
+          href={
+            assessmentId
+              ? `/assessments/${assessmentId}/project-scope${authQs ? `?${authQs}` : ""}`
+              : "#"
+          }
+          style={{
+            background: "#FFFFFF",
+            color: BRAND.dark,
+            border: `1px solid ${BRAND.border}`,
+            padding: "10px 14px",
+            borderRadius: 14,
+            fontWeight: 900,
+            cursor: assessmentId && !participantLocked ? "pointer" : "not-allowed",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
+            opacity: assessmentId && !participantLocked ? 1 : 0.55,
+            pointerEvents: assessmentId && !participantLocked ? "auto" : "none",
+          }}
+          title={
+            participantLocked
+              ? "Available once all participants have completed the assessment."
+              : "Northline Intelligence project scope overview"
+          }
+        >
+          Project Scope
+        </a>
+      ) : null}
 
       {/* Admin-only: Raw JSON toggle */}
       {showAdminControls ? (

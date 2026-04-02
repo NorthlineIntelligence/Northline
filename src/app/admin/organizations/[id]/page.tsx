@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin";
+import AdminControlsToggleButton from "../../AdminControlsToggleButton";
+import ProjectScopeToggleButton from "../../ProjectScopeToggleButton";
+import DeleteOrganizationButton from "../../DeleteOrganizationButton";
 
 interface PageProps {
   params: Promise<{
@@ -90,6 +93,21 @@ export default async function OrganizationSettingsPage({ params }: PageProps) {
                 {org.assessments.length}
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-[#cdd8df] bg-white p-6 shadow-sm">
+          <div className="text-base font-semibold text-[#173464]">Executive Insights (participant view)</div>
+          <p className="mt-1 text-sm text-[#66819e]">
+            Admin controls exposes raw JSON on the narrative page. Project scope adds a <strong>Project Scope</strong>{" "}
+            button next to Generate / Refresh.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
+            <AdminControlsToggleButton organizationId={org.id} initialEnabled={Boolean(org.show_admin_controls)} />
+            <ProjectScopeToggleButton
+              organizationId={org.id}
+              initialEnabled={Boolean(org.show_project_scope_review)}
+            />
           </div>
         </div>
 
@@ -187,6 +205,22 @@ export default async function OrganizationSettingsPage({ params }: PageProps) {
               })}
             </div>
           )}
+        </div>
+
+        <div className="mt-10 rounded-2xl border border-[#FED7D7] bg-[#FFF5F5] p-6 shadow-sm">
+          <div className="text-base font-bold text-[#9B2C2C]">Danger zone</div>
+          <p className="mt-2 text-sm font-medium text-[#4B5565]">
+            Deleting this organization removes it from the admin dashboard and permanently deletes related data in the
+            database (assessments, participants, responses, narratives, documents). This cannot be undone.
+          </p>
+          <div className="mt-4">
+            <DeleteOrganizationButton
+              organizationId={org.id}
+              organizationName={org.name}
+              variant="button"
+              redirectHref="/admin/dashboard"
+            />
+          </div>
         </div>
 
         <footer className="mt-10 border-t border-[#cdd8df] pt-6 text-xs text-[#66819e]">

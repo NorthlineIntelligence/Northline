@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin";
+import AdminControlsToggleButton from "../AdminControlsToggleButton";
+import ProjectScopeToggleButton from "../ProjectScopeToggleButton";
+import DeleteOrganizationButton from "../DeleteOrganizationButton";
 
 export default async function AdminOrganizationsPage() {
   await requireAdmin();
@@ -64,26 +67,49 @@ export default async function AdminOrganizationsPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <a
-                        href={`/admin/organizations/${org.id}`}
-                        className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
-                      >
-                        Org Settings
-                      </a>
-
-                      {latestAssessmentId ? (
+                    <div className="flex flex-col items-stretch gap-3 sm:items-end">
+                      <div className="flex flex-wrap gap-2">
                         <a
-                          href={`/assessments/${latestAssessmentId}/results`}
+                          href={`/admin/organizations/${org.id}`}
                           className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
                         >
-                          Latest Results
+                          Org Settings
                         </a>
-                      ) : (
-                        <span className="rounded-lg border border-[#e9eef4] bg-[#f6f8fc] px-3 py-2 text-sm text-[#66819e]">
-                          No assessments yet
-                        </span>
-                      )}
+
+                        {latestAssessmentId ? (
+                          <a
+                            href={`/assessments/${latestAssessmentId}/results`}
+                            className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+                          >
+                            Latest Results
+                          </a>
+                        ) : (
+                          <span className="rounded-lg border border-[#e9eef4] bg-[#f6f8fc] px-3 py-2 text-sm text-[#66819e]">
+                            No assessments yet
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2 sm:items-end">
+                        <div className="text-xs font-semibold text-[#66819e]">Executive Insights options</div>
+                        <div className="flex flex-col gap-2 sm:items-end">
+                          <AdminControlsToggleButton
+                            organizationId={org.id}
+                            initialEnabled={Boolean(org.show_admin_controls)}
+                          />
+                          <ProjectScopeToggleButton
+                            organizationId={org.id}
+                            initialEnabled={Boolean(org.show_project_scope_review)}
+                          />
+                          <div className="flex justify-end">
+                            <DeleteOrganizationButton
+                              organizationId={org.id}
+                              organizationName={org.name}
+                              variant="icon"
+                              redirectHref="/admin/organizations"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

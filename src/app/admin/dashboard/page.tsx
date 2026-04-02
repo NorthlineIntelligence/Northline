@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 import { prisma } from "@/lib/prisma";
 import AdminControlsToggleButton from "../AdminControlsToggleButton";
+import ProjectScopeToggleButton from "../ProjectScopeToggleButton";
+import DeleteOrganizationButton from "../DeleteOrganizationButton";
 export default async function AdminDashboardPage() {
   const cookieStore = await cookies();
 
@@ -40,6 +42,7 @@ export default async function AdminDashboardPage() {
       industry: true,
       created_at: true,
       show_admin_controls: true,
+      show_project_scope_review: true,
       _count: { select: { assessments: true } },
     },
   });
@@ -136,33 +139,45 @@ export default async function AdminDashboardPage() {
             ) : (
               <div className="divide-y divide-[#e9eef4]">
                 {recentOrgs.map((org) => (
-                  <a
+                  <div
                     key={org.id}
-                    href={`/admin/organizations/${org.id}`}
-                    className="block p-5 transition hover:bg-[#f6f8fc]"
+                    className="flex flex-col gap-3 p-5 transition hover:bg-[#f6f8fc] sm:flex-row sm:items-stretch"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="text-base font-semibold">{org.name}</div>
-                        <div className="mt-1 text-sm text-[#66819e]">
-                          {org.industry ? org.industry : "Industry not set"} •{" "}
-                          {org._count.assessments} assessment
-                          {org._count.assessments === 1 ? "" : "s"}
+                    <a
+                      href={`/admin/organizations/${org.id}`}
+                      className="min-w-0 flex-1 rounded-lg outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#34b0b4]"
+                    >
+                      <div className="text-base font-semibold">{org.name}</div>
+                      <div className="mt-1 text-sm text-[#66819e]">
+                        {org.industry ? org.industry : "Industry not set"} •{" "}
+                        {org._count.assessments} assessment
+                        {org._count.assessments === 1 ? "" : "s"}
+                      </div>
+                    </a>
+
+                    <div className="flex shrink-0 flex-col items-stretch gap-3 border-t border-[#e9eef4] pt-3 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+                      <div className="text-xs text-[#66819e] sm:text-right">
+                        {new Date(org.created_at).toLocaleDateString()}
+                      </div>
+                      <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                        <AdminControlsToggleButton
+                          organizationId={org.id}
+                          initialEnabled={Boolean(org.show_admin_controls)}
+                        />
+                        <ProjectScopeToggleButton
+                          organizationId={org.id}
+                          initialEnabled={Boolean(org.show_project_scope_review)}
+                        />
+                        <div className="flex justify-end sm:justify-end">
+                          <DeleteOrganizationButton
+                            organizationId={org.id}
+                            organizationName={org.name}
+                            variant="icon"
+                          />
                         </div>
                       </div>
-
-                      <div className="flex flex-col items-end gap-2">
-  <div className="text-xs text-[#66819e]">
-    {new Date(org.created_at).toLocaleDateString()}
-  </div>
-
-  <AdminControlsToggleButton
-    organizationId={org.id}
-    initialEnabled={Boolean((org as any).show_admin_controls)}
-  />
-</div>
                     </div>
-                  </a>
+                  </div>
                 ))}
               </div>
             )}
