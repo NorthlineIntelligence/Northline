@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/authz";
 import { z } from "zod";
@@ -9,28 +10,60 @@ const BodySchema = z.object({
     .nullable(),
 });
 
+function sha256Hex(input: string) {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
 /**
- * ✅ GET — used by UI to load assessment metadata
+ * GET assessment metadata + organization name.
+ * Auth: admin session OR invite link (?email=&token=) for a participant on this assessment.
  */
-export async function GET(
-  _req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id: assessmentId } = await context.params;
+
+  let authorized = false;
+
   const admin = await requireAdmin();
-  if (!admin.user) {
+  if (admin.user) {
+    authorized = true;
+  } else {
+    const url = req.nextUrl;
+    const email = (url.searchParams.get("email") ?? "").trim().toLowerCase();
+    const token = (url.searchParams.get("token") ?? "").trim();
+    if (email && token) {
+      const tokenHash = sha256Hex(token);
+      const participant = await prisma.participant.findFirst({
+        where: {
+          assessment_id: assessmentId,
+          email,
+          invite_token_hash: tokenHash,
+          OR: [{ invite_token_expires_at: null }, { invite_token_expires_at: { gt: new Date() } }],
+        },
+        select: { id: true },
+      });
+      authorized = Boolean(participant);
+    }
+  }
+
+  if (!authorized) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = await context.params;
-
   try {
     const assessment = await prisma.assessment.findUnique({
-      where: { id },
+      where: { id: assessmentId },
       select: {
         id: true,
+        name: true,
         locked_department: true,
         organization_id: true,
         created_at: true,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 

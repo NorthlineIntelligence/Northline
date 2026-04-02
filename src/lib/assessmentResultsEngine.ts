@@ -284,6 +284,8 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
           primary_pressures: true,
           growth_stage: true,
           size: true,
+          show_admin_controls: true,
+          show_project_scope_review: true,
         },
       },
     },
@@ -466,7 +468,12 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
         organization_id: assessment.organization_id,
         organization_name: assessment.organization?.name ?? null,
         organization: assessment.organization
-          ? { id: assessment.organization.id, name: assessment.organization.name }
+          ? {
+              id: assessment.organization.id,
+              name: assessment.organization.name,
+              show_admin_controls: assessment.organization.show_admin_controls,
+              show_project_scope_review: assessment.organization.show_project_scope_review,
+            }
           : null,
         type: assessment.type,
         status: assessment.status,

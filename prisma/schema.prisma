@@ -27,6 +27,8 @@ model Organization {
   documents          OrganizationDocument[]
   participants       Participant[]
   show_admin_controls Boolean               @default(false)
+  /// When true, Executive Insights shows a Project Scope link (AI-generated scopes per pilot).
+  show_project_scope_review Boolean        @default(false)
 
   @@index([name])
   @@index([created_at])
@@ -51,6 +53,7 @@ model Assessment {
   Participant        Participant[]
   Response           Response[]
   narratives         AssessmentNarrative[]
+  project_scopes     AssessmentProjectScope[]
 
   @@index([organization_id])
   @@index([status])
@@ -179,6 +182,30 @@ model AssessmentNarrative {
   @@index([assessment_id, status])
   @@index([assessment_id, created_at])
   @@index([assessment_id, status, created_at])
+}
+
+/// AI-generated executive project scopes (one row per generation; latest by version).
+model AssessmentProjectScope {
+  id            String @id @default(uuid()) @db.Uuid
+  assessment_id String @db.Uuid
+
+  version    Int
+  input_hash String
+
+  engine_version String  @default("v1")
+  schema_version String  @default("1.0")
+  model_name     String?
+  model_provider String?
+
+  scope_json Json
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  Assessment Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  @@unique([assessment_id, version], map: "project_scope_unique_per_assessment_version")
+  @@index([assessment_id, created_at])
 }
 
 model OrganizationDocument {
