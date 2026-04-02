@@ -16,10 +16,10 @@ import { isAdminEmail } from "@/lib/admin";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 const DEFAULT_NARRATIVE_MODEL = "claude-sonnet-4-6";
-const SCHEMA_VERSION = "3.0";
-const ENGINE_VERSION = "v3.0";
-const PROMPT_VERSION = "northline-executive-insights-v3";
 
+/**
+ * exactly one server client helper, used by BOTH GET and POST.
+ */
 async function getSupabaseServerClient() {
   const cookieStore = await cookies();
 
@@ -53,6 +53,14 @@ async function getSupabaseServerClient() {
   });
 }
 
+/**
+ * Narrative guardrails:
+ * - enforce allowed shape
+ * - trim + cap strings
+ * - cap array lengths
+ * - strip unknown keys
+ */
+
 const TrimmedText = z.preprocess(
   (v) => (typeof v === "string" ? v.trim() : v),
   z.string().min(1).max(8000)
@@ -61,21 +69,6 @@ const TrimmedText = z.preprocess(
 const ShortBullet = z.preprocess(
   (v) => (typeof v === "string" ? v.trim() : v),
   z.string().min(1).max(600)
-);
-
-const ExecutiveMemoText = z.preprocess(
-  (v) => (typeof v === "string" ? v.trim() : v),
-  z.string().min(1).max(7000)
-);
-
-const RiskInterpretationText = z.preprocess(
-  (v) => (typeof v === "string" ? v.trim() : v),
-  z.string().min(1).max(2500)
-);
-
-const EntryPointLongText = z.preprocess(
-  (v) => (typeof v === "string" ? v.trim() : v),
-  z.string().min(1).max(4500)
 );
 
 const NarrativeSchema = z
@@ -93,13 +86,6 @@ const NarrativeSchema = z
 
     executiveSummaryBullets: z.array(ShortBullet).max(6).default([]),
 
-    executiveMemo: z
-      .object({
-        heading: ShortBullet,
-        body: ExecutiveMemoText,
-      })
-      .strip(),
-
     maturityInterpretation: z
       .object({
         anchorTruth: TrimmedText,
@@ -110,7 +96,7 @@ const NarrativeSchema = z
             protectedScore: z.union([z.number(), z.null()]).optional(),
           })
           .strip(),
-        explanation: ExecutiveMemoText,
+        explanation: TrimmedText,
       })
       .strip(),
 
@@ -129,20 +115,6 @@ const NarrativeSchema = z
       })
       .strip(),
 
-    structuredPillarBreakdown: z
-      .array(
-        z
-          .object({
-            pillar: ShortBullet,
-            score: z.number(),
-            interpretation: TrimmedText,
-          })
-          .strip()
-      )
-      .min(4)
-      .max(4)
-      .default([]),
-
     pilotProjects: z
       .array(
         z
@@ -152,37 +124,12 @@ const NarrativeSchema = z
             aiRole: TrimmedText,
             expectedOutcome: TrimmedText,
             whyThisIsAGoodStart: TrimmedText,
-            firstMove: TrimmedText,
           })
           .strip()
       )
-      .min(3)
+      .min(2)
       .max(3)
       .default([]),
-
-    highValueEntryPoints: z
-      .array(
-        z
-          .object({
-            projectName: ShortBullet,
-            outcome: TrimmedText,
-            firstMove: TrimmedText,
-            whyNow: TrimmedText,
-            executiveRationale: EntryPointLongText,
-          })
-          .strip()
-      )
-      .min(3)
-      .max(3)
-      .default([]),
-
-    suggestedSequencing: z
-      .object({
-        phase0to30: TrimmedText,
-        phase31to90: TrimmedText,
-        phase90Plus: TrimmedText,
-      })
-      .strip(),
 
     guardrails: z
       .object({
@@ -230,16 +177,7 @@ const NarrativeSchema = z
     risks: z
       .object({
         flags: z.array(z.any()).max(25).default([]),
-        summary: ShortBullet,
-        implications: RiskInterpretationText,
-      })
-      .strip(),
-
-    riskSignals: z
-      .object({
-        summary: ShortBullet,
-        count: z.number(),
-        interpretation: RiskInterpretationText,
+        implications: TrimmedText,
       })
       .strip(),
 
@@ -254,167 +192,6 @@ const NarrativeSchema = z
   })
   .strip();
 
-function fallbackNarrative(ctx: {
-  assessmentId: string;
-  companyReference: string;
-  industry?: string | null;
-  size?: string | null;
-}) {
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    assessmentId: ctx.assessmentId,
-    organization: {
-      reference: ctx.companyReference,
-      industry: ctx.industry ?? null,
-      size: ctx.size ?? null,
-    },
-    executiveSummaryBullets: [
-      "Narrative summary is temporarily unavailable due to an output validation issue.",
-      "Core assessment results are still available and can be used for workshop preparation.",
-      "Use the protected readiness score and pillar balance as the source of truth for sequencing.",
-      "Keep the first AI efforts narrow, measurable, and tied to operational friction.",
-    ],
-    executiveMemo: {
-      heading: "Executive decision-making module.",
-      body:
-        "The executive narrative could not be generated in a validated form. Use the protected readiness score, pillar balance, and risk flags as the source of truth. The practical next step is to choose one narrow pilot tied to a recurring business bottleneck, assign clear ownership, and define success in operational terms before any wider rollout.",
-    },
-    maturityInterpretation: {
-      anchorTruth:
-        "Maturity represents structural capability, while readiness indicates how safely the company can move into practical AI execution.",
-      tier: { label: null, posture: null, protectedScore: null },
-      explanation:
-        "Narrative validation failed; use the protected results payload as the source of truth for scoring and readiness interpretation.",
-    },
-    currentState: {
-      strengths: [],
-      gaps: [],
-      blockers: [],
-    },
-    opportunities: {
-      note: "Narrative validation failed.",
-      items: [],
-    },
-    structuredPillarBreakdown: [],
-    pilotProjects: [
-      {
-        name: "Operations Knowledge Support Pilot",
-        businessProblem:
-          "Teams may be losing time finding information, clarifying steps, or handling repeat requests manually.",
-        aiRole:
-          "Use AI to surface approved internal knowledge and support faster execution in a narrow workflow.",
-        expectedOutcome:
-          "Reduce repeat manual effort and improve consistency in routine decisions.",
-        whyThisIsAGoodStart:
-          "It is practical, bounded, and easier to govern than a broad automation rollout.",
-        firstMove:
-          "Identify one recurring workflow where teams repeatedly search for the same internal answers.",
-      },
-      {
-        name: "Manual Workflow Reduction Pilot",
-        businessProblem:
-          "The assessment suggests there may be opportunities to reduce repetitive coordination or administrative work.",
-        aiRole:
-          "Use AI assistance to summarize, draft, classify, or route work inside one defined process.",
-        expectedOutcome: "Save time, reduce friction, and show measurable value quickly.",
-        whyThisIsAGoodStart:
-          "It is easier to test and measure before expanding into broader transformation work.",
-        firstMove:
-          "Map one manual workflow with repeat handoffs, delays, or frequent rework.",
-      },
-      {
-        name: "Reporting and Summary Automation Pilot",
-        businessProblem:
-          "Leadership teams often spend unnecessary time turning raw updates into recurring summaries and status reports.",
-        aiRole:
-          "Use AI to generate first-draft summaries and recurring update packages inside one controlled reporting process.",
-        expectedOutcome:
-          "Reduce reporting effort, improve consistency, and speed up internal decision cycles.",
-        whyThisIsAGoodStart:
-          "It is visible, low risk, and easier to measure than a broad process redesign.",
-        firstMove:
-          "Choose one recurring reporting workflow and document the current inputs, owners, and delays.",
-      },
-    ],
-    highValueEntryPoints: [
-      {
-        projectName: "Operations Knowledge Support Pilot",
-        outcome:
-          "Reduce time spent finding approved information and improve consistency in routine execution.",
-        firstMove:
-          "Identify one recurring workflow where teams repeatedly search for the same internal answers.",
-        whyNow:
-          "This is a bounded, practical starting point that fits an early-stage execution posture.",
-        executiveRationale:
-          "This entry point is valuable because it targets a visible source of friction without requiring a large system overhaul. When teams repeatedly stop to find the same information, the cost shows up in cycle time, inconsistency, and avoidable managerial escalations. A focused knowledge support pilot gives leadership a controlled way to test AI in a real workflow, prove value quickly, and build confidence before moving into broader automation. It also creates a cleaner path for governance because the scope is narrow, the content can be curated, and the human review model is straightforward.",
-      },
-      {
-        projectName: "Manual Workflow Reduction Pilot",
-        outcome:
-          "Reduce repetitive coordination and administrative effort in one defined process.",
-        firstMove:
-          "Map one manual workflow with repeat handoffs, delays, or frequent rework.",
-        whyNow:
-          "This creates measurable value without requiring broad transformation.",
-        executiveRationale:
-          "This is a strong early entry point because it focuses on a workflow that already consumes time and attention every week. Instead of trying to transform the organization at once, leadership can isolate one process where summaries, routing, classification, or drafting create visible drag. That makes the business case easier to understand and the operating risk easier to contain. It also helps the organization build better habits around ownership, success metrics, and adoption support, which are the same muscles needed for more ambitious AI work later.",
-      },
-      {
-        projectName: "Reporting and Summary Automation Pilot",
-        outcome:
-          "Shorten the time required to produce recurring updates, summaries, or internal reporting outputs.",
-        firstMove:
-          "Choose one recurring reporting workflow and document the current inputs, owners, and delays.",
-        whyNow:
-          "This is visible to leadership, easy to measure, and relatively low risk.",
-        executiveRationale:
-          "This entry point works well when leadership wants a practical win that is both visible and governable. Reporting workflows often sit in the background, but they consume meaningful staff time and can slow down decision-making when updates are delayed or inconsistent. A controlled summary automation pilot can improve speed and consistency while preserving human review. That makes it well suited for organizations that need proof of value, stronger internal alignment, and a manageable way to introduce AI into everyday work without creating operational disruption.",
-      },
-    ],
-    suggestedSequencing: {
-      phase0to30:
-        "Choose one narrow workflow, define success, confirm the data inputs needed, and assign role-based ownership.",
-      phase31to90:
-        "Launch one controlled pilot, monitor adoption and output quality, and refine the workflow using real operating feedback.",
-      phase90Plus:
-        "Expand only after the first pilot shows measurable value, clear oversight, and enough internal discipline to sustain the work.",
-    },
-    guardrails: {
-      dataProtection: [],
-      humanOversight: [],
-      toolGovernance: [],
-      adoptionRisks: [],
-    },
-    actionPlan90Days: {
-      days0to30: { actions: [], owners: [], successIndicators: [] },
-      days31to60: { actions: [], owners: [], successIndicators: [] },
-      days61to90: { actions: [], owners: [], successIndicators: [] },
-    },
-    leadershipAlignment: {
-      whereToStart: "Start with one narrowly scoped pilot tied to clear operational friction.",
-      whatToPrioritize: [],
-      suggestedInvestmentLevel: "low",
-    },
-    risks: {
-      flags: [],
-      summary: "No validated narrative risk summary available.",
-      implications:
-        "Narrative validation failed; review risk signals and protected scoring directly in the assessment results payload.",
-    },
-    riskSignals: {
-      summary: "Narrative validation failed.",
-      count: 0,
-      interpretation:
-        "Narrative validation failed; review risk signals directly in the protected results payload.",
-    },
-    evidenceUsed: {
-      freeTextThemes: [],
-      participantOpportunityThemes: [],
-    },
-    missingInputs: ["Narrative output did not pass schema validation."],
-  };
-}
-
 function sanitizeNarrativeJson(
   input: any,
   ctx: {
@@ -428,10 +205,13 @@ function sanitizeNarrativeJson(
     input && typeof input === "object"
       ? {
           ...input,
+
           schemaVersion:
-            typeof input.schemaVersion === "string" ? input.schemaVersion : SCHEMA_VERSION,
+            typeof input.schemaVersion === "string" ? input.schemaVersion : "2.0",
+
           assessmentId:
             typeof input.assessmentId === "string" ? input.assessmentId : ctx.assessmentId,
+
           organization:
             input.organization && typeof input.organization === "object"
               ? {
@@ -453,17 +233,11 @@ function sanitizeNarrativeJson(
                   industry: ctx.industry ?? null,
                   size: ctx.size ?? null,
                 },
+
           executiveSummaryBullets: Array.isArray(input.executiveSummaryBullets)
             ? input.executiveSummaryBullets
             : [],
-          executiveMemo:
-            input.executiveMemo && typeof input.executiveMemo === "object"
-              ? input.executiveMemo
-              : {
-                  heading: "Executive decision-making module.",
-                  body:
-                    "Executive memo unavailable. Use the protected readiness score and pillar balance as the source of truth.",
-                },
+
           maturityInterpretation:
             input.maturityInterpretation && typeof input.maturityInterpretation === "object"
               ? input.maturityInterpretation
@@ -473,29 +247,19 @@ function sanitizeNarrativeJson(
                   tier: { label: null, posture: null, protectedScore: null },
                   explanation: "TBD (insufficient context).",
                 },
+
           currentState:
             input.currentState && typeof input.currentState === "object"
               ? input.currentState
               : { strengths: [], gaps: [], blockers: [] },
+
           opportunities:
             input.opportunities && typeof input.opportunities === "object"
               ? input.opportunities
               : { note: "TBD (insufficient context).", items: [] },
-          structuredPillarBreakdown: Array.isArray(input.structuredPillarBreakdown)
-            ? input.structuredPillarBreakdown
-            : [],
+
           pilotProjects: Array.isArray(input.pilotProjects) ? input.pilotProjects : [],
-          highValueEntryPoints: Array.isArray(input.highValueEntryPoints)
-            ? input.highValueEntryPoints
-            : [],
-          suggestedSequencing:
-            input.suggestedSequencing && typeof input.suggestedSequencing === "object"
-              ? input.suggestedSequencing
-              : {
-                  phase0to30: "TBD (insufficient context).",
-                  phase31to90: "TBD (insufficient context).",
-                  phase90Plus: "TBD (insufficient context).",
-                },
+
           guardrails:
             input.guardrails && typeof input.guardrails === "object"
               ? input.guardrails
@@ -505,6 +269,7 @@ function sanitizeNarrativeJson(
                   toolGovernance: [],
                   adoptionRisks: [],
                 },
+
           actionPlan90Days:
             input.actionPlan90Days && typeof input.actionPlan90Days === "object"
               ? input.actionPlan90Days
@@ -513,6 +278,7 @@ function sanitizeNarrativeJson(
                   days31to60: { actions: [], owners: [], successIndicators: [] },
                   days61to90: { actions: [], owners: [], successIndicators: [] },
                 },
+
           leadershipAlignment:
             input.leadershipAlignment && typeof input.leadershipAlignment === "object"
               ? input.leadershipAlignment
@@ -521,26 +287,17 @@ function sanitizeNarrativeJson(
                   whatToPrioritize: [],
                   suggestedInvestmentLevel: "low",
                 },
+
           risks:
             input.risks && typeof input.risks === "object"
               ? input.risks
-              : {
-                  flags: [],
-                  summary: "TBD (insufficient context).",
-                  implications: "TBD (insufficient context).",
-                },
-          riskSignals:
-            input.riskSignals && typeof input.riskSignals === "object"
-              ? input.riskSignals
-              : {
-                  summary: "TBD (insufficient context).",
-                  count: 0,
-                  interpretation: "TBD (insufficient context).",
-                },
+              : { flags: [], implications: "TBD (insufficient context)." },
+
           evidenceUsed:
             input.evidenceUsed && typeof input.evidenceUsed === "object"
               ? input.evidenceUsed
               : { freeTextThemes: [], participantOpportunityThemes: [] },
+
           missingInputs: Array.isArray(input.missingInputs) ? input.missingInputs : [],
         }
       : input;
@@ -556,7 +313,84 @@ function sanitizeNarrativeJson(
     })),
   });
 
-  return fallbackNarrative(ctx);
+  return {
+    schemaVersion: "2.0",
+    assessmentId: ctx.assessmentId,
+    organization: {
+      reference: ctx.companyReference,
+      industry: ctx.industry ?? null,
+      size: ctx.size ?? null,
+    },
+    executiveSummaryBullets: [
+      "Narrative summary is temporarily unavailable due to an output validation issue.",
+      "Core assessment results are still available and can be used for workshop preparation.",
+    ],
+    maturityInterpretation: {
+      anchorTruth:
+        "Maturity represents structural capability, while readiness indicates how safely the company can move into practical AI execution.",
+      tier: { label: null, posture: null, protectedScore: null },
+      explanation:
+        "Narrative validation failed; use the protected results payload as the source of truth for scoring and readiness interpretation.",
+    },
+    currentState: {
+      strengths: [],
+      gaps: [],
+      blockers: [],
+    },
+    opportunities: {
+      note: "Narrative validation failed.",
+      items: [],
+    },
+    pilotProjects: [
+      {
+        name: "Operations Knowledge Support Pilot",
+        businessProblem:
+          "Teams may be losing time finding information, clarifying steps, or handling repeat requests manually.",
+        aiRole:
+          "Use AI to surface approved internal knowledge and support faster execution in a narrow workflow.",
+        expectedOutcome:
+          "Reduce repeat manual effort and improve consistency in routine decisions.",
+        whyThisIsAGoodStart:
+          "It is practical, bounded, and easier to govern than a broad automation rollout.",
+      },
+      {
+        name: "Manual Workflow Reduction Pilot",
+        businessProblem:
+          "The assessment suggests there may be opportunities to reduce repetitive coordination or administrative work.",
+        aiRole:
+          "Use AI assistance to summarize, draft, classify, or route work inside one defined process.",
+        expectedOutcome: "Save time, reduce friction, and show measurable value quickly.",
+        whyThisIsAGoodStart:
+          "It is easier to test and measure before expanding into broader transformation work.",
+      },
+    ],
+    guardrails: {
+      dataProtection: [],
+      humanOversight: [],
+      toolGovernance: [],
+      adoptionRisks: [],
+    },
+    actionPlan90Days: {
+      days0to30: { actions: [], owners: [], successIndicators: [] },
+      days31to60: { actions: [], owners: [], successIndicators: [] },
+      days61to90: { actions: [], owners: [], successIndicators: [] },
+    },
+    leadershipAlignment: {
+      whereToStart: "Start with one or two narrow pilots tied to clear operational friction.",
+      whatToPrioritize: [],
+      suggestedInvestmentLevel: "low",
+    },
+    risks: {
+      flags: [],
+      implications:
+        "Narrative validation failed; review risk signals and protected scoring directly in the assessment results payload.",
+    },
+    evidenceUsed: {
+      freeTextThemes: [],
+      participantOpportunityThemes: [],
+    },
+    missingInputs: ["Narrative output did not pass schema validation."],
+  };
 }
 
 function isNarrativeAIEnabled() {
@@ -569,6 +403,10 @@ function getAnthropicClient() {
   return new Anthropic({ apiKey });
 }
 
+/**
+ * AI generation (behind flag). We still run sanitizeNarrativeJson() after parsing.
+ * Uses the Anthropic Messages API (Claude).
+ */
 async function generateNarrativeJsonWithAI(args: {
   assessmentId: string;
   org: { industry?: string | null; size?: string | null };
@@ -629,156 +467,100 @@ async function generateNarrativeJsonWithAI(args: {
     },
     documents: { count: docCount },
     schema:
-      "Return ONLY valid JSON for the required schema: schemaVersion, assessmentId, organization, executiveSummaryBullets, executiveMemo, maturityInterpretation, currentState, opportunities, structuredPillarBreakdown, pilotProjects, highValueEntryPoints, suggestedSequencing, guardrails, actionPlan90Days, leadershipAlignment, risks, riskSignals, evidenceUsed, missingInputs.",
+      "Return ONLY valid JSON for the required schema: schemaVersion, assessmentId, organization, executiveSummaryBullets, maturityInterpretation, currentState, opportunities, pilotProjects, guardrails, actionPlan90Days, leadershipAlignment, risks, evidenceUsed, missingInputs.",
   };
 
   const model = process.env.NARRATIVE_AI_MODEL || DEFAULT_NARRATIVE_MODEL;
   const client = getAnthropicClient();
 
   const systemText = [
-    "You are Northline Intelligence's senior executive advisor and AI readiness strategist.",
-    "You produce premium executive readouts that feel board-ready, workshop-ready, and immediately actionable.",
-    "The audience is a mix of decision-makers and participants.",
-    "The output must help them understand where they stand, what it means, where the best opportunities are, and what to do next.",
+    "You are a senior strategy consultant at Northline Intelligence.",
+    "You produce a workshop-ready executive readout in plain business language.",
     "",
     "NON-NEGOTIABLE RULES:",
     "- Use ONLY the provided INPUT object.",
-    "- Do not invent facts, systems, budgets, tools, vendors, integrations, or capabilities.",
-    "- Treat the assessment results payload as protected truth.",
-    "- Do not contradict the readiness index, maturity tier, posture, pillar scores, or risk flags.",
-    "- Be calm, plainspoken, commercially credible, and specific.",
-    "- This is a premium advisory deliverable, not a generic AI summary.",
-    "",
-    "TONE RULES:",
-    "- Write in simple executive English.",
-    "- Sound confident, useful, and practical.",
-    "- Avoid hype, fluff, jargon, and vague innovation language.",
-    "- Every section must create clarity and direction.",
-    "- Never shame the organization. Frame weaknesses as execution constraints and opportunities.",
+    "- Do not invent facts, tools, systems, or capabilities.",
+    "- Be consultative, practical, calm, and specific.",
+    "- Do not criticize. Explain constraints plainly and constructively.",
+    "- Treat the results payload as protected truth and do not contradict it.",
     "",
     "ANONYMIZATION RULE:",
-    "- Do NOT use any real company name unless it appears in organization.reference.",
-    "- Prefer organization.reference or 'the company'.",
+    "- Do NOT use any real company name.",
+    '- Refer to the organization only as the provided organization.reference value or as "the company".',
+    "- Never address the output to a named company.",
     "",
     "EVIDENCE RULE:",
-    "- You MUST use freeTextResponses and participantOpportunityNotes when available.",
-    "- Pull out real friction, repeated pain points, workflow bottlenecks, decision bottlenecks, manual work, coordination issues, compliance burdens, reporting burdens, and adoption realities.",
-    "- If evidence is thin, say so clearly in missingInputs.",
+    "- You MUST use the free-text responses and participant opportunity notes as evidence.",
+    "- Use them to identify pain points, current friction, leadership concerns, adoption realities, and practical opportunity areas.",
+    "- If the evidence is thin, say so in missingInputs.",
     "",
-    "PRIMARY OUTPUT GOAL:",
-    "- Produce an executive readout that mirrors a premium Northline Executive Insights document.",
-    "- It must clearly answer four questions:",
-    "  1. Where do we stand now?",
-    "  2. What does that mean for how aggressively we should move?",
-    "  3. What are the best high-value entry points?",
-    "  4. What should we do first, next, and after that?",
-    "",
-    "LENGTH RULES:",
-    "- executiveMemo.body: target 700 to 1000 words, but never exceed 1000 words.",
-    "- maturityInterpretation.explanation: concise but substantial executive narrative, ideally 250 to 600 words.",
-    "- highValueEntryPoints[*].executiveRationale: target 300 to 500 words each.",
-    "- risks.implications: target 200 to 300 words.",
-    "- riskSignals.interpretation: target 200 to 300 words when enough evidence exists.",
+    "WORKSHOP OUTPUT REQUIREMENTS:",
+    "- The output must directly support an executive AI workshop.",
+    "- Make the output decision-oriented, not just descriptive.",
+    "- Recommendations must be practical, realistic, and aligned to current business conditions.",
+    "- Do not chase hype.",
     "",
     "SECTION REQUIREMENTS:",
     "",
     "1. executiveSummaryBullets",
-    "- Provide 4 to 6 bullets.",
-    "- These must summarize current readiness, what is working, what needs strengthening, and the leadership implication.",
-    "- At least one bullet must state how the company should move: stabilize first, proceed with intention, or ready to scale.",
+    "- 4 to 6 bullets.",
+    "- Summarize readiness, practical direction, and the main leadership takeaway.",
     "",
-    "2. executiveMemo",
-    "- heading should be a short label suitable for the Executive Memo section.",
-    "- body should be a premium executive memo in plain English.",
-    "- Explain current position, strongest pillars, weakest pillars, what that means commercially, where leadership should focus, and how to move from insight into action.",
-    "- It should sound like an advisor briefing a CEO or COO before a working session.",
+    "2. maturityInterpretation",
+    "- anchorTruth should explain that maturity is structural capability and readiness is how safely the company can move into practical AI action.",
+    "- explanation should be a concise executive narrative using plain language.",
     "",
-    "3. maturityInterpretation",
-    "- anchorTruth must explain that maturity is structural capability and readiness is how safely the organization can move into practical AI execution.",
-    "- tier should reflect the protected maturity output.",
-    "- explanation must explicitly explain what the readiness score means in business terms.",
+    "3. currentState",
+    "- strengths: what the company is already doing well.",
+    "- gaps: what is missing or inconsistent.",
+    "- blockers: what could slow progress, create risk, or prevent execution.",
     "",
-    "4. currentState",
-    "- strengths: what the organization can realistically build on now.",
-    "- gaps: what is underdeveloped or inconsistent.",
-    "- blockers: what could stall adoption, weaken ROI, or create waste if ignored.",
+    "4. opportunities",
+    "- note: one short framing paragraph.",
+    "- items: 3 to 5 practical business opportunities tied to real workflows.",
+    "- Focus on efficiency, manual work reduction, knowledge access, decision support, or coordination.",
     "",
-    "5. opportunities",
-    "- note: one short executive framing paragraph.",
-    "- items: 3 to 5 business opportunities tied to actual workflows and pains suggested by the evidence.",
+    "5. pilotProjects",
+    "- Provide EXACTLY 2 or 3 pilot projects.",
+    "- Each must include: name, businessProblem, aiRole, expectedOutcome, whyThisIsAGoodStart.",
+    "- These must be high-value, low-risk, practical first moves.",
+    "- Do not recommend vendor tools.",
     "",
-    "6. structuredPillarBreakdown",
-    "- Provide all 4 pillars.",
-    "- Each must include pillar, score, and interpretation.",
-    "- The interpretation should explain what that pillar score means for execution readiness in plain language.",
-    "",
-    "7. pilotProjects",
-    "- Provide EXACTLY 3 pilot projects.",
-    "- Each must include name, businessProblem, aiRole, expectedOutcome, whyThisIsAGoodStart, and firstMove.",
-    "- These are the operational project definitions behind the executive presentation.",
-    "",
-    "8. highValueEntryPoints",
-    "- Provide EXACTLY 3 items.",
-    "- These should usually mirror the 3 pilotProjects, rewritten for executive presentation.",
-    "- Each item must contain: projectName, outcome, firstMove, whyNow, executiveRationale.",
-    "- executiveRationale must be 300 to 500 words, plain English, commercially strong, and directly connected to the readiness profile.",
-    "",
-    "9. suggestedSequencing",
-    "- Fill phase0to30, phase31to90, and phase90Plus.",
-    "- These must explain what to do in order and why.",
-    "",
-    "10. guardrails",
+    "6. guardrails",
     "- Include practical bullets for dataProtection, humanOversight, toolGovernance, and adoptionRisks.",
     "",
-    "11. actionPlan90Days",
+    "7. actionPlan90Days",
     "- Fill all three phases: days0to30, days31to60, days61to90.",
     "- Each phase must include actions, owners, and successIndicators.",
-    "- Owners should be role-based, not named individuals.",
+    "- Be conservative and realistic.",
     "",
-    "12. leadershipAlignment",
-    "- whereToStart: one clear executive recommendation.",
+    "8. leadershipAlignment",
+    "- whereToStart: one concise recommendation.",
     "- whatToPrioritize: concrete leadership priorities.",
-    "- suggestedInvestmentLevel must be exactly one of: low, moderate, strategic.",
+    '- suggestedInvestmentLevel must be exactly one of: "low", "moderate", "strategic".',
     "",
-    "13. risks",
-    "- summary should be a short executive risk line.",
+    "9. risks",
     "- Use provided risk flags when present.",
-    "- implications should explain what happens if sequencing and governance are ignored.",
-    "- implications must target 200 to 300 words when enough evidence exists.",
+    "- implications should explain what failure or delay would look like if sequencing is ignored.",
     "",
-    "14. riskSignals",
-    "- summary should read like the executive PDF summary line.",
-    "- count should reflect the number of active risk flags when available.",
-    "- interpretation should explain the practical risk picture in plain language.",
-    "- Even if count is zero, explain what leadership should still monitor.",
-    "",
-    "15. evidenceUsed",
-    "- freeTextThemes: short theme bullets pulled from free-text responses.",
-    "- participantOpportunityThemes: short theme bullets pulled from participant opportunity notes.",
-    "",
-    "16. missingInputs",
-    "- List missing inputs, weak evidence, or context gaps that limit confidence.",
-    "",
-    "QUALITY BAR:",
-    "- This should feel like a premium executive advisory deliverable.",
-    "- It must be insightful enough to guide a live executive readout.",
-    "- It must be practical enough to turn into action immediately after the workshop.",
+    "10. evidenceUsed",
+    "- freeTextThemes: short bullets summarizing patterns seen in free-text responses.",
+    "- participantOpportunityThemes: short bullets summarizing patterns seen in participant opportunity notes.",
     "",
     "OUTPUT RULES:",
     "- Return ONLY valid JSON through the tool.",
     "- No markdown.",
     "- No extra keys.",
-    "- Keep the language clear, executive, and directly useful.",
+    "- Keep the language simple, executive, and workshop-ready.",
   ].join("\n");
 
   const userText =
-    "Generate a premium executive AI readout that matches the required JSON shape.\n\n" +
+    "Generate a workshop-ready executive AI readout that matches the required JSON shape.\n\n" +
     "Important requirements:\n" +
-    "- Use only the provided INPUT object.\n" +
+    "- Do not use a real company name.\n" +
+    "- Use only the provided organization.reference value or 'the company'.\n" +
+    "- Use the free-text evidence in the analysis.\n" +
     "- Keep every recommendation practical and grounded in the assessment data.\n" +
-    "- The executive memo must stay within 1000 words.\n" +
-    "- Each high-value entry point rationale must stay within 300 to 500 words.\n" +
-    "- The risk interpretation must stay within 200 to 300 words.\n" +
     "- Return ONLY valid JSON.\n\n" +
     "INPUT:\n" +
     JSON.stringify(aiInput);
@@ -791,19 +573,14 @@ async function generateNarrativeJsonWithAI(args: {
       "assessmentId",
       "organization",
       "executiveSummaryBullets",
-      "executiveMemo",
       "maturityInterpretation",
       "currentState",
       "opportunities",
-      "structuredPillarBreakdown",
       "pilotProjects",
-      "highValueEntryPoints",
-      "suggestedSequencing",
       "guardrails",
       "actionPlan90Days",
       "leadershipAlignment",
       "risks",
-      "riskSignals",
       "evidenceUsed",
       "missingInputs",
     ],
@@ -825,15 +602,6 @@ async function generateNarrativeJsonWithAI(args: {
         items: { type: "string" },
         maxItems: 6,
       },
-      executiveMemo: {
-        type: "object",
-        additionalProperties: false,
-        required: ["heading", "body"],
-        properties: {
-          heading: { type: "string" },
-          body: { type: "string", maxLength: 7000 },
-        },
-      },
       maturityInterpretation: {
         type: "object",
         additionalProperties: false,
@@ -849,7 +617,7 @@ async function generateNarrativeJsonWithAI(args: {
               protectedScore: { anyOf: [{ type: "number" }, { type: "null" }] },
             },
           },
-          explanation: { type: "string", maxLength: 7000 },
+          explanation: { type: "string", maxLength: 8000 },
         },
       },
       currentState: {
@@ -871,24 +639,9 @@ async function generateNarrativeJsonWithAI(args: {
           items: { type: "array", items: { type: "string" }, maxItems: 8 },
         },
       },
-      structuredPillarBreakdown: {
-        type: "array",
-        minItems: 4,
-        maxItems: 4,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["pillar", "score", "interpretation"],
-          properties: {
-            pillar: { type: "string" },
-            score: { type: "number" },
-            interpretation: { type: "string" },
-          },
-        },
-      },
       pilotProjects: {
         type: "array",
-        minItems: 3,
+        minItems: 2,
         maxItems: 3,
         items: {
           type: "object",
@@ -899,7 +652,6 @@ async function generateNarrativeJsonWithAI(args: {
             "aiRole",
             "expectedOutcome",
             "whyThisIsAGoodStart",
-            "firstMove",
           ],
           properties: {
             name: { type: "string" },
@@ -907,41 +659,7 @@ async function generateNarrativeJsonWithAI(args: {
             aiRole: { type: "string" },
             expectedOutcome: { type: "string" },
             whyThisIsAGoodStart: { type: "string" },
-            firstMove: { type: "string" },
           },
-        },
-      },
-      highValueEntryPoints: {
-        type: "array",
-        minItems: 3,
-        maxItems: 3,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "projectName",
-            "outcome",
-            "firstMove",
-            "whyNow",
-            "executiveRationale",
-          ],
-          properties: {
-            projectName: { type: "string" },
-            outcome: { type: "string" },
-            firstMove: { type: "string" },
-            whyNow: { type: "string" },
-            executiveRationale: { type: "string", maxLength: 4500 },
-          },
-        },
-      },
-      suggestedSequencing: {
-        type: "object",
-        additionalProperties: false,
-        required: ["phase0to30", "phase31to90", "phase90Plus"],
-        properties: {
-          phase0to30: { type: "string" },
-          phase31to90: { type: "string" },
-          phase90Plus: { type: "string" },
         },
       },
       guardrails: {
@@ -1008,21 +726,10 @@ async function generateNarrativeJsonWithAI(args: {
       risks: {
         type: "object",
         additionalProperties: false,
-        required: ["flags", "summary", "implications"],
+        required: ["flags", "implications"],
         properties: {
           flags: { type: "array", items: {} },
-          summary: { type: "string" },
-          implications: { type: "string", maxLength: 2500 },
-        },
-      },
-      riskSignals: {
-        type: "object",
-        additionalProperties: false,
-        required: ["summary", "count", "interpretation"],
-        properties: {
-          summary: { type: "string" },
-          count: { type: "number" },
-          interpretation: { type: "string", maxLength: 2500 },
+          implications: { type: "string" },
         },
       },
       evidenceUsed: {
@@ -1044,7 +751,7 @@ async function generateNarrativeJsonWithAI(args: {
 
   const response = await client.messages.create({
     model,
-    max_tokens: 5200,
+    max_tokens: 2600,
     system: systemText,
     messages: [{ role: "user", content: userText }],
     tools: [
@@ -1072,6 +779,9 @@ async function generateNarrativeJsonWithAI(args: {
   return toolInput;
 }
 
+/**
+ * Stable stringify: deterministic key ordering to make input_hash reproducible.
+ */
 function stableStringify(value: any): string {
   const seen = new WeakSet();
 
@@ -1099,56 +809,6 @@ function sha256NullableText(input: string | null | undefined): string | null {
   return sha256(input);
 }
 
-function pickMovementLabel(score: number | null | undefined) {
-  if (typeof score !== "number") return "Proceed with Intention";
-  if (score < 2.5) return "Stabilize First";
-  if (score < 3.5) return "Proceed with Intention";
-  return "Ready to Scale";
-}
-
-function buildPillarBreakdown(results: any) {
-  const pillars = results?.aggregate?.pillars ?? {};
-
-  const order = [
-    { key: "system_integrity", label: "System Integrity" },
-    { key: "human_alignment", label: "Human Alignment" },
-    { key: "strategic_coherence", label: "Strategic Coherence" },
-    { key: "sustainability_practice", label: "Sustainability Practice" },
-  ];
-
-  return order
-    .map(({ key, label }) => {
-      const score = pillars?.[key]?.weightedAverage;
-      if (typeof score !== "number") return null;
-
-      let interpretation = "";
-      if (label === "System Integrity") {
-        interpretation =
-          score >= 3
-            ? "Core operating data and process foundations appear stable enough to support controlled AI use in defined workflows."
-            : "Core operating data and process foundations need more consistency before AI can be trusted in higher-stakes workflows.";
-      } else if (label === "Human Alignment") {
-        interpretation =
-          score >= 3
-            ? "People and teams appear aligned enough to absorb new ways of working, which lowers early adoption risk."
-            : "Adoption may slow unless leadership creates clearer ownership, communication, and process support around new tools.";
-      } else if (label === "Strategic Coherence") {
-        interpretation =
-          score >= 3
-            ? "AI goals appear reasonably tied to business priorities, making it easier to choose projects with a clear commercial case."
-            : "The link between AI activity and business outcomes is still forming, so projects should stay tightly scoped and outcome-led.";
-      } else {
-        interpretation =
-          score >= 3
-            ? "The organization shows enough operational discipline to sustain pilots, review results, and build on early wins."
-            : "Sustainability habits are still developing, so early projects should stay simple enough to govern, review, and maintain.";
-      }
-
-      return { pillar: label, score, interpretation };
-    })
-    .filter(Boolean);
-}
-
 function buildPlaceholderNarrative(args: {
   assessmentId: string;
   org: { industry?: string | null; size?: string | null };
@@ -1158,21 +818,19 @@ function buildPlaceholderNarrative(args: {
   const { assessmentId, org, results, docCount } = args;
 
   const maturity = results?.maturity ?? {};
-  const riskFlags = Array.isArray(results?.riskFlags) ? results.riskFlags : [];
+  const riskFlags = results?.riskFlags ?? [];
   const reference = results?.narrativeContext?.reference?.companyDescriptor ?? "the company";
 
   const tierLabel = maturity?.label ?? "Unknown";
   const posture = maturity?.posture ?? "Unknown";
-  const protectedScore =
-    typeof results?.aggregate?.overall?.weightedAverage === "number"
-      ? results.aggregate.overall.weightedAverage
-      : (maturity?.tierScore ?? null);
+  const protectedScore = maturity?.tierScore ?? null;
 
-  const movementLabel = pickMovementLabel(protectedScore);
-  const pillarBreakdown = buildPillarBreakdown(results);
+  const freeTextResponses = results?.narrativeContext?.evidence?.freeTextResponses ?? [];
+  const participantOpportunityNotes =
+    results?.narrativeContext?.evidence?.participantOpportunityNotes ?? [];
 
   return {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: "2.0",
     assessmentId,
     organization: {
       reference,
@@ -1180,24 +838,17 @@ function buildPlaceholderNarrative(args: {
       size: org.size ?? null,
     },
     executiveSummaryBullets: [
-      `${reference} shows a readiness profile in the ${tierLabel} tier${posture ? ` with a ${String(posture).toLowerCase()} posture` : ""}.`,
+      `${reference} shows a current maturity profile of ${tierLabel}${
+        posture ? ` with a ${String(posture).toLowerCase()} posture` : ""
+      }.`,
       protectedScore !== null
-        ? `The protected readiness score is ${protectedScore}, which should guide sequencing and ambition.`
+        ? `The protected readiness score is ${protectedScore}, which should guide sequencing and expectations.`
         : "The protected readiness score could not be calculated from available data.",
-      `The recommended movement posture is: ${movementLabel}.`,
       riskFlags.length > 0
-        ? "Structural risk signals are present and should shape how the first AI efforts are scoped and governed."
+        ? "There are clear structural risks that should shape how the first AI efforts are scoped."
         : "No major doctrine-based risk flags were triggered, but disciplined sequencing still matters.",
-      "The next step should focus on three practical, low-risk entry points tied to real workflow friction.",
+      "The next step should focus on a small number of practical, low-risk pilots tied to real workflow friction.",
     ],
-    executiveMemo: {
-      heading: "Executive decision-making module.",
-      body:
-        `${reference} enters this assessment with a readiness profile that suggests the organization should move with discipline rather than speed for its own sake. The strongest reading from the protected results is not that the company is unready, but that it should be selective. A premium executive response here is to avoid broad AI transformation language and instead choose a small set of well-bounded opportunities that can produce value, clarify ownership, and strengthen operating habits at the same time. ` +
-        `From a leadership perspective, the real question is not whether AI should be introduced, but how to introduce it without creating wasted effort, weak adoption, or tools that get used once and abandoned. That means tying early use cases to recurring friction, defining success before launch, and keeping human oversight visible. ` +
-        `The operating implication is straightforward: begin where the workflow is repetitive, measurable, and already painful enough that improvement will be felt quickly. Use the first 90 days to prove value, tighten governance, and turn insight into a repeatable operating motion. This approach gives the organization a credible path from assessment to action without overreaching beyond what the current readiness profile supports. ` +
-        `Documents reviewed for context: ${docCount}.`,
-    },
     maturityInterpretation: {
       anchorTruth:
         "Maturity represents structural capability, while readiness indicates how safely the company can move into practical AI action.",
@@ -1207,27 +858,15 @@ function buildPlaceholderNarrative(args: {
         "Protected readiness and maturity results are available, but the narrative explanation is currently using a fallback.",
     },
     currentState: {
-      strengths: [
-        "There is enough assessment structure to identify practical first moves rather than generic AI ambitions.",
-        "The readiness profile can support narrow, governed pilots tied to visible workflow friction.",
-      ],
-      gaps: [
-        "The assessment does not yet provide enough validated narrative detail to support a more tailored strategy recommendation.",
-      ],
-      blockers: [
-        "Weak project definition, unclear ownership, and thin success metrics would slow adoption and reduce return on early pilots.",
-      ],
+      strengths: [],
+      gaps: [],
+      blockers: [],
     },
     opportunities: {
       note:
-        "The most credible opportunities are the ones that remove repeat manual work, improve consistency, or shorten decision cycles inside existing workflows.",
-      items: [
-        "Workflow summarization and handoff support in one recurring process.",
-        "Knowledge access support for repeat operational questions.",
-        "Reporting and compliance-oriented drafting or review assistance.",
-      ],
+        "Opportunity areas should be grounded in the assessment results, intake context, and the free-text participant evidence.",
+      items: [],
     },
-    structuredPillarBreakdown: pillarBreakdown.length === 4 ? pillarBreakdown : [],
     pilotProjects: [
       {
         name: "Operations Knowledge Support Pilot",
@@ -1239,8 +878,6 @@ function buildPlaceholderNarrative(args: {
           "Reduce repeat manual effort and improve consistency in routine decisions.",
         whyThisIsAGoodStart:
           "It is practical, bounded, and easier to govern than a broad automation rollout.",
-        firstMove:
-          "Identify one recurring workflow where teams repeatedly search for the same internal answers.",
       },
       {
         name: "Manual Workflow Reduction Pilot",
@@ -1251,164 +888,61 @@ function buildPlaceholderNarrative(args: {
         expectedOutcome: "Save time, reduce friction, and show measurable value quickly.",
         whyThisIsAGoodStart:
           "It is easier to test and measure before expanding into broader transformation work.",
-        firstMove:
-          "Map one manual workflow with repeat handoffs, delays, or frequent rework.",
-      },
-      {
-        name: "Reporting and Summary Automation Pilot",
-        businessProblem:
-          "Leadership teams often spend unnecessary time turning raw updates into recurring summaries and status reports.",
-        aiRole:
-          "Use AI to generate first-draft summaries and recurring update packages inside one controlled reporting process.",
-        expectedOutcome:
-          "Reduce reporting effort, improve consistency, and speed up internal decision cycles.",
-        whyThisIsAGoodStart:
-          "It is visible, low risk, and easier to measure than a broad process redesign.",
-        firstMove:
-          "Choose one recurring reporting workflow and document the current inputs, owners, and delays.",
       },
     ],
-    highValueEntryPoints: [
-      {
-        projectName: "Operations Knowledge Support Pilot",
-        outcome:
-          "Reduce time spent finding approved information and improve consistency in routine execution.",
-        firstMove:
-          "Identify one recurring workflow where teams repeatedly search for the same internal answers.",
-        whyNow:
-          "This is a bounded, practical starting point that fits the current readiness posture.",
-        executiveRationale:
-          "This entry point is valuable because it targets a visible source of friction without requiring a large system overhaul. When teams repeatedly stop to find the same information, the cost shows up in cycle time, inconsistency, and avoidable managerial escalations. A focused knowledge support pilot gives leadership a controlled way to test AI in a real workflow, prove value quickly, and build confidence before moving into broader automation. It also creates a cleaner path for governance because the scope is narrow, the content can be curated, and the human review model is straightforward. For an organization still converting readiness into action, this is exactly the kind of project that can generate practical momentum without creating unnecessary operational risk.",
-      },
-      {
-        projectName: "Manual Workflow Reduction Pilot",
-        outcome:
-          "Reduce repetitive coordination and administrative effort in one defined process.",
-        firstMove:
-          "Map one manual workflow with repeat handoffs, delays, or frequent rework.",
-        whyNow:
-          "This creates measurable value without requiring broad transformation.",
-        executiveRationale:
-          "This is a strong early entry point because it focuses on a workflow that already consumes time and attention every week. Instead of trying to transform the organization at once, leadership can isolate one process where summaries, routing, classification, or drafting create visible drag. That makes the business case easier to understand and the operating risk easier to contain. It also helps the organization build better habits around ownership, success metrics, and adoption support, which are the same muscles needed for more ambitious AI work later. In practical terms, it lets the company learn how to run AI-enabled work with discipline before expanding into larger or more integrated use cases.",
-      },
-      {
-        projectName: "Reporting and Summary Automation Pilot",
-        outcome:
-          "Shorten the time required to produce recurring updates, summaries, or internal reporting outputs.",
-        firstMove:
-          "Choose one recurring reporting workflow and document the current inputs, owners, and delays.",
-        whyNow:
-          "This is visible to leadership, easy to measure, and relatively low risk.",
-        executiveRationale:
-          "This entry point works well when leadership wants a practical win that is both visible and governable. Reporting workflows often sit in the background, but they consume meaningful staff time and can slow down decision-making when updates are delayed or inconsistent. A controlled summary automation pilot can improve speed and consistency while preserving human review. That makes it well suited for organizations that need proof of value, stronger internal alignment, and a manageable way to introduce AI into everyday work without creating operational disruption. It also helps leadership establish a higher standard for how output quality is reviewed, approved, and maintained over time.",
-      },
-    ],
-    suggestedSequencing: {
-      phase0to30:
-        "Choose one narrow workflow, define success in business terms, identify the required inputs, and confirm who owns the pilot.",
-      phase31to90:
-        "Launch one controlled pilot, monitor usage and output quality weekly, and refine the workflow based on actual operating feedback.",
-      phase90Plus:
-        "Only expand into a second or third entry point after the first pilot shows measurable value, visible adoption, and sustainable governance.",
-    },
     guardrails: {
-      dataProtection: [
-        "Use only approved business data in the pilot scope.",
-        "Separate sensitive content from general workflow content before testing.",
-      ],
-      humanOversight: [
-        "Require human review for any high-impact output before action is taken.",
-        "Assign one operational owner for output quality and exception handling.",
-      ],
-      toolGovernance: [
-        "Define the approved workflow, success criteria, and fallback process before launch.",
-        "Limit the pilot to one use case until evidence supports expansion.",
-      ],
-      adoptionRisks: [
-        "If the workflow is unclear or cumbersome, teams will route around it.",
-        "If success is not measured, leadership will not know whether value is real or assumed.",
-      ],
+      dataProtection: [],
+      humanOversight: [],
+      toolGovernance: [],
+      adoptionRisks: [],
     },
     actionPlan90Days: {
-      days0to30: {
-        actions: [
-          "Choose one pilot use case.",
-          "Map the current workflow and define success metrics.",
-        ],
-        owners: ["Executive sponsor", "Process owner", "Operational lead"],
-        successIndicators: [
-          "Pilot scope approved.",
-          "Baseline process metrics captured.",
-        ],
-      },
-      days31to60: {
-        actions: [
-          "Launch the pilot in a controlled environment.",
-          "Review outputs and exceptions weekly.",
-        ],
-        owners: ["Process owner", "Functional manager", "AI implementation lead"],
-        successIndicators: [
-          "Pilot is live with real workflow usage.",
-          "Output quality and adoption patterns are being tracked.",
-        ],
-      },
-      days61to90: {
-        actions: [
-          "Assess value against baseline.",
-          "Decide whether to refine, scale, or stop.",
-        ],
-        owners: ["Executive sponsor", "Finance or ops analyst", "Process owner"],
-        successIndicators: [
-          "Pilot value is measurable.",
-          "Leadership decision made on next-phase expansion.",
-        ],
-      },
+      days0to30: { actions: [], owners: [], successIndicators: [] },
+      days31to60: { actions: [], owners: [], successIndicators: [] },
+      days61to90: { actions: [], owners: [], successIndicators: [] },
     },
     leadershipAlignment: {
-      whereToStart:
-        "Start with one high-friction workflow where the value case is visible and the governance model can stay simple.",
-      whatToPrioritize: [
-        "Clear pilot ownership",
-        "Narrow scope",
-        "Measurable success criteria",
-        "Human review discipline",
-      ],
-      suggestedInvestmentLevel:
-        typeof protectedScore === "number" && protectedScore >= 3.5 ? "strategic" : "moderate",
+      whereToStart: "Start with one or two narrow pilots tied to clear operational friction.",
+      whatToPrioritize: [],
+      suggestedInvestmentLevel: "low",
     },
     risks: {
       flags: riskFlags,
-      summary:
-        riskFlags.length > 0
-          ? "Structural risk signals should shape the first-wave project scope."
-          : "No major structural risk flags were detected, but sequencing discipline still matters.",
       implications:
         riskFlags.length > 0
-          ? "The main risk is not simply technical failure. It is leadership approving activity that looks progressive but is not yet supported by enough organizational discipline. When that happens, teams can end up piloting tools without clear ownership, weak success metrics, and inconsistent human review. The result is usually not catastrophic failure; it is wasted effort, low adoption, and a growing perception that AI is more work than value. That is why the first projects should remain narrow, well-governed, and closely tied to business outcomes. The organization should use the early phase to prove operational value and strengthen execution habits before taking on broader change."
-          : "Even without major risk flags, the company should not mistake a clean assessment for permission to move broadly. The more common failure pattern in this situation is overreach: launching too many use cases at once, choosing projects without strong ownership, or skipping the discipline of baseline metrics and review. That creates noise instead of progress. The practical protection is to keep the first wave small, define success clearly, and require visible leadership follow-through. When sequencing remains disciplined, the organization can build confidence and value without turning early wins into fragile experiments.",
-    },
-    riskSignals: {
-      summary:
-        riskFlags.length > 0
-          ? "Structural risk signals detected"
-          : "No structural risk signals detected",
-      count: riskFlags.length,
-      interpretation:
-        riskFlags.length > 0
-          ? "The current risk picture suggests leadership should pay close attention to sequencing, ownership, and sustainability. The presence of structural flags does not mean the organization should stop. It means the first AI efforts need tighter boundaries, clearer review, and stronger executive discipline than a more mature environment would require. In practice, that means no broad automation push, no loosely defined pilots, and no success claims without measurable evidence. The right response is to choose a small number of controlled entry points, watch how they perform, and use that learning to reduce risk before expanding further."
-          : "No active structural risk flags were triggered in the assessment, which is encouraging, but it does not remove the need for good operating discipline. The main things leadership should still monitor are project sprawl, unclear ownership, weak success metrics, and the tendency to treat pilot enthusiasm as proof of long-term value. The strongest response is to keep the first wave focused, review outcomes regularly, and make sure each use case is connected to a real business problem. That approach protects momentum and keeps the organization from drifting into low-value experimentation.",
+          ? "Structural risks are present and should influence sequencing, ownership, and guardrails."
+          : "No major doctrine-based risk flags were triggered, but early efforts should still stay narrow and measurable.",
     },
     evidenceUsed: {
-      freeTextThemes: [],
-      participantOpportunityThemes: [],
+      freeTextThemes: freeTextResponses
+        .slice(0, 5)
+        .map((x: any) => x?.answer ?? "")
+        .filter(Boolean),
+      participantOpportunityThemes: participantOpportunityNotes
+        .slice(0, 5)
+        .map((x: any) => x?.note ?? "")
+        .filter(Boolean),
     },
-    missingInputs: docCount > 0 ? [] : ["No supporting documents were available to deepen the narrative context."],
+    missingInputs: [
+      "This is a fallback narrative structure.",
+      freeTextResponses.length === 0 ? "No response-level free-text evidence was available." : null,
+      participantOpportunityNotes.length === 0
+        ? "No participant AI opportunity notes were available."
+        : null,
+      docCount > 0 ? null : "No organization documents were available for additional grounding.",
+    ].filter(Boolean),
   };
 }
 
 function buildUnauthorized(message?: string) {
   return NextResponse.json({ ok: false, error: "Unauthorized", message }, { status: 401 });
 }
+
+/**
+ * Raw SQL helper coverage for fields currently out of sync with Prisma TS types:
+ * - Participant.invite_token_expires_at, invite_accepted_at, completed_at
+ * - Assessment.locked_at
+ */
 
 async function assertInviteAccess(args: { assessmentId: string; email: string; token: string }) {
   const email = args.email.trim().toLowerCase();
@@ -1477,6 +1011,9 @@ async function getAssessmentLockSnapshot(assessmentId: string) {
   return rows?.[0] ?? null;
 }
 
+/**
+ * GET: fetch latest narrative (auth: invite OR supabase session) + cache/inflight + completion gate
+ */
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const params = await context.params;
@@ -1571,6 +1108,17 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   }
 }
 
+/**
+ * POST: generate a new narrative (auth: admin session OR invite).
+ * Features preserved:
+ * - invite + admin auth
+ * - draft regeneration (admin only)
+ * - force regeneration (dev only + flag)
+ * - deterministic input hash
+ * - AI behind flag, fallback placeholder
+ * - narrative versioning
+ * - assessment locking
+ */
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const params = await context.params;
@@ -1649,16 +1197,25 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       process.env.NODE_ENV !== "production" &&
       String(process.env.ALLOW_NARRATIVE_FORCE ?? "").toLowerCase() === "true";
 
-    const url = new URL(req.url);
-    const draft = url.searchParams.get("draft") === "1" || url.searchParams.get("draft") === "true";
-    const force = allowForce && (url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true");
+    const force =
+      allowForce &&
+      ["1", "true", "yes"].includes((req.nextUrl.searchParams.get("force") ?? "").toLowerCase());
 
-    if (draft && authType !== "admin") {
-      return NextResponse.json({ ok: false, error: "Draft regeneration requires admin access." }, { status: 403 });
-    }
+    const draft = ["1", "true", "yes"].includes(
+      (req.nextUrl.searchParams.get("draft") ?? "").toLowerCase()
+    );
 
-    if (authType === "admin" && user?.email && !isAdminEmail(user.email)) {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    const isAdmin = authType === "admin" && isAdminEmail(user?.email ?? null);
+
+    if (draft && !isAdmin) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Forbidden",
+          message: "Admin only: draft regeneration is not allowed for participants.",
+        },
+        { status: 403 }
+      );
     }
 
     const completion = await allParticipantsCompleted(assessmentId);
@@ -1674,74 +1231,130 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       );
     }
 
-    const results = await buildAssessmentResultsPayload({
-      assessmentId,
-      viewer: authType === "admin" ? { type: "admin", userId: user?.id ?? null } : { type: "participant", participantId: participantIdForAccess },
-    } as any);
-
-    if (!results || (results as any)?.ok === false) {
+    const results = await buildAssessmentResultsPayload({ assessmentId });
+    if (!results.ok) {
+      return NextResponse.json(results.body, { status: results.status });
+    }
+    
+    const resultsBody = results.body;
+    const assessment = resultsBody?.assessment;
+    
+    if (!assessment) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Unable to build assessment results payload.",
-        },
+        { ok: false, error: "Assessment payload is missing assessment metadata." },
         { status: 500 }
       );
     }
-
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
+    
+    const org = await prisma.organization.findUnique({
+      where: { id: assessment.organization_id },
       select: {
         id: true,
+        name: true,
+        industry: true,
+        size: true,
+        growth_stage: true,
+        primary_pressures: true,
       },
     });
-    
-    if (!assessment) {
-      return NextResponse.json({ ok: false, error: "Assessment not found." }, { status: 404 });
+
+    if (!org) {
+      return NextResponse.json({ ok: false, error: "Organization not found" }, { status: 404 });
     }
-    
-    if (!assessment) {
-      return NextResponse.json({ ok: false, error: "Assessment not found." }, { status: 404 });
+
+    const docs = await prisma.organizationDocument.findMany({
+      where: { organization_id: org.id },
+      select: {
+        id: true,
+        title: true,
+        source_type: true,
+        source_url: true,
+        storage_path: true,
+        mime_type: true,
+        created_at: true,
+        text_extracted: true,
+      },
+      orderBy: [{ created_at: "desc" }],
+    });
+
+    const docFingerprints = docs.map((d) => ({
+      id: d.id,
+      title: d.title,
+      source_type: d.source_type,
+      source_url: d.source_url ?? null,
+      storage_path: d.storage_path ?? null,
+      mime_type: d.mime_type ?? null,
+      created_at: d.created_at,
+      text_hash: sha256NullableText(d.text_extracted),
+    }));
+
+    function normalizeForHash(value: any): any {
+      if (value === null || value === undefined) return value;
+      if (typeof value !== "object") return value;
+      if (value instanceof Date) return null;
+
+      if (Array.isArray(value)) {
+        const arr = value.map(normalizeForHash);
+
+        const allObjs = arr.every((x) => x && typeof x === "object" && !Array.isArray(x));
+        if (allObjs) {
+          const sortable = arr as any[];
+          const getSortKey = (o: any) =>
+            String(o?.key ?? o?.id ?? o?.rule ?? o?.title ?? o?.name ?? "");
+          return sortable.slice().sort((a, b) => getSortKey(a).localeCompare(getSortKey(b)));
+        }
+
+        const allPrimitives = arr.every(
+          (x) => x === null || ["string", "number", "boolean"].includes(typeof x)
+        );
+        if (allPrimitives) {
+          return (arr as any[]).slice().sort((a, b) => String(a).localeCompare(String(b)));
+        }
+
+        return arr;
+      }
+
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries(value)) {
+        const key = String(k);
+        const upper = key.toUpperCase();
+
+        const isVolatileKey =
+          upper.endsWith("_AT") ||
+          upper.endsWith("AT") ||
+          upper === "GENERATEDAT" ||
+          upper === "COMPUTEDAT" ||
+          upper === "REQUESTEDAT" ||
+          upper === "SERVERNOW" ||
+          upper === "SERVERTIME" ||
+          upper === "NOW";
+
+        if (isVolatileKey) continue;
+        out[key] = normalizeForHash(v);
+      }
+      return out;
     }
-    
-    /**
-     * Do not query document tables here unless the Prisma model is confirmed in the real schema.
-     * We can still generate a strong narrative from the protected results payload.
-     */
-    const docs: Array<{
-      id: string;
-      kind?: string | null;
-      title?: string | null;
-      content_text?: string | null;
-      file_name?: string | null;
-    }> = [];
-    
-    const org = {
-      industry: results.body?.narrativeContext?.businessContext?.industry ?? null,
-      size: results.body?.narrativeContext?.businessContext?.size ?? null,
+
+    const canonicalInput = {
+      engine_version: "v2.0",
+      schema_version: "2.0",
+      assessment_id: assessmentId,
+      organization: {
+        id: org.id,
+        name: org.name,
+        industry: org.industry ?? null,
+        size: org.size ?? null,
+        growth_stage: org.growth_stage ?? null,
+        primary_pressures: org.primary_pressures ?? null,
+      },
+      results: normalizeForHash(resultsBody),
+      documents: docFingerprints,
     };
 
-    const inputForHash = {
-      assessmentId,
-      authType,
-      org,
-      docCount: docs.length,
-      docs: docs.map((d: any) => ({
-        id: d.id,
-        kind: d.kind ?? null,
-        title: d.title ?? null,
-        file_name: d.file_name ?? null,
-        content_hash: sha256NullableText(d.content_text ?? null),
-      })),
-      results: results.body,
-      schemaVersion: SCHEMA_VERSION,
-      promptVersion: PROMPT_VERSION,
-    };
-
-    const input_hash = sha256(stableStringify(inputForHash));
+    const input_hash = sha256(stableStringify(canonicalInput));
 
     const finalNarrative = await prisma.assessmentNarrative.findFirst({
-      where: { assessment_id: assessmentId, status: "FINAL", input_hash },
+      where: { assessment_id: assessmentId, status: "FINAL" },
       orderBy: [{ version: "desc" }],
     });
 
@@ -1835,7 +1448,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const narrative_json = sanitizeNarrativeJson(narrativeCandidate, {
       assessmentId,
       companyReference:
-  results.body?.narrativeContext?.reference?.companyDescriptor ?? "the company",
+        results.body?.narrativeContext?.reference?.companyDescriptor ?? "the company",
       industry: org.industry ?? null,
       size: org.size ?? null,
     });
@@ -1846,9 +1459,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         version: nextVersion,
         status: "DRAFT",
         input_hash,
-        engine_version: ENGINE_VERSION,
-        schema_version: SCHEMA_VERSION,
-        prompt_version: usedAI ? PROMPT_VERSION : "placeholder-v3",
+        engine_version: "v2.0",
+        schema_version: "2.0",
+        prompt_version: usedAI ? "northline-workshop-v2" : "placeholder-v2",
         model_provider: usedAI ? "anthropic" : null,
         model_name: usedAI ? (process.env.NARRATIVE_AI_MODEL || DEFAULT_NARRATIVE_MODEL) : null,
         narrative_json,
