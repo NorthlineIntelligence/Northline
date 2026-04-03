@@ -1820,8 +1820,8 @@ const participantsTotal =
                 Interpretation
               </div>
               <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700, color: BRAND.greyBlue, lineHeight: 1.45 }}>
-                Plain-language context for structural risk, grounded in each readiness pillar. Regenerate Executive
-                Insights to refresh this section after new results.
+                Executive-friendly explanations of what each pillar score means for risk, with practical guidance leaders
+                can act on. Regenerate Executive Insights to refresh this section after new results.
               </div>
 
               {pillarRiskInterpretationMap ? (
@@ -1863,16 +1863,29 @@ const participantsTotal =
                     </div>
                   </div>
 
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 900,
-                      letterSpacing: "0.08em",
-                      color: BRAND.greyBlue,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    By readiness pillar (~400 words, AI-generated)
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 900,
+                        letterSpacing: "0.08em",
+                        color: BRAND.greyBlue,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      By readiness pillar
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: BRAND.greyBlue,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      How each area affects AI adoption risk and what to prioritize next.
+                    </div>
                   </div>
 
                   <div
@@ -1980,8 +1993,8 @@ const participantsTotal =
                   {typeof narrativeJson?.risks?.implications === "string" && narrativeJson.risks.implications.trim()
                     ? narrativeJson.risks.implications
                     : riskFlags.length > 0
-                      ? "Risk signals were detected, but pillar-level interpretation is not in this memo version. Click Generate / Refresh for the latest narrative (includes AI pillar risk write-up)."
-                      : "No structural triggers were detected under current rules. Continue monitoring for divergence or uneven adoption patterns. Generate / Refresh to add pillar-level AI interpretation."}
+                      ? "Risk signals were detected, but pillar-by-pillar interpretation is not in this memo version. Generate or refresh Executive Insights to include it."
+                      : "No structural triggers were detected under current rules. Continue monitoring for divergence or uneven adoption patterns. Generate or refresh Executive Insights to add pillar-by-pillar guidance."}
                 </div>
               )}
             </div>
