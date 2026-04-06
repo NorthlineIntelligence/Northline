@@ -19,6 +19,13 @@ import type {
   CrmContract,
   CrmInvoice,
 } from "@prisma/client";
+import {
+  applyScopeWorkItemsToPriceLines,
+  buildScopeWorkItemsFromScopeSummary,
+  normalizeScopeWorkItem,
+  parseScopeWorkItemsFromPayload,
+  type ScopeWorkItemKind,
+} from "@/lib/crmQuoteScopeWorkItems";
 
 type OrgResponse = {
   organization: Organization & {
@@ -259,6 +266,67 @@ export default function CrmOrganizationClient({ organizationId }: { organization
     >[];
     lines[idx] = { ...lines[idx], ...patchRow };
     void saveQuote({ ...payload, priceBookLines: lines });
+  }
+
+  const scopeSummaryForWork =
+    payload.scopeSummary && typeof payload.scopeSummary === "object"
+      ? (payload.scopeSummary as { projects?: Array<{ name?: string; summary?: string }> })
+      : null;
+
+  const workItems = useMemo(() => parseScopeWorkItemsFromPayload(payload), [payload]);
+
+  const skuOptions = useMemo(() => {
+    const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
+    const skus: string[] = [];
+    for (const row of lines) {
+      if (!row || typeof row !== "object") continue;
+      const sku = String((row as Record<string, unknown>).sku ?? "").trim();
+      if (sku && !skus.includes(sku)) skus.push(sku);
+    }
+    return skus;
+  }, [payload.priceBookLines]);
+
+  function updateWorkItem(index: number, patch: Record<string, unknown>) {
+    const items = parseScopeWorkItemsFromPayload(payload);
+    const current = items[index];
+    if (!current) return;
+    const next = [...items];
+    next[index] = normalizeScopeWorkItem({ ...current, ...patch, id: current.id }, index);
+    void saveQuote({ ...payload, scopeWorkItems: next });
+  }
+
+  function addWorkItemRow() {
+    const items = parseScopeWorkItemsFromPayload(payload);
+    const row = normalizeScopeWorkItem(
+      {
+        title: "New scope line",
+        detail: "",
+        kind: "CUSTOM",
+        sourceProjectIndex: null,
+        estimatedHours: null,
+        billQuantity: 1,
+        linkedSku: null,
+        notes: "",
+      },
+      items.length
+    );
+    void saveQuote({ ...payload, scopeWorkItems: [...items, row] });
+  }
+
+  function removeWorkItemRow(index: number) {
+    const items = parseScopeWorkItemsFromPayload(payload).filter((_, i) => i !== index);
+    void saveQuote({ ...payload, scopeWorkItems: items });
+  }
+
+  function initWorkItemsFromScopeSummary() {
+    if (!scopeSummaryForWork) return;
+    const items = buildScopeWorkItemsFromScopeSummary(scopeSummaryForWork);
+    void saveQuote({ ...payload, scopeWorkItems: items });
+  }
+
+  function applyWorkItemsToPriceBook() {
+    const next = applyScopeWorkItemsToPriceLines({ ...payload });
+    void saveQuote(next);
   }
 
   if (loadErr) {
@@ -542,6 +610,213 @@ export default function CrmOrganizationClient({ organizationId }: { organization
 
           {quote ? (
             <div className="mt-5 space-y-4">
+              <div
+                className="rounded-2xl border px-4 py-4"
+                style={{ borderColor: BRAND.border, background: "rgba(52, 176, 180, 0.06)" }}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.dark }}>
+                      Scope → quote builder
+                    </div>
+                    <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                      Turn project scope into line items: estimate hours, classify assessment vs pilot vs à la carte,
+                      and map each row to a price book SKU. Then apply selections to the table below.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={`/api/admin/crm/quotes/${quote.id}/pdf`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border bg-white px-4 py-2 text-sm font-black uppercase shadow-sm"
+                      style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    >
+                      Download PDF
+                    </a>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs font-semibold" style={{ color: BRAND.muted }}>
+                  DocuSign e-signature is not wired up yet; export PDF for now and sign outside the app.
+                </p>
+
+                {workItems.length === 0 ? (
+                  <div className="mt-4 rounded-xl border border-dashed px-4 py-6 text-center" style={{ borderColor: BRAND.border }}>
+                    <p className="text-sm font-semibold" style={{ color: BRAND.muted }}>
+                      No scope work items yet. Generate from the executive scope summary, or add rows manually.
+                    </p>
+                    <div className="mt-3 flex flex-wrap justify-center gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || !scopeSummaryForWork?.projects?.length}
+                        className="rounded-xl px-4 py-2 text-sm font-black uppercase text-white disabled:opacity-50"
+                        style={{ background: BRAND.cyan }}
+                        onClick={initWorkItemsFromScopeSummary}
+                      >
+                        Create from scope summary
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="rounded-xl border bg-white px-4 py-2 text-sm font-black uppercase disabled:opacity-50"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        onClick={addWorkItemRow}
+                      >
+                        Add blank row
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="rounded-xl px-3 py-2 text-xs font-black uppercase text-white disabled:opacity-50"
+                        style={{ background: BRAND.cyan }}
+                        onClick={addWorkItemRow}
+                      >
+                        Add row
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        onClick={applyWorkItemsToPriceBook}
+                      >
+                        Apply to price book (select lines + qty)
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border" style={{ borderColor: BRAND.border }}>
+                      <table className="min-w-[720px] w-full text-left text-sm">
+                        <thead>
+                          <tr className="text-[10px] font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                            <th className="px-2 py-2">Title</th>
+                            <th className="px-2 py-2">Type</th>
+                            <th className="px-2 py-2">Hours</th>
+                            <th className="px-2 py-2">Qty</th>
+                            <th className="px-2 py-2">Price book SKU</th>
+                            <th className="px-2 py-2">Notes</th>
+                            <th className="px-2 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {workItems.map((w, idx) => (
+                            <tr key={w.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  className="w-[140px] rounded border px-2 py-1 text-xs outline-none sm:w-[160px]"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.title}
+                                  onChange={(e) => updateWorkItem(idx, { title: e.target.value })}
+                                />
+                                <textarea
+                                  className="mt-1 w-full min-w-[140px] rounded border px-2 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  rows={2}
+                                  placeholder="Scope / deliverables"
+                                  value={w.detail}
+                                  onChange={(e) => updateWorkItem(idx, { detail: e.target.value })}
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <select
+                                  className="max-w-[130px] rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.kind}
+                                  onChange={(e) =>
+                                    updateWorkItem(idx, { kind: e.target.value as ScopeWorkItemKind })
+                                  }
+                                >
+                                  {(["PILOT", "ASSESSMENT_ONLY", "ALACARTE", "CUSTOM"] as const).map((k) => (
+                                    <option key={k} value={k}>
+                                      {k === "ASSESSMENT_ONLY"
+                                        ? "Assessment only"
+                                        : k === "ALACARTE"
+                                          ? "À la carte"
+                                          : k === "PILOT"
+                                            ? "Pilot"
+                                            : "Custom"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.5}
+                                  className="w-16 rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.estimatedHours ?? ""}
+                                  placeholder="—"
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    updateWorkItem(idx, {
+                                      estimatedHours: v === "" ? null : Math.max(0, Number(v) || 0),
+                                    });
+                                  }}
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="w-14 rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.billQuantity}
+                                  onChange={(e) =>
+                                    updateWorkItem(idx, {
+                                      billQuantity: Math.max(1, Math.round(Number(e.target.value) || 1)),
+                                    })
+                                  }
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <select
+                                  className="max-w-[120px] rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.linkedSku ?? ""}
+                                  onChange={(e) =>
+                                    updateWorkItem(idx, { linkedSku: e.target.value ? e.target.value : null })
+                                  }
+                                >
+                                  <option value="">—</option>
+                                  {skuOptions.map((sku) => (
+                                    <option key={sku} value={sku}>
+                                      {sku}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  className="w-[100px] rounded border px-2 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.notes}
+                                  onChange={(e) => updateWorkItem(idx, { notes: e.target.value })}
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <button
+                                  type="button"
+                                  className="text-xs font-black uppercase"
+                                  style={{ color: BRAND.danger }}
+                                  onClick={() => removeWorkItemRow(idx)}
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"

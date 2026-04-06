@@ -1,4 +1,5 @@
 import type { Organization, AssessmentProjectScope } from "@prisma/client";
+import { buildScopeWorkItemsFromScopeSummary } from "@/lib/crmQuoteScopeWorkItems";
 
 type ScopeJson = {
   projects?: Array<{
@@ -50,6 +51,8 @@ export function buildInitialQuotePayload(args: {
 
   const lines = Array.isArray(args.priceLineItems) ? args.priceLineItems : [];
 
+  const scopeWorkItems = buildScopeWorkItemsFromScopeSummary(scopeSummary);
+
   return {
     schemaVersion: 1,
     orgSnapshot: {
@@ -63,6 +66,7 @@ export function buildInitialQuotePayload(args: {
     },
     projectScopeVersion: args.projectScope?.version ?? null,
     scopeSummary,
+    scopeWorkItems,
     priceBookLines: lines.map((row: unknown, idx: number) => {
       const r = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
       return {
