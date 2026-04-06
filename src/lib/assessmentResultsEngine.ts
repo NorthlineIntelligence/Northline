@@ -1,4 +1,19 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+/** Row shape for organization fields used in assessment results (must match Prisma schema). */
+type OrganizationResultsRow = {
+  id: string;
+  name: string;
+  industry: string | null;
+  website: string | null;
+  context_notes: string | null;
+  primary_pressures: string | null;
+  growth_stage: string | null;
+  size: string | null;
+  show_admin_controls: boolean;
+  show_project_scope_review: boolean;
+};
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -271,26 +286,28 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
       type: true,
       status: true,
       created_at: true,
-      organization: {
-        select: {
-          id: true,
-          name: true,
-          industry: true,
-          website: true,
-          context_notes: true,
-          primary_pressures: true,
-          growth_stage: true,
-          size: true,
-          show_admin_controls: true,
-          show_project_scope_review: true,
-        },
-      },
     },
   });
 
   if (!assessment) {
     return { ok: false, status: 404, body: { error: "Assessment not found" } };
   }
+
+  const organization = (await prisma.organization.findUnique({
+    where: { id: assessment.organization_id },
+    select: {
+      id: true,
+      name: true,
+      industry: true,
+      website: true,
+      context_notes: true,
+      primary_pressures: true,
+      growth_stage: true,
+      size: true,
+      show_admin_controls: true,
+      show_project_scope_review: true,
+    } as Prisma.OrganizationSelect,
+  })) as OrganizationResultsRow | null;
 
   const questions = await prisma.question.findMany({
     where: { active: true },
@@ -413,8 +430,8 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
   }));
 
   const companyDescriptor = getCompanyDescriptor({
-    industry: assessment.organization?.industry,
-    contextNotes: assessment.organization?.context_notes,
+    industry: organization?.industry,
+    contextNotes: organization?.context_notes,
   });
 
   const freeTextResponses = responses
@@ -457,18 +474,18 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
     ok: true,
     status: 200,
     body: {
-      organizationName: assessment.organization?.name ?? null,
+      organizationName: organization?.name ?? null,
       assessment: {
         id: assessment.id,
         name: assessment.name,
         organization_id: assessment.organization_id,
-        organization_name: assessment.organization?.name ?? null,
-        organization: assessment.organization
+        organization_name: organization?.name ?? null,
+        organization: organization
           ? {
-              id: assessment.organization.id,
-              name: assessment.organization.name,
-              show_admin_controls: assessment.organization.show_admin_controls,
-              show_project_scope_review: assessment.organization.show_project_scope_review,
+              id: organization.id,
+              name: organization.name,
+              show_admin_controls: organization.show_admin_controls,
+              show_project_scope_review: organization.show_project_scope_review,
             }
           : null,
         type: assessment.type,
@@ -506,12 +523,12 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
           namingPolicy: "DO NOT USE COMPANY NAME",
         },
         businessContext: {
-          industry: assessment.organization?.industry,
-          contextNotes: assessment.organization?.context_notes,
-          website: assessment.organization?.website,
-          primaryPressures: assessment.organization?.primary_pressures,
-          growthStage: assessment.organization?.growth_stage,
-          size: assessment.organization?.size,
+          industry: organization?.industry,
+          contextNotes: organization?.context_notes,
+          website: organization?.website,
+          primaryPressures: organization?.primary_pressures,
+          growthStage: organization?.growth_stage,
+          size: organization?.size,
         },
         evidence: {
           freeTextResponses,

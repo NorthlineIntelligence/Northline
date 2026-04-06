@@ -5,7 +5,7 @@ import { getAdminApiUser } from "@/lib/adminApiAuth";
 import {
   getPriceBookStorageBucket,
   getSupabaseServiceRole,
-  isLikelySupabaseJwtApiKey,
+  isLikelySupabaseServiceRoleApiKey,
   normalizeSupabaseSecret,
   serviceRoleKeyTroubleshootingHint,
 } from "@/lib/supabaseServiceRole";
@@ -47,12 +47,12 @@ export async function POST(req: NextRequest) {
       { status: 503 }
     );
   }
-  if (!isLikelySupabaseJwtApiKey(rawKey)) {
+  if (!isLikelySupabaseServiceRoleApiKey(rawKey)) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "SUPABASE_SERVICE_ROLE_KEY does not look like a valid Supabase API JWT. Copy the **service_role** **secret** from Dashboard → Project Settings → API (long value with two dots), with no quotes or line breaks.",
+          "SUPABASE_SERVICE_ROLE_KEY does not look valid. Use a **Secret** key (`sb_secret_...`) from API Keys, or the legacy **service_role** JWT (three dot-separated parts), with no quotes or line breaks.",
       },
       { status: 400 }
     );

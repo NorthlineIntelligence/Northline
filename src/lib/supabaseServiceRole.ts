@@ -16,12 +16,22 @@ export function normalizeSupabaseSecret(raw: string | undefined): string {
 }
 
 /**
- * Hosted Supabase API keys are JWTs with three dot-separated segments (typically start with "eyJ").
+ * Legacy `service_role` keys are JWTs with three dot-separated segments (often start with "eyJ").
  */
 export function isLikelySupabaseJwtApiKey(key: string): boolean {
   if (!key || key.length < 80) return false;
   const parts = key.split(".");
   return parts.length === 3 && parts.every((p) => p.length > 0);
+}
+
+/**
+ * Accepts either a legacy JWT `service_role` key or a hosted-platform Secret key (`sb_secret_...`).
+ * See https://supabase.com/docs/guides/api/api-keys
+ */
+export function isLikelySupabaseServiceRoleApiKey(key: string): boolean {
+  if (!key) return false;
+  if (key.startsWith("sb_secret_") && key.length >= 20) return true;
+  return isLikelySupabaseJwtApiKey(key);
 }
 
 /**
@@ -33,10 +43,10 @@ export function serviceRoleKeyTroubleshootingHint(apiMessage: string): string | 
     return null;
   }
   return [
-    "Supabase rejected the API key (not a valid JWT for this project).",
-    "Fix: In Supabase Dashboard → Project Settings → API, copy the **service_role** key under **Project API keys** (the long **secret** value, usually starting with eyJ).",
-    "Set `SUPABASE_SERVICE_ROLE_KEY` in `.env` with no quotes and no line breaks. It must be from the **same project** as `NEXT_PUBLIC_SUPABASE_URL`.",
-    "Do not use the anon key, JWT secret, or a key from a different Supabase project.",
+    "Supabase rejected the API key for this project.",
+    "Fix: Dashboard → Project Settings → API → API Keys: use a **Secret** key (`sb_secret_...`) or, under Legacy API keys, the **service_role** JWT.",
+    "Set `SUPABASE_SERVICE_ROLE_KEY` in `.env` with no quotes or line breaks; must match the same project as `NEXT_PUBLIC_SUPABASE_URL`.",
+    "Do not use the publishable/anon key or a key from another project.",
   ].join(" ");
 }
 
