@@ -16,22 +16,18 @@ export function normalizeSupabaseSecret(raw: string | undefined): string {
 }
 
 /**
- * Legacy `service_role` keys are JWTs with three dot-separated segments (often start with "eyJ").
+ * API keys (JWT or sb_secret) must not contain whitespace; pasted values often include line breaks.
  */
-export function isLikelySupabaseJwtApiKey(key: string): boolean {
-  if (!key || key.length < 80) return false;
-  const parts = key.split(".");
-  return parts.length === 3 && parts.every((p) => p.length > 0);
+export function normalizeSupabaseApiKey(raw: string | undefined): string {
+  return normalizeSupabaseSecret(raw).replace(/\s+/g, "");
 }
 
 /**
- * Accepts either a legacy JWT `service_role` key or a hosted-platform Secret key (`sb_secret_...`).
- * See https://supabase.com/docs/guides/api/api-keys
+ * Hosted publishable key — wrong variable for Storage admin; use a Secret key or legacy service_role JWT.
  */
-export function isLikelySupabaseServiceRoleApiKey(key: string): boolean {
-  if (!key) return false;
-  if (key.startsWith("sb_secret_") && key.length >= 20) return true;
-  return isLikelySupabaseJwtApiKey(key);
+export function isLikelySupabasePublishableApiKey(key: string): boolean {
+  const k = key.replace(/\s+/g, "");
+  return k.startsWith("sb_publishable_");
 }
 
 /**
@@ -56,7 +52,7 @@ export function serviceRoleKeyTroubleshootingHint(apiMessage: string): string | 
  */
 export function getSupabaseServiceRole(): SupabaseClient | null {
   const url = normalizeSupabaseSecret(process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const key = normalizeSupabaseSecret(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const key = normalizeSupabaseApiKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (!url || !key) return null;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

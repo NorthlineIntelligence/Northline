@@ -5,8 +5,8 @@ import { getAdminApiUser } from "@/lib/adminApiAuth";
 import {
   getPriceBookStorageBucket,
   getSupabaseServiceRole,
-  isLikelySupabaseServiceRoleApiKey,
-  normalizeSupabaseSecret,
+  isLikelySupabasePublishableApiKey,
+  normalizeSupabaseApiKey,
   serviceRoleKeyTroubleshootingHint,
 } from "@/lib/supabaseServiceRole";
 import { parsePriceBookFile, safeStorageFileName } from "@/lib/priceBookFileParse";
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   const auth = await getAdminApiUser();
   if (!auth.ok) return auth.response;
 
-  const rawKey = normalizeSupabaseSecret(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const rawKey = normalizeSupabaseApiKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (!rawKey) {
     return NextResponse.json(
       {
@@ -47,12 +47,22 @@ export async function POST(req: NextRequest) {
       { status: 503 }
     );
   }
-  if (!isLikelySupabaseServiceRoleApiKey(rawKey)) {
+  if (isLikelySupabasePublishableApiKey(rawKey)) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "SUPABASE_SERVICE_ROLE_KEY does not look valid. Use a **Secret** key (`sb_secret_...`) from API Keys, or the legacy **service_role** JWT (three dot-separated parts), with no quotes or line breaks.",
+          "SUPABASE_SERVICE_ROLE_KEY is set to a **Publishable** key (`sb_publishable_...`). Use a **Secret** key from the same API Keys page, or the legacy **service_role** JWT — not the anon/publishable key.",
+      },
+      { status: 400 }
+    );
+  }
+  if (rawKey.length < 20) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "SUPABASE_SERVICE_ROLE_KEY is too short. Copy the full Secret (`sb_secret_...`) or legacy **service_role** JWT from Dashboard → Settings → API.",
       },
       { status: 400 }
     );
