@@ -53,7 +53,11 @@ export function normalizeScopeWorkItem(raw: unknown, fallbackIndex: number): Sco
 }
 
 export type ScopeSummaryForWorkItems = {
-  projects?: Array<{ name?: string; summary?: string }>;
+  projects?: Array<{
+    name?: string;
+    summary?: string;
+    deliverables?: string[];
+  }>;
 };
 
 export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWorkItems): ScopeWorkItem[] {
@@ -117,6 +121,25 @@ export function withScopeWorkItems(
   payload: Record<string, unknown>,
   items: ScopeWorkItem[]
 ): Record<string, unknown> {
+  return { ...payload, scopeWorkItems: items };
+}
+
+/** Refresh PILOT work item title/detail from scopeSummary (keeps SKUs, hours, assessment/alacarte rows). */
+export function syncPilotWorkItemsFromScopeSummary(
+  payload: Record<string, unknown>,
+  summary: ScopeSummaryForWorkItems
+): Record<string, unknown> {
+  const projs = Array.isArray(summary.projects) ? summary.projects : [];
+  const items = parseScopeWorkItemsFromPayload(payload).map((item) => {
+    if (item.kind !== "PILOT" || item.sourceProjectIndex === null) return item;
+    const p = projs[item.sourceProjectIndex];
+    if (!p || typeof p !== "object") return item;
+    const r = p as Record<string, unknown>;
+    const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : item.title;
+    const summaryText = typeof r.summary === "string" ? r.summary.trim() : "";
+    if (!summaryText) return { ...item, title: name };
+    return { ...item, title: name, detail: summaryText.slice(0, 4000) };
+  });
   return { ...payload, scopeWorkItems: items };
 }
 

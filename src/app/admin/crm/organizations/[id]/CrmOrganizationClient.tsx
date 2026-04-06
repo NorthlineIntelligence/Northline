@@ -24,8 +24,10 @@ import {
   buildScopeWorkItemsFromScopeSummary,
   normalizeScopeWorkItem,
   parseScopeWorkItemsFromPayload,
+  syncPilotWorkItemsFromScopeSummary,
   type ScopeWorkItemKind,
 } from "@/lib/crmQuoteScopeWorkItems";
+import { summarizeScopeForQuote } from "@/lib/crmQuoteDefaults";
 
 type OrgResponse = {
   organization: Organization & {
@@ -270,7 +272,17 @@ export default function CrmOrganizationClient({ organizationId }: { organization
 
   const scopeSummaryForWork =
     payload.scopeSummary && typeof payload.scopeSummary === "object"
-      ? (payload.scopeSummary as { projects?: Array<{ name?: string; summary?: string }> })
+      ? (payload.scopeSummary as {
+          executiveMemo?: string;
+          projects?: Array<{
+            name?: string;
+            summary?: string;
+            deliverables?: string[];
+            timelineLabel?: string;
+            costBand?: string | null;
+            objectivesBrief?: string;
+          }>;
+        })
       : null;
 
   const workItems = useMemo(() => parseScopeWorkItemsFromPayload(payload), [payload]);
@@ -326,6 +338,26 @@ export default function CrmOrganizationClient({ organizationId }: { organization
 
   function applyWorkItemsToPriceBook() {
     const next = applyScopeWorkItemsToPriceLines({ ...payload });
+    void saveQuote(next);
+  }
+
+  async function refreshSimplifiedReadoutFromSnapshot() {
+    if (!quote) return;
+    const snap = quote.project_scope_snapshot;
+    if (snap === null || typeof snap !== "object") {
+      setQuoteErr(
+        "No project scope snapshot on this quote. Click “Re-sync from latest scope” (or create a new quote) first."
+      );
+      return;
+    }
+    setQuoteErr(null);
+    const nextSummary = summarizeScopeForQuote(snap);
+    await saveQuote({ ...payload, scopeSummary: nextSummary });
+  }
+
+  function syncPilotRowsToReadout() {
+    if (!scopeSummaryForWork?.projects?.length) return;
+    const next = syncPilotWorkItemsFromScopeSummary(payload, scopeSummaryForWork);
     void saveQuote(next);
   }
 
@@ -605,6 +637,96 @@ export default function CrmOrganizationClient({ organizationId }: { organization
           {quoteErr ? (
             <div className="mt-3 rounded-lg px-3 py-2 text-sm font-bold" style={{ background: "#fef2f2", color: BRAND.danger }}>
               {quoteErr}
+            </div>
+          ) : null}
+
+          {quote && scopeSummaryForWork ? (
+            <div
+              className="mt-5 rounded-2xl border px-4 py-4"
+              style={{ borderColor: BRAND.border, background: "rgba(23, 52, 100, 0.04)" }}
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.dark }}>
+                    Scope readout simplifier
+                  </div>
+                  <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                    What we will actually do: deliverables, a short scope extract, timeline, and cost band — without the
+                    long narrative. This is what feeds quote line descriptions when you create or sync work items.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || !quote.project_scope_snapshot}
+                    className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
+                    style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    onClick={() => void refreshSimplifiedReadoutFromSnapshot()}
+                  >
+                    Rebuild readout from scope
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || workItems.length === 0}
+                    className="rounded-xl px-3 py-2 text-xs font-black uppercase text-white disabled:opacity-50"
+                    style={{ background: BRAND.cyan }}
+                    onClick={syncPilotRowsToReadout}
+                  >
+                    Sync pilot rows
+                  </button>
+                </div>
+              </div>
+
+              {scopeSummaryForWork.executiveMemo ? (
+                <p className="mt-4 text-sm font-semibold leading-relaxed" style={{ color: BRAND.text }}>
+                  <span className="font-black" style={{ color: BRAND.greyBlue }}>
+                    Executive brief:{" "}
+                  </span>
+                  {scopeSummaryForWork.executiveMemo}
+                </p>
+              ) : null}
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {(scopeSummaryForWork.projects ?? []).map((p, i) => (
+                  <div
+                    key={`${p.name ?? i}-${i}`}
+                    className="rounded-xl border bg-white/90 p-4 shadow-sm"
+                    style={{ borderColor: BRAND.border }}
+                  >
+                    <div className="text-sm font-black" style={{ color: BRAND.dark }}>
+                      {p.name ?? `Initiative ${i + 1}`}
+                    </div>
+                    {p.timelineLabel ? (
+                      <p className="mt-1 text-xs font-bold" style={{ color: BRAND.muted }}>
+                        Timeline: {p.timelineLabel}
+                      </p>
+                    ) : null}
+                    {p.costBand ? (
+                      <p className="mt-0.5 text-xs font-bold" style={{ color: BRAND.muted }}>
+                        Cost band (indicative): {p.costBand}
+                      </p>
+                    ) : null}
+                    {Array.isArray(p.deliverables) && p.deliverables.length > 0 ? (
+                      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm font-semibold" style={{ color: BRAND.text }}>
+                        {p.deliverables.map((d, j) => (
+                          <li key={j}>{d}</li>
+                        ))}
+                      </ul>
+                    ) : p.summary ? (
+                      <pre
+                        className="mt-3 whitespace-pre-wrap font-sans text-sm font-semibold leading-relaxed"
+                        style={{ color: BRAND.text }}
+                      >
+                        {p.summary}
+                      </pre>
+                    ) : (
+                      <p className="mt-2 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                        No simplified text yet — use “Rebuild readout from scope”.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
 

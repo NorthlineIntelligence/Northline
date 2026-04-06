@@ -1,38 +1,34 @@
 import type { Organization, AssessmentProjectScope } from "@prisma/client";
 import { buildScopeWorkItemsFromScopeSummary } from "@/lib/crmQuoteScopeWorkItems";
+import { simplifyScopeJsonForQuote } from "@/lib/scopeReadoutSimplifier";
 
-type ScopeJson = {
-  projects?: Array<{
-    name?: string;
-    scopeOfWork?: string;
-    objectives?: string;
-    costEstimate?: string;
-    readiness?: { executiveMemo?: string };
-  }>;
-  readiness?: { executiveMemo?: string };
+/** Stored on `quote_payload.scopeSummary` — compact readout + structured fields for CRM. */
+export type ScopeSummaryProject = {
+  name: string;
+  /** Single block: deliverables, brief scope, timeline — feeds quote work items */
+  summary: string;
+  deliverables: string[];
+  timelineLabel: string;
+  costBand: string | null;
+  objectivesBrief: string;
+  phaseHighlights: string[];
 };
 
 export function summarizeScopeForQuote(scopeJson: unknown): {
   executiveMemo: string;
-  projects: Array<{ name: string; summary: string }>;
+  projects: ScopeSummaryProject[];
 } {
-  const doc = (scopeJson && typeof scopeJson === "object" ? scopeJson : {}) as ScopeJson;
-  const projects = Array.isArray(doc.projects) ? doc.projects : [];
-  const executiveMemo =
-    typeof doc.readiness?.executiveMemo === "string" ? doc.readiness.executiveMemo.trim() : "";
-
+  const s = simplifyScopeJsonForQuote(scopeJson);
   return {
-    executiveMemo: executiveMemo.slice(0, 8000),
-    projects: projects.map((p, i) => ({
-      name: typeof p?.name === "string" && p.name.trim() ? p.name.trim() : `Initiative ${i + 1}`,
-      summary: [
-        typeof p?.scopeOfWork === "string" ? p.scopeOfWork : "",
-        typeof p?.objectives === "string" ? p.objectives : "",
-        typeof p?.costEstimate === "string" ? `Estimate band: ${p.costEstimate}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")
-        .slice(0, 4000),
+    executiveMemo: s.executiveBrief.slice(0, 2000),
+    projects: s.projects.map((p) => ({
+      name: p.name,
+      summary: p.quoteBasisText,
+      deliverables: p.deliverables,
+      timelineLabel: p.timelineLabel,
+      costBand: p.costBand,
+      objectivesBrief: p.objectivesBrief,
+      phaseHighlights: p.phaseHighlights,
     })),
   };
 }
@@ -88,6 +84,8 @@ export function buildInitialQuotePayload(args: {
     }>,
     terms:
       "Payment net 30 unless otherwise agreed. Final scope, deliverables, and fees to be confirmed in a Statement of Work following written acceptance of this quote.",
-    coverNarrative: "",
+    coverNarrative: scopeSummary.executiveMemo
+      ? `${scopeSummary.executiveMemo}\n\nThis quote is built from the simplified scope readout (deliverables, timelines, and investment bands are indicative until SOW).`
+      : "",
   };
 }
