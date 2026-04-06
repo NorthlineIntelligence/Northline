@@ -35,12 +35,20 @@ export default async function AdminOrganizationsPage() {
             </p>
           </div>
 
-          <a
-            href="/admin/organizations/new"
-            className="rounded-lg border border-[#cdd8df] bg-white px-4 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
-          >
-            + Create New Organization
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/admin/crm"
+              className="rounded-lg border border-[#cdd8df] bg-white px-4 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+            >
+              Client CRM
+            </a>
+            <a
+              href="/admin/organizations/new"
+              className="rounded-lg border border-[#cdd8df] bg-white px-4 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+            >
+              + Create New Organization
+            </a>
+          </div>
         </header>
 
         <div className="grid gap-4">

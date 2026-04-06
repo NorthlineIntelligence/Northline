@@ -77,6 +77,16 @@ export default async function AdminDashboardPage() {
 
         <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
           <a
+            href="/admin/crm"
+            className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
+          >
+            <div className="text-base font-semibold">Client CRM</div>
+            <div className="mt-1 text-sm text-[#66819e]">
+              Pipeline, Executive Insights links, project scope quotes, contracts, and invoices.
+            </div>
+          </a>
+
+          <a
             href="/admin/organizations/new"
             className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
           >

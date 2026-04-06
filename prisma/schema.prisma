@@ -30,8 +30,22 @@ model Organization {
   /// When true, Executive Insights shows a Project Scope link (AI-generated scopes per pilot).
   show_project_scope_review Boolean        @default(false)
 
+  /// CRM: consulting pipeline stage for this client account
+  crm_pipeline_stage     CrmPipelineStage  @default(NEW_PROSPECT)
+  crm_stage_updated_at    DateTime?
+  /// Next follow-up / action due (used for overdue alerts)
+  crm_next_follow_up_at DateTime?
+  crm_internal_notes    String?            @db.Text
+
+  org_contacts   OrgContact[]
+  crm_quotes     CrmQuote[]
+  crm_contracts  CrmContract[]
+  crm_invoices   CrmInvoice[]
+
   @@index([name])
   @@index([created_at])
+  @@index([crm_pipeline_stage])
+  @@index([crm_next_follow_up_at])
 }
 
 model Assessment {
@@ -54,6 +68,7 @@ model Assessment {
   Response           Response[]
   narratives         AssessmentNarrative[]
   project_scopes     AssessmentProjectScope[]
+  crm_quotes         CrmQuote[]
 
   @@index([organization_id])
   @@index([status])
@@ -259,4 +274,130 @@ enum NarrativeStatus {
   DRAFT
   FINAL
   ARCHIVED
+}
+
+/// Client consulting / sales pipeline (CRM)
+enum CrmPipelineStage {
+  NEW_PROSPECT
+  CONSULTATION
+  ASSESSMENT_ACTIVE
+  ASSESSMENT_COMPLETE
+  WORKSHOP_SCHEDULED
+  WORKSHOP_CONDUCTED
+  QUOTE_DRAFTED
+  QUOTE_DELIVERED
+  QUOTE_ACCEPTED
+}
+
+enum CrmQuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+}
+
+model OrgContact {
+  id              String       @id @default(uuid()) @db.Uuid
+  organization_id String       @db.Uuid
+  name            String
+  email           String?
+  phone           String?
+  title           String?
+  is_archived     Boolean      @default(false)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  organization          Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  quotes_as_signee      CrmQuote[]   @relation("QuoteSignee")
+  quotes_as_billing     CrmQuote[]   @relation("QuoteBilling")
+
+  @@index([organization_id])
+  @@index([organization_id, is_archived])
+}
+
+/// Versioned services / SKU list for quoting (admin-maintained)
+model PriceBook {
+  id            String   @id @default(uuid()) @db.Uuid
+  label         String
+  is_current    Boolean  @default(false)
+  /// [{ "sku": "...", "description": "...", "unit": "hour", "unit_price_cents": 10000 }]
+  line_items    Json
+  notes         String?
+  source_filename String?
+  /// Supabase Storage bucket name (e.g. price-books)
+  storage_bucket String?
+  /// Object path within the bucket
+  storage_path   String?
+  mime_type      String?
+  created_at    DateTime @default(now())
+
+  @@index([is_current])
+  @@index([created_at])
+}
+
+model CrmQuote {
+  id                     String          @id @default(uuid()) @db.Uuid
+  organization_id        String          @db.Uuid
+  assessment_id          String?         @db.Uuid
+  project_scope_version  Int?
+  /// Copy of project scope JSON when quote was created / last synced
+  project_scope_snapshot Json?
+  /// Full editable quote state: narrative, selected lines, custom lines, terms, etc.
+  quote_payload          Json
+  status                 CrmQuoteStatus  @default(DRAFT)
+  signee_contact_id      String?         @db.Uuid
+  billing_contact_id     String?         @db.Uuid
+  total_cents            Int?
+  valid_until            DateTime?
+  created_at             DateTime        @default(now())
+  updated_at             DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  assessment   Assessment?  @relation(fields: [assessment_id], references: [id], onDelete: SetNull)
+  signee       OrgContact?    @relation("QuoteSignee", fields: [signee_contact_id], references: [id], onDelete: SetNull)
+  billing      OrgContact?    @relation("QuoteBilling", fields: [billing_contact_id], references: [id], onDelete: SetNull)
+
+  crm_contracts CrmContract[]
+  crm_invoices  CrmInvoice[]
+
+  @@index([organization_id])
+  @@index([organization_id, status])
+  @@index([assessment_id])
+}
+
+model CrmContract {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  quote_id        String?  @db.Uuid
+  title           String
+  status          String   @default("DRAFT")
+  body_notes      String?  @db.Text
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  quote        CrmQuote?    @relation(fields: [quote_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([status])
+}
+
+model CrmInvoice {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  title           String
+  amount_cents    Int      @default(0)
+  status          String   @default("DRAFT")
+  due_date        DateTime?
+  quote_id        String?  @db.Uuid
+  notes           String?  @db.Text
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  quote        CrmQuote?    @relation(fields: [quote_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([status])
+  @@index([due_date])
 }
