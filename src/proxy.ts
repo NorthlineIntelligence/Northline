@@ -13,8 +13,11 @@ function getAllowlist() {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Protect all /admin routes except /admin/login
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+  // Protect /admin routes except login and logout (logout must run even when session is odd)
+  const isPublicAdminPath =
+    pathname === "/admin/login" || pathname.startsWith("/admin/login/") || pathname === "/admin/logout";
+
+  if (pathname.startsWith("/admin") && !isPublicAdminPath) {
     const res = NextResponse.next();
 
     const supabase = createServerClient(

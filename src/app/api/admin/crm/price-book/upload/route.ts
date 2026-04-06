@@ -26,8 +26,8 @@ async function ensureBucket(supabase: NonNullable<ReturnType<typeof getSupabaseS
   return { ok: true as const };
 }
 
-function formatStorageSetupError(message: string): string {
-  const hint = serviceRoleKeyTroubleshootingHint(message);
+function formatStorageSetupError(message: string, usingOpaqueSecret: boolean): string {
+  const hint = serviceRoleKeyTroubleshootingHint(message, { usingOpaqueSecret });
   if (hint) return `${message}. ${hint}`;
   return message;
 }
@@ -52,7 +52,17 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error:
-          "SUPABASE_SERVICE_ROLE_KEY is set to a **Publishable** key (`sb_publishable_...`). Use a **Secret** key from the same API Keys page, or the legacy **service_role** JWT — not the anon/publishable key.",
+          "SUPABASE_SERVICE_ROLE_KEY is set to a **Publishable** key (`sb_publishable_...`). Use the Legacy **service_role** JWT (Settings → API → Legacy API keys) for server/Storage — not the anon/publishable key.",
+      },
+      { status: 400 }
+    );
+  }
+  if (rawKey.startsWith("sb_secret_")) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Price book uploads use Supabase Storage, which needs the Legacy **service_role** JWT in `SUPABASE_SERVICE_ROLE_KEY`, not `sb_secret_...`. In Dashboard → Settings → API → **Legacy API keys**, copy **service_role** (long key with two dots). Keep `sb_publishable_...` only in `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Restart the dev server after changing `.env`.",
       },
       { status: 400 }
     );
@@ -62,7 +72,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error:
-          "SUPABASE_SERVICE_ROLE_KEY is too short. Copy the full Secret (`sb_secret_...`) or legacy **service_role** JWT from Dashboard → Settings → API.",
+          "SUPABASE_SERVICE_ROLE_KEY is too short. Copy the full Legacy **service_role** JWT from Dashboard → Settings → API → Legacy API keys.",
       },
       { status: 400 }
     );
@@ -86,7 +96,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: `Storage bucket setup failed: ${formatStorageSetupError(ensured.message ?? "unknown error")}`,
+        error: `Storage bucket setup failed: ${formatStorageSetupError(
+          ensured.message ?? "unknown error",
+          rawKey.startsWith("sb_secret_")
+        )}`,
       },
       { status: 500 }
     );
@@ -136,7 +149,7 @@ export async function POST(req: NextRequest) {
   if (upErr) {
     const msg = upErr.message || "Upload to Supabase Storage failed";
     return NextResponse.json(
-      { ok: false, error: formatStorageSetupError(msg) },
+      { ok: false, error: formatStorageSetupError(msg, rawKey.startsWith("sb_secret_")) },
       { status: 500 }
     );
   }

@@ -484,8 +484,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       return NextResponse.json({ ok: false, error: "Assessment not found" }, { status: 404 });
     }
 
-    let adminBypass = false;
-    if (authInvite.auth === "session" && authInvite.userEmail) {
+    let adminBypass = authInvite.auth === "admin";
+    if (!adminBypass && authInvite.auth === "session" && authInvite.userEmail) {
       adminBypass = isAdminEmail(authInvite.userEmail);
     }
 

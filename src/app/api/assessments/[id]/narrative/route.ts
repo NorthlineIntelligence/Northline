@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 import { prisma } from "@/lib/prisma";
+import { isAdminEmail } from "@/lib/admin";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
@@ -95,7 +96,9 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
     select: { id: true },
   });
 
-  if (!membership) return { ok: false as const };
+  if (!membership && !isAdminEmail(user.email ?? null)) {
+    return { ok: false as const };
+  }
 
   return { ok: true as const };
 }

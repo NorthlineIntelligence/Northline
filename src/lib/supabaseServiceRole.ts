@@ -30,20 +30,31 @@ export function isLikelySupabasePublishableApiKey(key: string): boolean {
   return k.startsWith("sb_publishable_");
 }
 
+export type ServiceRoleKeyTroubleshootingOpts = {
+  /** True when SUPABASE_SERVICE_ROLE_KEY starts with `sb_secret_` (opaque key). Storage often still expects a JWT. */
+  usingOpaqueSecret?: boolean;
+};
+
 /**
  * User-facing hint when Storage/Auth returns JWS/JWT errors (misconfigured service_role).
  */
-export function serviceRoleKeyTroubleshootingHint(apiMessage: string): string | null {
+export function serviceRoleKeyTroubleshootingHint(
+  apiMessage: string,
+  opts?: ServiceRoleKeyTroubleshootingOpts
+): string | null {
   const m = apiMessage.toLowerCase();
   if (!m.includes("jws") && !m.includes("jwt") && !m.includes("token") && !m.includes("signature")) {
     return null;
   }
-  return [
+  const lines = [
     "Supabase rejected the API key for this project.",
-    "Fix: Dashboard → Project Settings → API → API Keys: use a **Secret** key (`sb_secret_...`) or, under Legacy API keys, the **service_role** JWT.",
-    "Set `SUPABASE_SERVICE_ROLE_KEY` in `.env` with no quotes or line breaks; must match the same project as `NEXT_PUBLIC_SUPABASE_URL`.",
-    "Do not use the publishable/anon key or a key from another project.",
-  ].join(" ");
+    "For **Storage** (uploads), set `SUPABASE_SERVICE_ROLE_KEY` to the Legacy **service_role** JWT: Dashboard → Settings → API → **Legacy API keys** → **service_role** (long value with two dots, often starts with `eyJ`). `sb_secret_...` keys can trigger **Invalid Compact JWS** on Storage because the storage layer still validates a JWT-shaped key.",
+    "Use one line in `.env`, no quotes, same project as `NEXT_PUBLIC_SUPABASE_URL`. Keep `sb_publishable_...` / anon only in `NEXT_PUBLIC_SUPABASE_ANON_KEY`.",
+  ];
+  if (opts?.usingOpaqueSecret) {
+    lines.push("Your key is `sb_secret_...` — switch to the Legacy **service_role** JWT for this variable.");
+  }
+  return lines.join(" ");
 }
 
 /**

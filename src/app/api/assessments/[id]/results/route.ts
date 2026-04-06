@@ -100,7 +100,12 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
     select: { id: true },
   });
 
-  if (!membership) return { ok: false as const };
+  if (!membership) {
+    if (isAdminEmail(user.email ?? null)) {
+      return { ok: true as const, cacheKeyOwner: `admin:${user.id}` };
+    }
+    return { ok: false as const };
+  }
 
   return { ok: true as const, cacheKeyOwner: `admin:${user.id}` };
 }

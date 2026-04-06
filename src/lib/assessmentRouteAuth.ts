@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { isAdminEmail } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 
 export function sha256Hex(input: string) {
@@ -75,7 +76,17 @@ export async function authorizeParticipantOrInvite(
     select: { id: true },
   });
 
-  if (!membership) return { ok: false as const };
+  if (!membership) {
+    if (isAdminEmail(user.email ?? null)) {
+      return {
+        ok: true as const,
+        auth: "admin" as const,
+        userId: user.id,
+        userEmail: user.email ?? null,
+      };
+    }
+    return { ok: false as const };
+  }
 
   return {
     ok: true as const,

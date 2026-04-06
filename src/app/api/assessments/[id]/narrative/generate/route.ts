@@ -1436,7 +1436,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         where: { assessment_id: assessmentId, user_id: user.id },
         select: { id: true },
       });
-      if (!membership) {
+      if (!membership && !isAdminEmail(user.email ?? null)) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
 
@@ -1540,6 +1540,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     let user: { id: string; email?: string | null } | null = null;
     let authType: "admin" | "invite" = "invite";
     let participantIdForAccess: string | null = null;
+    let adminSessionWithoutParticipant = false;
 
     {
       const supabase = await getSupabaseServerClient();
@@ -1557,15 +1558,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           select: { id: true },
         });
 
-        if (!membership) {
+        if (membership) {
+          participantIdForAccess = membership.id;
+        } else if (isAdminEmail(supaUser.email ?? null)) {
+          adminSessionWithoutParticipant = true;
+        } else {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
-
-        participantIdForAccess = membership.id;
       }
     }
 
-    if (!participantIdForAccess) {
+    if (!participantIdForAccess && !adminSessionWithoutParticipant) {
       if (!finalEmail || !finalToken) {
         return buildUnauthorized("Missing email or token.");
       }
