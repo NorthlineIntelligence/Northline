@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getAdminApiUser } from "@/lib/adminApiAuth";
-import { getPriceBookStorageBucket, getSupabaseServiceRole } from "@/lib/supabaseServiceRole";
+import {
+  getPriceBookStorageBucket,
+  getSupabaseServiceRole,
+  isLikelySupabaseJwtApiKey,
+  normalizeSupabaseSecret,
+  serviceRoleKeyTroubleshootingHint,
+} from "@/lib/supabaseServiceRole";
 import { parsePriceBookFile, safeStorageFileName } from "@/lib/priceBookFileParse";
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -20,9 +26,37 @@ async function ensureBucket(supabase: NonNullable<ReturnType<typeof getSupabaseS
   return { ok: true as const };
 }
 
+function formatStorageSetupError(message: string): string {
+  const hint = serviceRoleKeyTroubleshootingHint(message);
+  if (hint) return `${message}. ${hint}`;
+  return message;
+}
+
 export async function POST(req: NextRequest) {
   const auth = await getAdminApiUser();
   if (!auth.ok) return auth.response;
+
+  const rawKey = normalizeSupabaseSecret(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  if (!rawKey) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Supabase service role is not configured. Set SUPABASE_SERVICE_ROLE_KEY in the server environment (same project as NEXT_PUBLIC_SUPABASE_URL).",
+      },
+      { status: 503 }
+    );
+  }
+  if (!isLikelySupabaseJwtApiKey(rawKey)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "SUPABASE_SERVICE_ROLE_KEY does not look like a valid Supabase API JWT. Copy the **service_role** **secret** from Dashboard → Project Settings → API (long value with two dots), with no quotes or line breaks.",
+      },
+      { status: 400 }
+    );
+  }
 
   const supabase = getSupabaseServiceRole();
   if (!supabase) {
@@ -30,7 +64,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error:
-          "Supabase service role is not configured. Set SUPABASE_SERVICE_ROLE_KEY in the server environment.",
+          "Could not create Supabase client. Check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
       },
       { status: 503 }
     );
@@ -40,7 +74,10 @@ export async function POST(req: NextRequest) {
   const ensured = await ensureBucket(supabase, bucket);
   if (!ensured.ok) {
     return NextResponse.json(
-      { ok: false, error: `Storage bucket setup failed: ${ensured.message}` },
+      {
+        ok: false,
+        error: `Storage bucket setup failed: ${formatStorageSetupError(ensured.message ?? "unknown error")}`,
+      },
       { status: 500 }
     );
   }
@@ -87,8 +124,9 @@ export async function POST(req: NextRequest) {
   });
 
   if (upErr) {
+    const msg = upErr.message || "Upload to Supabase Storage failed";
     return NextResponse.json(
-      { ok: false, error: upErr.message || "Upload to Supabase Storage failed" },
+      { ok: false, error: formatStorageSetupError(msg) },
       { status: 500 }
     );
   }
