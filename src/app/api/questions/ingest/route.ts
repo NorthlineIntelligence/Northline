@@ -109,8 +109,17 @@ function normalizeQuestionText(value: string) {
 function normalizeAudienceText(raw: unknown): Department | null {
   const s = String(raw ?? "").trim();
   if (!s) return Department.ALL;
-  const upper = s.toUpperCase().replace(/\s+/g, "_") as Department;
-  if (Object.values(Department).includes(upper)) return upper;
+  const upper = s.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const aliases: Record<string, Department> = {
+    LOGISTICS_SUPPLY_CHAIN: Department.LOGISTICS_SUPPLY_CHAIN,
+    LOGISTICS: Department.LOGISTICS_SUPPLY_CHAIN,
+    SUPPLY_CHAIN: Department.LOGISTICS_SUPPLY_CHAIN,
+    LOGISTICS_AND_SUPPLY_CHAIN: Department.LOGISTICS_SUPPLY_CHAIN,
+    IT: Department.IT,
+    INFORMATION_TECHNOLOGY: Department.IT,
+  };
+  const mapped = aliases[upper] ?? (upper as Department);
+  if (Object.values(Department).includes(mapped)) return mapped;
   return null;
 }
 

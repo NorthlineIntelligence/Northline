@@ -36,8 +36,12 @@ type Department =
   | "SALES"
   | "MARKETING"
   | "CUSTOMER_SUCCESS"
+  | "LOGISTICS_SUPPLY_CHAIN"
+  | "IT"
   | "OPS"
   | "REVOPS"
+  | "ENGINEERING"
+  | "PRODUCT"
   | "GTM";
 
 type AssessmentMeta = {

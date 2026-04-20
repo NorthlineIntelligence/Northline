@@ -147,8 +147,12 @@ export default async function NewOrganizationPage() {
                 <option value="SALES">Sales</option>
                 <option value="MARKETING">Marketing</option>
                 <option value="CUSTOMER_SUCCESS">Customer Success</option>
+                <option value="LOGISTICS_SUPPLY_CHAIN">Logistics/Supply Chain</option>
+                <option value="IT">IT</option>
                 <option value="OPS">Ops</option>
                 <option value="REVOPS">RevOps</option>
+                <option value="ENGINEERING">Engineering</option>
+                <option value="PRODUCT">Product</option>
                 <option value="GTM">GTM</option>
               </select>
             </div>

@@ -2,12 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/authz";
 import { z } from "zod";
-import { Industry } from "@prisma/client";
+import { Department, Industry } from "@prisma/client";
 
 const BodySchema = z.object({
-  locked_department: z
-    .enum(["SALES", "MARKETING", "CUSTOMER_SUCCESS", "OPS", "REVOPS", "GTM"])
-    .nullable(),
+  locked_department: z.nativeEnum(Department).nullable(),
   industry: z.nativeEnum(Industry).nullable().optional(),
 });
 

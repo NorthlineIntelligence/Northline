@@ -9,8 +9,12 @@ const DEPARTMENTS = [
   { label: "Sales", value: "SALES" },
   { label: "Marketing", value: "MARKETING" },
   { label: "Customer Success", value: "CUSTOMER_SUCCESS" },
+  { label: "Logistics/Supply Chain", value: "LOGISTICS_SUPPLY_CHAIN" },
+  { label: "IT", value: "IT" },
   { label: "Ops", value: "OPS" },
   { label: "RevOps", value: "REVOPS" },
+  { label: "Engineering", value: "ENGINEERING" },
+  { label: "Product", value: "PRODUCT" },
   { label: "GTM", value: "GTM" },
 ] as const;
 

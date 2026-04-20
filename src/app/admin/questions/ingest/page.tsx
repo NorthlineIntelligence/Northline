@@ -21,6 +21,16 @@ type IngestResult =
       code?: string;
     };
 
+const TEMPLATE_HEADERS = [
+  "pillar",
+  "display_order",
+  "question_text",
+  "weight",
+  "active",
+  "audience",
+  "industry",
+] as const;
+
 function normalizeKey(k: string) {
   return (k ?? "").trim().toLowerCase();
 }
@@ -97,6 +107,20 @@ function parseCSV(text: string) {
   return { headers, rows, error: null as string | null };
 }
 
+function validateTemplateHeaders(headers: string[]) {
+  const normalized = headers.map(normalizeKey);
+  const expected = [...TEMPLATE_HEADERS];
+  if (normalized.length !== expected.length) {
+    return `Header mismatch. Expected exactly: ${expected.join(", ")}`;
+  }
+  for (let i = 0; i < expected.length; i++) {
+    if (normalized[i] !== expected[i]) {
+      return `Header mismatch. Expected exactly: ${expected.join(", ")}`;
+    }
+  }
+  return null;
+}
+
 export default function QuestionIngestPage() {
   const [rawRows, setRawRows] = useState<Array<Record<string, string>>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +137,7 @@ export default function QuestionIngestPage() {
   function downloadTemplateCsv() {
     const csv =
       [
-        "pillar,display_order,question_text,weight,active,audience,industry",
+        TEMPLATE_HEADERS.join(","),
         'STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL,ALL_INDUSTRIES',
         'STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES,LOGISTICS_TRANSPORTATION',
         'SYSTEM_INTEGRITY,3,"Change-management process exists for AI rollouts.",1,true,ALL,Healthcare & Life Sciences',
@@ -149,6 +173,12 @@ export default function QuestionIngestPage() {
 
       const headers = parsed.headers;
       const dataRows = parsed.rows;
+      const headerError = validateTemplateHeaders(headers);
+      if (headerError) {
+        setError(headerError);
+        setRawRows([]);
+        return;
+      }
 
       // Convert to array of objects by header
       const objs: Array<Record<string, string>> = dataRows.map((vals) => {
@@ -166,7 +196,7 @@ export default function QuestionIngestPage() {
   }
 
   function buildPayload() {
-    // Expect these columns (case-insensitive): pillar, display_order, question_text, weight, active, audience, industry
+    // Keep ingest format strictly aligned to template headers.
     const required = ["pillar", "question_text"];
     const normalizedRows = rawRows.map((r) => {
       const out: Record<string, string> = {};
@@ -290,7 +320,8 @@ export default function QuestionIngestPage() {
                 className="mt-2 block w-full text-sm"
               />
               <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
-                Columns expected: <b>pillar</b>, <b>question_text</b>, optional: display_order, weight, version, active, audience, industry
+                Columns expected (exact):{" "}
+                <b>{TEMPLATE_HEADERS.join(", ")}</b>
               </div>
             </div>
 
@@ -304,7 +335,7 @@ export default function QuestionIngestPage() {
                 placeholder="1"
               />
               <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
-                This sets <b>body.version</b> for the ingest call. (CSV “version” column is ignored in MVP.)
+                This sets <b>body.version</b> for the ingest call.
               </div>
             </div>
           </div>
