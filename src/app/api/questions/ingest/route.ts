@@ -243,99 +243,94 @@ export async function POST(req: NextRequest) {
 
     validateDuplicateKeys(normalizedQuestions);
 
-    const results = await prisma.$transaction(async (tx) => {
-      const upserted = [];
-
-      for (const q of normalizedQuestions) {
-        const row = await tx.question.upsert({
-          where: {
-            pillar_display_order_version_audience_industry: {
-              industry: q.industry,
-              pillar: q.pillar,
-              display_order: q.display_order,
-              version: q.version,
-              audience: q.audience,
-            },
-          },
-          create: {
+    // Avoid long interactive transactions that can expire during large imports.
+    let upsertedCount = 0;
+    for (const q of normalizedQuestions) {
+      await prisma.question.upsert({
+        where: {
+          pillar_display_order_version_audience_industry: {
+            industry: q.industry,
             pillar: q.pillar,
-            question_text: q.question_text,
             display_order: q.display_order,
-            weight: q.weight,
-            active: q.active,
             version: q.version,
             audience: q.audience,
-            industry: q.industry,
           },
-          update: {
-            question_text: q.question_text,
-            weight: q.weight,
-            active: q.active,
-          },
+        },
+        create: {
+          pillar: q.pillar,
+          question_text: q.question_text,
+          display_order: q.display_order,
+          weight: q.weight,
+          active: q.active,
+          version: q.version,
+          audience: q.audience,
+          industry: q.industry,
+        },
+        update: {
+          question_text: q.question_text,
+          weight: q.weight,
+          active: q.active,
+        },
+      });
+      upsertedCount += 1;
+    }
+
+    let deactivatedCount = 0;
+    if (deactivateMissing) {
+      const touchedVersions = Array.from(new Set(normalizedQuestions.map((q) => q.version)));
+      const touchedPillars = Array.from(new Set(normalizedQuestions.map((q) => q.pillar)));
+      const touchedAudiences = Array.from(new Set(normalizedQuestions.map((q) => q.audience)));
+      const touchedIndustries = Array.from(new Set(normalizedQuestions.map((q) => q.industry)));
+
+      const keepKeys = new Set(
+        normalizedQuestions.map(
+          (q) =>
+            `${q.version}::${q.pillar}::${q.audience}::${q.industry}::${q.display_order}`
+        )
+      );
+
+      const existing = await prisma.question.findMany({
+        where: {
+          version: { in: touchedVersions },
+          pillar: { in: touchedPillars },
+          audience: { in: touchedAudiences },
+          industry: { in: touchedIndustries },
+        },
+        select: {
+          id: true,
+          version: true,
+          pillar: true,
+          audience: true,
+          industry: true,
+          display_order: true,
+        },
+      });
+
+      const idsToDeactivate = existing
+        .filter(
+          (e) =>
+            !keepKeys.has(
+              `${e.version}::${e.pillar}::${e.audience}::${e.industry}::${e.display_order}`
+            )
+        )
+        .map((e) => e.id);
+
+      if (idsToDeactivate.length > 0) {
+        const r = await prisma.question.updateMany({
+          where: { id: { in: idsToDeactivate } },
+          data: { active: false },
         });
-
-        upserted.push(row);
+        deactivatedCount = r.count;
       }
-
-      let deactivatedCount = 0;
-
-      if (deactivateMissing) {
-        const touchedVersions = Array.from(new Set(normalizedQuestions.map((q) => q.version)));
-        const touchedPillars = Array.from(new Set(normalizedQuestions.map((q) => q.pillar)));
-        const touchedAudiences = Array.from(new Set(normalizedQuestions.map((q) => q.audience)));
-        const touchedIndustries = Array.from(new Set(normalizedQuestions.map((q) => q.industry)));
-
-        const keepKeys = new Set(
-          normalizedQuestions.map(
-            (q) =>
-              `${q.version}::${q.pillar}::${q.audience}::${q.industry}::${q.display_order}`
-          )
-        );
-
-        const existing = await tx.question.findMany({
-          where: {
-            version: { in: touchedVersions },
-            pillar: { in: touchedPillars },
-            audience: { in: touchedAudiences },
-            industry: { in: touchedIndustries },
-          },
-          select: {
-            id: true,
-            version: true,
-            pillar: true,
-            audience: true,
-            industry: true,
-            display_order: true,
-          },
-        });
-
-        const idsToDeactivate = existing
-          .filter(
-            (e) =>
-              !keepKeys.has(
-                `${e.version}::${e.pillar}::${e.audience}::${e.industry}::${e.display_order}`
-              )
-          )
-          .map((e) => e.id);
-
-        if (idsToDeactivate.length > 0) {
-          const r = await tx.question.updateMany({
-            where: { id: { in: idsToDeactivate } },
-            data: { active: false },
-          });
-          deactivatedCount = r.count;
-        }
-      }
-
-      return { upsertedCount: upserted.length, deactivatedCount };
-    });
+    }
 
     return NextResponse.json(
       {
         ok: true,
         version: defaultVersion,
         normalizedQuestionCount: normalizedQuestions.length,
-        ...results,
+        upsertedCount,
+        deactivatedCount,
       },
       { status: 200 }
     );
