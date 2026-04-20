@@ -4,6 +4,7 @@ import { isAdminEmail } from "@/lib/admin";
 import { createHash } from "crypto";
 import { Industry } from "@prisma/client";
 import { industryLabel, normalizeIndustryText } from "@/lib/assessmentIndustry";
+import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -32,6 +33,53 @@ async function getSupabaseServerClient() {
       },
     },
   });
+}
+
+const MAX_FILES = 10;
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_EXTRACTED_TEXT_CHARS = 120000;
+
+function normalizeTextForExtraction(text: string): string | null {
+  const trimmed = text.replace(/\u0000/g, "").trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, MAX_EXTRACTED_TEXT_CHARS);
+}
+
+function canExtractText(mimeType: string, name: string): boolean {
+  const mt = (mimeType || "").toLowerCase();
+  const n = (name || "").toLowerCase();
+  if (mt.startsWith("text/")) return true;
+  if (mt === "application/json") return true;
+  return (
+    n.endsWith(".txt") ||
+    n.endsWith(".md") ||
+    n.endsWith(".csv") ||
+    n.endsWith(".json") ||
+    n.endsWith(".log")
+  );
+}
+
+async function extractTextFromFile(file: File, mime: string | null): Promise<string | null> {
+  const name = file.name.toLowerCase();
+  const mt = (mime ?? "").toLowerCase();
+
+  if (mt === "application/pdf" || name.endsWith(".pdf")) {
+    const mod = await import("pdf-parse");
+    const PDFParse = mod.PDFParse;
+    const ab = await file.arrayBuffer();
+    const parser = new PDFParse({ data: Buffer.from(ab) });
+    try {
+      const parsed = await parser.getText();
+      return normalizeTextForExtraction(parsed?.text ?? "");
+    } finally {
+      await parser.destroy();
+    }
+  }
+
+  if (canExtractText(mt, name)) {
+    return normalizeTextForExtraction(await file.text());
+  }
+  return null;
 }
 
 function parseEmailList(raw: string | null): string[] {
@@ -187,6 +235,9 @@ export async function POST(req: NextRequest) {
     const participantEmails = Array.from(
       new Set([...participantEmailsFromCsv, ...participantEmailsFromFields])
     );
+    const uploadFiles = form
+      .getAll("documents")
+      .filter((x): x is File => x instanceof File && x.size > 0);
 
     if (!name) {
       return NextResponse.json(
@@ -203,6 +254,23 @@ export async function POST(req: NextRequest) {
         },
         { status: 400 }
       );
+    }
+    if (uploadFiles.length > MAX_FILES) {
+      return NextResponse.json(
+        { error: "Bad Request", message: `Too many documents. Max ${MAX_FILES}.` },
+        { status: 400 }
+      );
+    }
+    for (const f of uploadFiles) {
+      if (f.size > MAX_FILE_BYTES) {
+        return NextResponse.json(
+          {
+            error: "Bad Request",
+            message: `File "${f.name}" exceeds ${MAX_FILE_BYTES / (1024 * 1024)} MB.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const normalizedOrgIndustry =
@@ -253,6 +321,47 @@ export async function POST(req: NextRequest) {
           })),
           skipDuplicates: true,
         });
+      }
+
+      if (uploadFiles.length > 0) {
+        for (const file of uploadFiles) {
+          const mime = file.type?.trim() || null;
+          let extractedText: string | null = null;
+          let note: string | null = null;
+          try {
+            extractedText = await extractTextFromFile(file, mime);
+            extractedText = anonymizeOrgText({
+              text: extractedText,
+              organizationName: name,
+              industry: organizationIndustryLabel,
+            });
+            if (!extractedText) {
+              note = "No usable text could be extracted from this file.";
+            }
+          } catch {
+            note = "Could not extract text from this file.";
+          }
+
+          if (
+            !extractedText &&
+            !(mime?.toLowerCase() === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))
+          ) {
+            note =
+              note ??
+              "Uploaded metadata only. For AI grounding, upload text/markdown/csv/json/log or PDF files.";
+          }
+
+          await tx.organizationDocument.create({
+            data: {
+              organization_id: org.id,
+              title: file.name,
+              source_type: "UPLOAD",
+              source_url: note,
+              mime_type: mime,
+              text_extracted: extractedText,
+            },
+          });
+        }
       }
 
       return { orgId: org.id, orgName: org.name, assessmentId: assessment.id };

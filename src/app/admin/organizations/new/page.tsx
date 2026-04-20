@@ -1,5 +1,7 @@
 import { requireAdmin } from "@/lib/admin";
 import { INDUSTRY_OPTIONS } from "@/lib/assessmentIndustry";
+import Link from "next/link";
+import IntakeDocumentDropInput from "./IntakeDocumentDropInput";
 
 export default async function NewOrganizationPage() {
   await requireAdmin();
@@ -8,17 +10,28 @@ export default async function NewOrganizationPage() {
     <div className="min-h-screen bg-[#fcfcfe] text-[#173464]">
       <div className="mx-auto max-w-3xl px-6 py-10">
         <header className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            New Organization Intake
-          </h1>
-          <p className="mt-2 text-sm text-[#66819e]">
-            Create an organization, configure assessment type, and add participants.
-          </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                New Organization Intake
+              </h1>
+              <p className="mt-2 text-sm text-[#66819e]">
+                Create an organization, configure assessment type, and add participants.
+              </p>
+            </div>
+            <Link
+              href="/admin/dashboard"
+              className="inline-flex rounded-lg border border-[#cdd8df] bg-white px-4 py-2 text-sm font-medium text-[#173464] shadow-sm hover:shadow-md"
+            >
+              Back to Admin Dashboard
+            </Link>
+          </div>
         </header>
 
         <form
           action="/api/admin/onboard"
           method="post"
+          encType="multipart/form-data"
           className="space-y-8"
         >
           {/* Organization Info */}
@@ -73,6 +86,17 @@ export default async function NewOrganizationPage() {
                 rows={5}
                 className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Organization Documents for AI Grounding
+              </label>
+              <IntakeDocumentDropInput name="documents" />
+              <p className="mt-2 text-xs text-[#66819e]">
+                Optional. Upload up to 10 files (2MB each). Text/markdown/csv/json/log/PDF files are best for AI
+                grounding and are scrubbed to remove organization names.
+              </p>
             </div>
           </div>
 
