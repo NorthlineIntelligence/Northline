@@ -142,7 +142,7 @@ export default async function AdminCrmHubPage() {
                   <th className="pb-3 pr-4">Stage</th>
                   <th className="pb-3 pr-4">Next follow-up</th>
                   <th className="pb-3 pr-4">Assessments</th>
-                  <th className="pb-3">Profile</th>
+                  <th className="pb-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,13 +173,22 @@ export default async function AdminCrmHubPage() {
                         {o._count.assessments}
                       </td>
                       <td className="py-3">
-                        <Link
-                          href={`/admin/crm/organizations/${o.id}`}
-                          className="inline-flex rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white"
-                          style={{ background: BRAND.dark }}
-                        >
-                          Open
-                        </Link>
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={`/admin/crm/organizations/${o.id}`}
+                            className="inline-flex rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white"
+                            style={{ background: BRAND.dark }}
+                          >
+                            Open
+                          </Link>
+                          <Link
+                            href={`/admin/crm/organizations/${o.id}/quotes`}
+                            className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
+                            style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                          >
+                            Quotes
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   );

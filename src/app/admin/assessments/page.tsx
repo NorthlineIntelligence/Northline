@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 import { prisma } from "@/lib/prisma";
+import { INDUSTRY_OPTIONS } from "@/lib/assessmentIndustry";
 
 const DEPARTMENTS = [
   { label: "Org-wide (None)", value: "" },
@@ -57,7 +58,8 @@ export default async function AdminAssessmentsPage() {
         </div>
 
         <p className="mt-2 text-sm text-[#66819e]">
-          Set <b>Locked Dept</b> to force team-only mode (bypasses participant department selection).
+          Assessment configuration: choose an <b>Industry</b> question set, then optionally lock to a single
+          <b> Department</b>.
         </p>
 
         <div className="mt-6 overflow-auto rounded-xl border border-[#e6eaf2] bg-white shadow-sm">
@@ -67,6 +69,7 @@ export default async function AdminAssessmentsPage() {
                 <th className="px-4 py-3 text-left">Org</th>
                 <th className="px-4 py-3 text-left">Assessment</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Industry</th>
                 <th className="px-4 py-3 text-left">Locked Dept</th>
                 <th className="px-4 py-3 text-left">Locked At</th>
                 <th className="px-4 py-3 text-left">Actions</th>
@@ -82,6 +85,20 @@ export default async function AdminAssessmentsPage() {
                     <div className="text-xs text-[#66819e]">{a.id}</div>
                   </td>
                   <td className="px-4 py-3">{a.status}</td>
+                  <td className="px-4 py-3">
+                    <select
+                      defaultValue={a.industry ?? ""}
+                      className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm"
+                      name={`industry__${a.id}`}
+                    >
+                      <option value="">Not set (all industries)</option>
+                      {INDUSTRY_OPTIONS.map((i) => (
+                        <option key={i.value} value={i.value}>
+                          {i.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
 
                   <td className="px-4 py-3">
                     <select
@@ -113,11 +130,13 @@ export default async function AdminAssessmentsPage() {
     action={async (formData) => {
       "use server";
       const selected = String(formData.get(`locked_department__${a.id}`) ?? "");
+      const industrySelected = String(formData.get(`industry__${a.id}`) ?? "");
       const locked_department = selected.length ? selected : null;
+      const industry = industrySelected.length ? industrySelected : null;
 
       await prisma.assessment.update({
         where: { id: a.id },
-        data: { locked_department: locked_department as any },
+        data: { locked_department: locked_department as any, industry: industry as any },
       });
     }}
   >
@@ -147,8 +166,8 @@ export default async function AdminAssessmentsPage() {
         </div>
 
         <div className="mt-6 rounded-xl border border-[#e6eaf2] bg-white p-4 text-xs text-[#66819e]">
-          Tip: If an assessment has <b>locked_at</b> set (narrative generated), department changes are blocked for participants.
-          Admin can still set/clear <b>locked_department</b> here for routing behavior, but it won’t change existing participant data.
+          Tip: Question pull order is <b>industry first</b>, then department. If an assessment has <b>locked_at</b> set
+          (narrative generated), participant answers are already captured; changing config impacts future question pulls.
         </div>
       </div>
     </div>

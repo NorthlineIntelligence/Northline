@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { Department, Pillar } from "@prisma/client";
+import { Department, Industry, Pillar } from "@prisma/client";
+import { normalizeIndustryText } from "@/lib/assessmentIndustry";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -14,11 +15,18 @@ export async function GET(req: NextRequest) {
   // Back-compat: if no assessmentId is provided, return the unfiltered bank
   let audienceFilter: Department[] | null = null;
   let assessmentType: string | null = null;
+  let industryFilter: Industry[] | null = null;
+  let resolvedAssessmentIndustry: Industry = "ALL_INDUSTRIES";
 
   if (assessmentId) {
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      select: { locked_department: true, type: true },
+      select: {
+        locked_department: true,
+        type: true,
+        industry: true,
+        organization: { select: { industry: true } },
+      },
     });
 
     if (!assessment) {
@@ -26,6 +34,15 @@ export async function GET(req: NextRequest) {
     }
 
     assessmentType = assessment.type;
+    resolvedAssessmentIndustry =
+      assessment.industry ??
+      normalizeIndustryText(assessment.organization?.industry) ??
+      "ALL_INDUSTRIES";
+
+    industryFilter =
+      resolvedAssessmentIndustry === "ALL_INDUSTRIES"
+        ? ["ALL_INDUSTRIES"]
+        : ["ALL_INDUSTRIES", resolvedAssessmentIndustry];
 
     if (assessment.locked_department) {
       // Department-mode assessment (admin): org-wide items + locked department variants only.
@@ -52,6 +69,7 @@ export async function GET(req: NextRequest) {
       active,
       version,
       ...(audienceFilter ? { audience: { in: audienceFilter } } : {}),
+      ...(industryFilter ? { industry: { in: industryFilter } } : {}),
     },
     orderBy: [{ pillar: "asc" }, { display_order: "asc" }],
     select: {
@@ -62,6 +80,7 @@ export async function GET(req: NextRequest) {
       weight: true,
       version: true,
       audience: true, // helpful for debugging/verification
+      industry: true,
     },
   });
 
@@ -80,6 +99,8 @@ export async function GET(req: NextRequest) {
     assessmentId,
     participantId,
     assessmentType,
+    assessmentIndustry: resolvedAssessmentIndustry,
+    industryFilter,
     audienceFilter,
     pillars: grouped,
   });

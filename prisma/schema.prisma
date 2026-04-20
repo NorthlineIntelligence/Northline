@@ -62,6 +62,8 @@ model Assessment {
   /// If set, this assessment is "team-only locked" and participants do NOT choose a department.
   /// All questions should be filtered to audience = locked_department OR ALL.
   locked_department Department?
+  /// Industry track selected in assessment configuration; drives industry-specific question bank.
+  industry Industry?
 
   organization       Organization        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   Participant        Participant[]
@@ -74,6 +76,7 @@ model Assessment {
   @@index([status])
   @@index([type])
   @@index([locked_department])
+  @@index([industry])
   @@index([organization_id, created_at])
 }
 
@@ -135,12 +138,14 @@ model Question {
   /// - ALL = included in every assessment/department
   /// - SALES/MARKETING/etc = included when participant/assessment matches that department
   audience Department @default(ALL)
+  /// Industry segmentation for question banks.
+  industry Industry @default(ALL_INDUSTRIES)
 
   Response      Response[]
 
-  @@unique([pillar, display_order, version, audience])
+  @@unique([pillar, display_order, version, audience, industry])
   @@index([pillar, active])
-  @@index([version, audience, active])
+  @@index([version, audience, industry, active])
 }
 
 model Response {
@@ -257,6 +262,25 @@ enum Department {
   ENGINEERING
   PRODUCT
   GTM
+}
+
+enum Industry {
+  ALL_INDUSTRIES
+  LOGISTICS_TRANSPORTATION
+  MANUFACTURING_INDUSTRIAL
+  TECHNOLOGY_SAAS
+  HEALTHCARE_LIFE_SCIENCES
+  FINANCIAL_SERVICES
+  RETAIL_ECOMMERCE
+  PROFESSIONAL_SERVICES
+  CONSTRUCTION_REAL_ESTATE
+  ENERGY_UTILITIES
+  EDUCATION_TRAINING
+  HOSPITALITY_TRAVEL
+  NONPROFIT_PUBLIC_SECTOR
+  MEDIA_ENTERTAINMENT
+  AGRICULTURE_FOOD_PRODUCTION
+  OTHER_HYBRID
 }
 
 enum AssessmentStatus {

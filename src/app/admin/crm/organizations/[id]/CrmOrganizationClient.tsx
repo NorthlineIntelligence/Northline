@@ -50,7 +50,13 @@ function fmtMoney(cents: number | null | undefined) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
-export default function CrmOrganizationClient({ organizationId }: { organizationId: string }) {
+export default function CrmOrganizationClient({
+  organizationId,
+  view = "overview",
+}: {
+  organizationId: string;
+  view?: "overview" | "quotes";
+}) {
   const [data, setData] = useState<OrgResponse | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -402,6 +408,23 @@ export default function CrmOrganizationClient({ organizationId }: { organization
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {view === "quotes" ? (
+              <Link
+                href={`/admin/crm/organizations/${org.id}`}
+                className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
+                style={{ borderColor: BRAND.border, color: BRAND.dark }}
+              >
+                ← Back to customer
+              </Link>
+            ) : (
+              <Link
+                href={`/admin/crm/organizations/${org.id}/quotes`}
+                className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
+                style={{ borderColor: BRAND.border, color: BRAND.dark }}
+              >
+                Open quote workspace
+              </Link>
+            )}
             <Link
               href={`/admin/organizations/${org.id}`}
               className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
@@ -537,7 +560,56 @@ export default function CrmOrganizationClient({ organizationId }: { organization
           </div>
         </section>
 
-        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+        {view === "overview" ? (
+          <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                  Quotes
+                </div>
+                <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                  Quote creation and editing now lives in a dedicated workspace for this customer.
+                </p>
+              </div>
+              <Link
+                href={`/admin/crm/organizations/${org.id}/quotes`}
+                className="rounded-xl px-4 py-2 text-sm font-black uppercase text-white"
+                style={{ background: BRAND.dark }}
+              >
+                Go to quote workspace
+              </Link>
+            </div>
+            {org.crm_quotes.length > 0 ? (
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                      <th className="pb-2 pr-2">Status</th>
+                      <th className="pb-2 pr-2">Total</th>
+                      <th className="pb-2">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {org.crm_quotes.slice(0, 5).map((q) => (
+                      <tr key={q.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
+                        <td className="py-2 pr-2">{q.status}</td>
+                        <td className="py-2 pr-2">{fmtMoney(q.total_cents)}</td>
+                        <td className="py-2">{new Date(q.updated_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="mt-3 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                No quotes yet.
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {view === "quotes" ? (
+          <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
           <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
             Contacts
           </div>
@@ -596,7 +668,8 @@ export default function CrmOrganizationClient({ organizationId }: { organization
           >
             Add contact
           </button>
-        </section>
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1256,6 +1329,72 @@ export default function CrmOrganizationClient({ organizationId }: { organization
             >
               Add invoice
             </button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+          <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+            Assessment archives
+          </div>
+          <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+            One locked readout per assessment. Use these links to review prior assessments and export a dated PDF.
+          </p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                  <th className="pb-2 pr-3">Assessment</th>
+                  <th className="pb-2 pr-3">Date</th>
+                  <th className="pb-2 pr-3">Status</th>
+                  <th className="pb-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {org.assessments.map((a) => (
+                  <tr key={a.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
+                    <td className="py-2 pr-3">{a.name || a.id}</td>
+                    <td className="py-2 pr-3">{new Date(a.created_at).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3">
+                      {a.locked_at ? "Locked" : "In progress"} · {a.status}
+                    </td>
+                    <td className="py-2">
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={`/assessments/${a.id}/narrative`}
+                          className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                          style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        >
+                          Insights
+                        </a>
+                        <a
+                          href={`/assessments/${a.id}/project-scope`}
+                          className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                          style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        >
+                          Scope
+                        </a>
+                        <a
+                          href={`/api/admin/assessments/${a.id}/narrative/pdf`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                          style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        >
+                          PDF
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {org.assessments.length === 0 ? (
+                  <tr>
+                    <td className="py-2" colSpan={4} style={{ color: BRAND.muted }}>
+                      No assessments yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>

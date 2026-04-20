@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
 import { createHash } from "crypto";
+import { Industry } from "@prisma/client";
+import { industryLabel, normalizeIndustryText } from "@/lib/assessmentIndustry";
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -166,7 +168,8 @@ export async function POST(req: NextRequest) {
 
     const name = String(form.get("name") ?? "").trim();
     const websiteRaw = String(form.get("website") ?? "").trim();
-    const industry = String(form.get("industry") ?? "").trim();
+    const industryRaw = String(form.get("industry") ?? "").trim();
+    const assessmentIndustryRaw = String(form.get("assessment_industry") ?? "").trim();
     const contextNotes = String(form.get("context_notes") ?? "").trim();
 
     const assessmentType = String(form.get("assessment_type") ?? "FULL").trim(); // FULL | DEPARTMENT
@@ -202,6 +205,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const normalizedOrgIndustry =
+      normalizeIndustryText(industryRaw) ?? normalizeIndustryText(assessmentIndustryRaw);
+    const organizationIndustryLabel =
+      normalizedOrgIndustry && normalizedOrgIndustry !== "ALL_INDUSTRIES"
+        ? ((industryLabel(normalizedOrgIndustry) ?? industryRaw) || null)
+        : null;
+    const assessmentIndustry =
+      normalizeIndustryText(assessmentIndustryRaw) ??
+      normalizeIndustryText(industryRaw) ??
+      null;
+
     const invitees = participantEmails.filter((e) => e !== adminEmail);
 
     const result = await prisma.$transaction(async (tx) => {
@@ -209,7 +223,7 @@ export async function POST(req: NextRequest) {
         data: {
           name,
           website: websiteRaw || null,
-          industry: industry || null,
+          industry: organizationIndustryLabel,
           context_notes: contextNotes || null,
         },
         select: { id: true, name: true },
@@ -220,6 +234,7 @@ export async function POST(req: NextRequest) {
           organization_id: org.id,
           locked_department:
             assessmentType === "DEPARTMENT" ? (lockedDepartment as any) : null,
+          industry: (assessmentIndustry as Industry | null) ?? null,
         },
         select: { id: true, organization_id: true },
       });

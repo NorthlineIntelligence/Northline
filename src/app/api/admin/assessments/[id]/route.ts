@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/authz";
 import { z } from "zod";
+import { Industry } from "@prisma/client";
 
 const BodySchema = z.object({
   locked_department: z
     .enum(["SALES", "MARKETING", "CUSTOMER_SUCCESS", "OPS", "REVOPS", "GTM"])
     .nullable(),
+  industry: z.nativeEnum(Industry).nullable().optional(),
 });
 
 export async function PATCH(
@@ -33,8 +35,11 @@ export async function PATCH(
   try {
     const updated = await prisma.assessment.update({
       where: { id },
-      data: { locked_department: body.locked_department },
-      select: { id: true, locked_department: true },
+      data: {
+        locked_department: body.locked_department,
+        ...(body.industry !== undefined ? { industry: body.industry } : {}),
+      },
+      select: { id: true, locked_department: true, industry: true },
     });
 
     return NextResponse.json({ ok: true, assessment: updated }, { status: 200 });

@@ -150,6 +150,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessment_id },
+      select: { id: true, locked_at: true, status: true },
+    });
+    if (!assessment) {
+      return NextResponse.json({ error: "Assessment not found" }, { status: 404 });
+    }
+    if (assessment.locked_at != null || assessment.status === "CLOSED") {
+      return NextResponse.json(
+        { error: "Assessment is locked. Responses are read-only." },
+        { status: 409 }
+      );
+    }
+
     // ---------- Write responses + mark participant completed ----------
     try {
       await prisma.$transaction(async (tx) => {
@@ -176,6 +190,20 @@ export async function POST(req: NextRequest) {
             completed_at: new Date(),
           },
         });
+
+        // If everyone is now complete, lock the assessment for future consistency.
+        const participants = await tx.participant.findMany({
+          where: { assessment_id },
+          select: { completed_at: true },
+        });
+        const total = participants.length;
+        const completed = participants.filter((p) => p.completed_at != null).length;
+        if (total > 0 && completed >= total) {
+          await tx.assessment.updateMany({
+            where: { id: assessment_id, locked_at: null },
+            data: { locked_at: new Date() },
+          });
+        }
       });
     } catch (e: any) {
       if (e?.code === "P2002") {

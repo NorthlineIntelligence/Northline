@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/authz";
-import { Pillar, Department } from "@prisma/client";
+import { Pillar, Department, Industry } from "@prisma/client";
+import { normalizeIndustryText } from "@/lib/assessmentIndustry";
 
 /**
  * Ingest/update questions (admin only).
@@ -22,7 +23,8 @@ const FlatQuestionSchema = z.object({
   weight: z.number().int().min(1).max(1000).optional().default(1),
   version: z.union([z.number().int().min(1).max(9999), z.string().min(1).max(50)]).optional(),
   active: z.boolean().optional().default(true),
-  audience: z.nativeEnum(Department).optional().default(Department.ALL),
+  audience: z.union([z.nativeEnum(Department), z.string()]).optional().default(Department.ALL),
+  industry: z.union([z.nativeEnum(Industry), z.string()]).optional().default(Industry.ALL_INDUSTRIES),
 });
 
 const LegacyPillarSchema = z.object({
@@ -34,7 +36,8 @@ const LegacyPillarSchema = z.object({
         display_order: z.number().int().min(1).max(100000).optional(),
         weight: z.number().int().min(1).max(1000).optional(),
         active: z.boolean().optional(),
-        audience: z.nativeEnum(Department).optional(),
+        audience: z.union([z.nativeEnum(Department), z.string()]).optional(),
+        industry: z.union([z.nativeEnum(Industry), z.string()]).optional(),
       })
     )
     .min(1)
@@ -49,7 +52,8 @@ const LegacyPillarMapSchema = z.record(
       display_order: z.number().int().min(1).max(100000).optional(),
       weight: z.number().int().min(1).max(1000).optional(),
       active: z.boolean().optional(),
-      audience: z.nativeEnum(Department).optional(),
+      audience: z.union([z.nativeEnum(Department), z.string()]).optional(),
+      industry: z.union([z.nativeEnum(Industry), z.string()]).optional(),
     })
   )
 );
@@ -102,23 +106,32 @@ function normalizeQuestionText(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
+function normalizeAudienceText(raw: unknown): Department | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return Department.ALL;
+  const upper = s.toUpperCase().replace(/\s+/g, "_") as Department;
+  if (Object.values(Department).includes(upper)) return upper;
+  return null;
+}
+
 function validateDuplicateKeys(
   questions: Array<{
     pillar: Pillar;
     display_order: number;
     audience: Department;
+    industry: Industry;
     question_text: string;
   }>
 ) {
   const seen = new Map<string, string>();
 
   for (const q of questions) {
-    const key = `${q.pillar}::${q.audience}::${q.display_order}`;
+    const key = `${q.pillar}::${q.audience}::${q.industry}::${q.display_order}`;
     const prior = seen.get(key);
 
     if (prior) {
       throw new Error(
-        `Duplicate question key in ingest payload for pillar=${q.pillar}, audience=${q.audience}, display_order=${q.display_order}. Existing="${prior}" New="${q.question_text}"`
+        `Duplicate question key in ingest payload for pillar=${q.pillar}, audience=${q.audience}, industry=${q.industry}, display_order=${q.display_order}. Existing="${prior}" New="${q.question_text}"`
       );
     }
 
@@ -169,14 +182,15 @@ export async function POST(req: NextRequest) {
             questions,
           }));
 
-    const normalizedQuestions = Array.isArray(parsed.data.questions)
+    const rawQuestions = Array.isArray(parsed.data.questions)
       ? parsed.data.questions.map((q) => ({
           pillar: q.pillar,
           question_text: normalizeQuestionText(q.question_text),
           display_order: q.display_order,
           weight: q.weight ?? 1,
           active: q.active ?? true,
-          audience: q.audience ?? Department.ALL,
+          audienceRaw: q.audience,
+          industryRaw: q.industry,
           version: normalizeVersion(q.version ?? defaultVersion),
         }))
       : legacyPillars.flatMap((pillarGroup) => {
@@ -188,10 +202,35 @@ export async function POST(req: NextRequest) {
             display_order: q.display_order ?? idx + 1,
             weight: q.weight ?? 1,
             active: q.active ?? true,
-            audience: q.audience ?? Department.ALL,
+            audienceRaw: q.audience,
+            industryRaw: q.industry,
             version: defaultVersion,
           }));
         });
+
+    const normalizedQuestions = rawQuestions.map((q, idx) => {
+      const audience = normalizeAudienceText(q.audienceRaw);
+      if (!audience) {
+        throw new Error(
+          `Invalid audience at row ${idx + 1} (${q.pillar} #${q.display_order}): "${String(
+            q.audienceRaw ?? ""
+          )}".`
+        );
+      }
+
+      const industry = normalizeIndustryText(String(q.industryRaw ?? "")) ?? Industry.ALL_INDUSTRIES;
+
+      return {
+        pillar: q.pillar,
+        question_text: q.question_text,
+        display_order: q.display_order,
+        weight: q.weight,
+        active: q.active,
+        audience,
+        industry,
+        version: q.version,
+      };
+    });
 
     validateDuplicateKeys(normalizedQuestions);
 
@@ -201,7 +240,8 @@ export async function POST(req: NextRequest) {
       for (const q of normalizedQuestions) {
         const row = await tx.question.upsert({
           where: {
-            pillar_display_order_version_audience: {
+            pillar_display_order_version_audience_industry: {
+              industry: q.industry,
               pillar: q.pillar,
               display_order: q.display_order,
               version: q.version,
@@ -216,6 +256,7 @@ export async function POST(req: NextRequest) {
             active: q.active,
             version: q.version,
             audience: q.audience,
+            industry: q.industry,
           },
           update: {
             question_text: q.question_text,
@@ -233,10 +274,12 @@ export async function POST(req: NextRequest) {
         const touchedVersions = Array.from(new Set(normalizedQuestions.map((q) => q.version)));
         const touchedPillars = Array.from(new Set(normalizedQuestions.map((q) => q.pillar)));
         const touchedAudiences = Array.from(new Set(normalizedQuestions.map((q) => q.audience)));
+        const touchedIndustries = Array.from(new Set(normalizedQuestions.map((q) => q.industry)));
 
         const keepKeys = new Set(
           normalizedQuestions.map(
-            (q) => `${q.version}::${q.pillar}::${q.audience}::${q.display_order}`
+            (q) =>
+              `${q.version}::${q.pillar}::${q.audience}::${q.industry}::${q.display_order}`
           )
         );
 
@@ -245,12 +288,14 @@ export async function POST(req: NextRequest) {
             version: { in: touchedVersions },
             pillar: { in: touchedPillars },
             audience: { in: touchedAudiences },
+            industry: { in: touchedIndustries },
           },
           select: {
             id: true,
             version: true,
             pillar: true,
             audience: true,
+            industry: true,
             display_order: true,
           },
         });
@@ -258,7 +303,9 @@ export async function POST(req: NextRequest) {
         const idsToDeactivate = existing
           .filter(
             (e) =>
-              !keepKeys.has(`${e.version}::${e.pillar}::${e.audience}::${e.display_order}`)
+              !keepKeys.has(
+                `${e.version}::${e.pillar}::${e.audience}::${e.industry}::${e.display_order}`
+              )
           )
           .map((e) => e.id);
 

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
 
 async function getSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -198,6 +199,12 @@ export async function PATCH(
     );
   }
 
+  const sanitizedContextNotes = anonymizeOrgText({
+    text: nextContextNotes,
+    organizationName: nextName,
+    industry: nextIndustry,
+  });
+
   const updated = await prisma.organization.update({
     where: { id: loaded.assessment.organization_id },
     data: {
@@ -207,7 +214,7 @@ export async function PATCH(
       growth_stage: nextGrowthStage,
       primary_pressures: nextPrimaryPressures,
       website: nextWebsite,
-      context_notes: nextContextNotes,
+      context_notes: sanitizedContextNotes,
       ...(typeof nextShowAdminControls === "boolean"
         ? { show_admin_controls: nextShowAdminControls }
         : {}),

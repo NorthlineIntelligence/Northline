@@ -110,6 +110,26 @@ export default function QuestionIngestPage() {
     return Object.keys(rawRows[0] ?? {});
   }, [rawRows]);
 
+  function downloadTemplateCsv() {
+    const csv =
+      [
+        "pillar,display_order,question_text,weight,active,audience,industry",
+        'STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL,ALL_INDUSTRIES',
+        'STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES,LOGISTICS_TRANSPORTATION',
+        'SYSTEM_INTEGRITY,3,"Change-management process exists for AI rollouts.",1,true,ALL,Healthcare & Life Sciences',
+      ].join("\n") + "\n";
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "question_ingest_template.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -146,7 +166,7 @@ export default function QuestionIngestPage() {
   }
 
   function buildPayload() {
-    // Expect these columns (case-insensitive): pillar, display_order, question_text, weight, version, active, audience
+    // Expect these columns (case-insensitive): pillar, display_order, question_text, weight, active, audience, industry
     const required = ["pillar", "question_text"];
     const normalizedRows = rawRows.map((r) => {
       const out: Record<string, string> = {};
@@ -170,6 +190,8 @@ export default function QuestionIngestPage() {
       const weight = toNum(r["weight"], 1);
       const active = toBool(r["active"], true);
       const audience = normalizeEnumLike(r["audience"]) || "ALL";
+      const industryRaw = (r["industry"] ?? "").toString().trim();
+      const industry = industryRaw || "ALL_INDUSTRIES";
 
       if (!pillars[pillar]) pillars[pillar] = [];
       pillars[pillar].push({
@@ -178,6 +200,7 @@ export default function QuestionIngestPage() {
         weight,
         active,
         audience,
+        industry,
       });
     });
 
@@ -267,7 +290,7 @@ export default function QuestionIngestPage() {
                 className="mt-2 block w-full text-sm"
               />
               <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
-                Columns expected: <b>pillar</b>, <b>question_text</b>, optional: display_order, weight, version, active, audience
+                Columns expected: <b>pillar</b>, <b>question_text</b>, optional: display_order, weight, version, active, audience, industry
               </div>
             </div>
 
@@ -386,15 +409,25 @@ export default function QuestionIngestPage() {
           className="mt-6 rounded-2xl border bg-white p-6 shadow-sm"
           style={{ borderColor: BRAND.border }}
         >
-          <div className="text-sm font-semibold">CSV template (copy/paste)</div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold">CSV template (copy/paste)</div>
+            <button
+              type="button"
+              onClick={downloadTemplateCsv}
+              className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold shadow-sm transition hover:shadow"
+              style={{ borderColor: BRAND.border }}
+            >
+              Download CSV Template
+            </button>
+          </div>
           <pre
             className="mt-2 overflow-auto rounded-lg border p-3 text-xs"
             style={{ borderColor: BRAND.border, background: "#f9fafb" }}
           >
-pillar,display_order,question_text,weight,active,audience
-STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL
-STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES
-SYSTEM_INTEGRITY,3,"Test question — System Integrity",1,true,ALL
+pillar,display_order,question_text,weight,active,audience,industry
+STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL,ALL_INDUSTRIES
+STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES,LOGISTICS_TRANSPORTATION
+SYSTEM_INTEGRITY,3,"Change-management process exists for AI rollouts.",1,true,ALL,Healthcare & Life Sciences
           </pre>
           <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
             Note: if your question text contains commas, wrap it in quotes like the examples above.

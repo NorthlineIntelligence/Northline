@@ -16,6 +16,17 @@ type OrgPayload = {
   show_admin_controls: boolean;
 };
 
+type OrganizationDocumentRow = {
+  id: string;
+  title: string;
+  source_type: string;
+  source_url: string | null;
+  mime_type: string | null;
+  created_at: string;
+  has_extracted_text: boolean;
+  text_extracted_chars: number;
+};
+
 type LoadResponse = {
   ok: boolean;
   isLocked: boolean;
@@ -82,6 +93,14 @@ export default function AdminAssessmentPage() {
   const [participantsLoading, setParticipantsLoading] = useState(false);
   const [participantsError, setParticipantsError] = useState<string | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
+  const [docsResult, setDocsResult] = useState<string | null>(null);
+  const [orgDocs, setOrgDocs] = useState<OrganizationDocumentRow[]>([]);
+  const [selectedDocs, setSelectedDocs] = useState<File[]>([]);
+  const [uploadingDocs, setUploadingDocs] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
   const [inviteEmailsText, setInviteEmailsText] = useState("");
 const [inviting, setInviting] = useState(false);
@@ -198,6 +217,86 @@ async function deleteParticipant(participantId: string) {
 
     setParticipants(pJson.participants);
     setParticipantsLoading(false);
+  }
+
+  async function refreshDocuments(organizationId: string) {
+    setDocsLoading(true);
+    setDocsError(null);
+    try {
+      const res = await fetch(`/api/admin/organizations/${organizationId}/documents`, {
+        method: "GET",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `Failed to load documents (${res.status}).`);
+      }
+      const rows = Array.isArray(json.documents) ? (json.documents as OrganizationDocumentRow[]) : [];
+      setOrgDocs(rows);
+    } catch (e: any) {
+      setDocsError(e?.message ?? "Failed to load documents.");
+      setOrgDocs([]);
+    } finally {
+      setDocsLoading(false);
+    }
+  }
+
+  async function uploadDocuments() {
+    if (!org?.id) return;
+    if (selectedDocs.length === 0) {
+      setDocsResult("Choose at least one document first.");
+      return;
+    }
+    setUploadingDocs(true);
+    setDocsError(null);
+    setDocsResult(null);
+    try {
+      const form = new FormData();
+      for (const f of selectedDocs) form.append("files", f);
+      const res = await fetch(`/api/admin/organizations/${org.id}/documents`, {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `Upload failed (${res.status}).`);
+      }
+      setSelectedDocs([]);
+      setDocsResult(`Uploaded ${Number(json.uploaded ?? selectedDocs.length)} document(s).`);
+      await refreshDocuments(org.id);
+    } catch (e: any) {
+      setDocsError(e?.message ?? "Upload failed.");
+    } finally {
+      setUploadingDocs(false);
+    }
+  }
+
+  async function deleteDocument(docId: string) {
+    if (!org?.id) return;
+    if (!window.confirm("Delete this uploaded document?")) return;
+    setDeletingDocId(docId);
+    setDocsError(null);
+    setDocsResult(null);
+    try {
+      const res = await fetch(
+        `/api/admin/organizations/${org.id}/documents?docId=${encodeURIComponent(docId)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `Delete failed (${res.status}).`);
+      }
+      setDocsResult("Document deleted.");
+      await refreshDocuments(org.id);
+    } catch (e: any) {
+      setDocsError(e?.message ?? "Delete failed.");
+    } finally {
+      setDeletingDocId(null);
+    }
   }
 
   async function sendInvites() {
@@ -356,12 +455,18 @@ async function deleteParticipant(participantId: string) {
           setParticipants(pJson.participants);
           setParticipantsLoading(false);
         }
+
+        if (!cancelled) {
+          await refreshDocuments(json.organization.id);
+        }
       } catch (e: any) {
         if (!cancelled) {
           setLoadError(e?.message ?? String(e));
           setLoading(false);
           setParticipantsError(e?.message ?? String(e));
           setParticipantsLoading(false);
+          setDocsError(e?.message ?? String(e));
+          setDocsLoading(false);
         }
       }
     }
@@ -749,6 +854,188 @@ async function deleteParticipant(participantId: string) {
                 {saveResult}
               </div>
             ) : null}
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 16,
+            background: BRAND.card,
+            border: `1px solid ${BRAND.border}`,
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: BRAND.dark }}>
+                Organization Documents for AI Grounding
+              </div>
+              <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 13 }}>
+                Upload multiple docs (text/markdown/csv/json recommended). These are used during Executive Insights
+                generation for memo, risks, and pilot starting points.
+              </div>
+              <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 12 }}>
+                Uploaded/context text is automatically scrubbed to remove organization name references before AI use.
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              border: `1px solid ${BRAND.border}`,
+              borderRadius: 14,
+              padding: 14,
+              background: dragActive ? "#EEF4FF" : "#FFFFFF",
+            }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              const dropped = Array.from(e.dataTransfer.files ?? []);
+              if (!dropped.length) return;
+              setSelectedDocs((prev) => [...prev, ...dropped]);
+              setDocsResult(null);
+              setDocsError(null);
+            }}
+          >
+            <input
+              type="file"
+              multiple
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                setSelectedDocs((prev) => [...prev, ...files]);
+                setDocsResult(null);
+                setDocsError(null);
+              }}
+              disabled={uploadingDocs}
+            />
+            <div style={{ marginTop: 8, color: BRAND.muted, fontSize: 12 }}>
+              Drag/drop supported. Max 10 files/upload, 2MB each. PDF text extraction is enabled.
+            </div>
+            {selectedDocs.length > 0 ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 12, color: BRAND.dark, fontWeight: 700, marginBottom: 8 }}>
+                  Selected: {selectedDocs.length} file(s)
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {selectedDocs.map((f, idx) => (
+                    <button
+                      key={`${f.name}-${idx}-${f.size}`}
+                      onClick={() => {
+                        setSelectedDocs((prev) => prev.filter((_, i) => i !== idx));
+                      }}
+                      style={{
+                        border: `1px solid ${BRAND.border}`,
+                        borderRadius: 999,
+                        background: "#FFFFFF",
+                        padding: "4px 10px",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        color: BRAND.dark,
+                      }}
+                      title="Remove selected file"
+                    >
+                      {f.name} ×
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+              <button
+                onClick={uploadDocuments}
+                disabled={uploadingDocs || selectedDocs.length === 0}
+                style={{
+                  background: uploadingDocs || selectedDocs.length === 0 ? "#98a2b3" : BRAND.dark,
+                  color: "white",
+                  border: "none",
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  fontWeight: 900,
+                  cursor: uploadingDocs || selectedDocs.length === 0 ? "not-allowed" : "pointer",
+                }}
+              >
+                {uploadingDocs ? "Uploading…" : "Upload Documents"}
+              </button>
+            </div>
+            {docsResult ? (
+              <div style={{ marginTop: 10, color: BRAND.dark, fontWeight: 800, fontSize: 13 }}>{docsResult}</div>
+            ) : null}
+            {docsError ? (
+              <div style={{ marginTop: 10, color: "#b42318", fontWeight: 800, fontSize: 13 }}>{docsError}</div>
+            ) : null}
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            {docsLoading ? (
+              <div style={{ color: BRAND.muted }}>Loading documents…</div>
+            ) : orgDocs.length === 0 ? (
+              <div style={{ color: BRAND.muted, fontSize: 13 }}>No documents uploaded yet.</div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#F6F8FC" }}>
+                      <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Title</th>
+                      <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Type</th>
+                      <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Extracted Text</th>
+                      <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Uploaded</th>
+                      <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orgDocs.map((d) => (
+                      <tr key={d.id}>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          <div style={{ fontWeight: 800 }}>{d.title}</div>
+                          <div style={{ color: BRAND.muted, fontSize: 12 }}>{d.id}</div>
+                        </td>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          {d.mime_type ?? d.source_type}
+                        </td>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          {d.has_extracted_text ? `${d.text_extracted_chars} chars` : "No extracted text"}
+                        </td>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          {fmtDate(d.created_at)}
+                        </td>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          <button
+                            onClick={() => deleteDocument(d.id)}
+                            disabled={deletingDocId === d.id}
+                            style={{
+                              background: deletingDocId === d.id ? "#98a2b3" : "#b42318",
+                              color: "white",
+                              border: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              fontWeight: 900,
+                              cursor: deletingDocId === d.id ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {deletingDocId === d.id ? "Deleting…" : "Delete"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 

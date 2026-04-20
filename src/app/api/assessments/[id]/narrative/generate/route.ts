@@ -19,7 +19,7 @@ import {
   normalizePublicWebsiteUrl,
   summarizePublicWebExcerptForMemo,
 } from "@/lib/publicWebsiteEnrichment";
-import { redactLegalNameFromString } from "@/lib/redactOrgName";
+import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 const DEFAULT_NARRATIVE_MODEL = "claude-sonnet-4-6";
@@ -697,12 +697,13 @@ async function generateNarrativeJsonWithAI(args: {
   org: { industry?: string | null; size?: string | null };
   resultsBody: any;
   docCount: number;
+  docsEvidence?: Array<{ title: string; excerpt: string }> | null;
   /** Used only for redaction before the model; never sent as-is to the LLM. */
   orgLegalName?: string | null;
   /** Anonymized bullets from a separate web-enrichment step (no URL). */
   publicWebSummary?: string | null;
 }) {
-  const { assessmentId, org, resultsBody, docCount, orgLegalName, publicWebSummary } = args;
+  const { assessmentId, org, resultsBody, docCount, docsEvidence, orgLegalName, publicWebSummary } = args;
 
   const maturity = resultsBody?.maturity ?? null;
   const riskFlags = Array.isArray(resultsBody?.riskFlags) ? resultsBody.riskFlags : [];
@@ -716,10 +717,11 @@ async function generateNarrativeJsonWithAI(args: {
   const businessContext = resultsBody?.narrativeContext?.businessContext ?? {};
   const evidence = resultsBody?.narrativeContext?.evidence ?? {};
 
-  const contextNotesRedacted = redactLegalNameFromString(
-    typeof businessContext?.contextNotes === "string" ? businessContext.contextNotes : null,
-    orgLegalName ?? null
-  );
+  const contextNotesRedacted = anonymizeOrgText({
+    text: typeof businessContext?.contextNotes === "string" ? businessContext.contextNotes : null,
+    organizationName: orgLegalName ?? null,
+    industry: org.industry ?? null,
+  });
 
   const freeTextResponsesRaw = Array.isArray(evidence?.freeTextResponses)
     ? evidence.freeTextResponses
@@ -729,11 +731,19 @@ async function generateNarrativeJsonWithAI(args: {
     if (!row || typeof row !== "object") return row;
     const answer =
       typeof row.answer === "string"
-        ? redactLegalNameFromString(row.answer, orgLegalName ?? null)
+        ? anonymizeOrgText({
+            text: row.answer,
+            organizationName: orgLegalName ?? null,
+            industry: org.industry ?? null,
+          })
         : row.answer;
     const qtext =
       typeof row.question === "string"
-        ? redactLegalNameFromString(row.question, orgLegalName ?? null)
+        ? anonymizeOrgText({
+            text: row.question,
+            organizationName: orgLegalName ?? null,
+            industry: org.industry ?? null,
+          })
         : row.question;
     return { ...row, question: qtext, answer };
   });
@@ -746,7 +756,11 @@ async function generateNarrativeJsonWithAI(args: {
     if (!row || typeof row !== "object") return row;
     const note =
       typeof row.note === "string"
-        ? redactLegalNameFromString(row.note, orgLegalName ?? null)
+        ? anonymizeOrgText({
+            text: row.note,
+            organizationName: orgLegalName ?? null,
+            industry: org.industry ?? null,
+          })
         : row.note;
     return { ...row, note };
   });
@@ -786,7 +800,10 @@ async function generateNarrativeJsonWithAI(args: {
       riskFlags,
       pillars: pillarScores,
     },
-    documents: { count: docCount },
+    documents: {
+      count: docCount,
+      excerpts: Array.isArray(docsEvidence) ? docsEvidence : [],
+    },
     schema:
       "Return ONLY valid JSON for the required schema: schemaVersion, assessmentId, organization, executiveSummaryBullets, maturityInterpretation, currentState, opportunities, pilotProjects, guardrails, actionPlan90Days, leadershipAlignment, risks, evidenceUsed, missingInputs.",
   };
@@ -811,6 +828,7 @@ async function generateNarrativeJsonWithAI(args: {
     "- Never address the output to a named company.",
     "- Do NOT infer or insert a legal name from website briefing, domains, email addresses, or participant text.",
     "- The INPUT deliberately excludes raw website URLs and legal entity names.",
+    "- Do not attempt to infer the organization identity from uploaded documents or phrasing artifacts.",
     "",
     "PUBLIC WEBSITE CONTEXT:",
     "- When publicWebContext.briefing is present, it is from a separate anonymized review of their public site.",
@@ -1671,6 +1689,27 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       orderBy: [{ created_at: "desc" }],
     });
 
+    const docsEvidence = docs
+      .map((d) => {
+        const title = anonymizeOrgText({
+          text: d.title,
+          organizationName: org.name ?? null,
+          industry: org.industry ?? null,
+        });
+        const excerpt = anonymizeOrgText({
+          text: d.text_extracted,
+          organizationName: org.name ?? null,
+          industry: org.industry ?? null,
+        });
+        if (!excerpt) return null;
+        return {
+          title: title ?? "uploaded document",
+          excerpt: excerpt.slice(0, 2000),
+        };
+      })
+      .filter((x): x is { title: string; excerpt: string } => x !== null)
+      .slice(0, 12);
+
     const docFingerprints = docs.map((d) => ({
       id: d.id,
       title: d.title,
@@ -1834,6 +1873,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           },
           resultsBody: results.body,
           docCount: docs.length,
+          docsEvidence,
           orgLegalName: org.name ?? null,
           publicWebSummary: publicWebSummaryForAi,
         });

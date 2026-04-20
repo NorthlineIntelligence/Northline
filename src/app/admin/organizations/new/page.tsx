@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/admin";
+import { INDUSTRY_OPTIONS } from "@/lib/assessmentIndustry";
 
 export default async function NewOrganizationPage() {
   await requireAdmin();
@@ -49,10 +50,18 @@ export default async function NewOrganizationPage() {
               <label className="block text-sm font-medium mb-1">
                 Industry
               </label>
-              <input
+              <select
                 name="industry"
                 className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
-              />
+                defaultValue=""
+              >
+                <option value="">Select industry</option>
+                {INDUSTRY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -81,6 +90,24 @@ export default async function NewOrganizationPage() {
               >
                 <option value="FULL">Full Organization</option>
                 <option value="DEPARTMENT">Single Department</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Assessment Industry (question set)
+              </label>
+              <select
+                name="assessment_industry"
+                className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
+                defaultValue=""
+              >
+                <option value="">Not set (all industries)</option>
+                {INDUSTRY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
