@@ -50,6 +50,13 @@ function fmtMoney(cents: number | null | undefined) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function normalizeLookupText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 export default function CrmOrganizationClient({
   organizationId,
   view = "overview",
@@ -304,12 +311,49 @@ export default function CrmOrganizationClient({
     return skus;
   }, [payload.priceBookLines]);
 
+  const priceLineBySku = useMemo(() => {
+    const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
+    const map = new Map<string, Record<string, unknown>>();
+    for (const row of lines) {
+      if (!row || typeof row !== "object") continue;
+      const record = row as Record<string, unknown>;
+      const sku = String(record.sku ?? "").trim();
+      if (!sku) continue;
+      map.set(sku, record);
+    }
+    return map;
+  }, [payload.priceBookLines]);
+
   function updateWorkItem(index: number, patch: Record<string, unknown>) {
     const items = parseScopeWorkItemsFromPayload(payload);
     const current = items[index];
     if (!current) return;
     const next = [...items];
     next[index] = normalizeScopeWorkItem({ ...current, ...patch, id: current.id }, index);
+    void saveQuote({ ...payload, scopeWorkItems: next });
+  }
+
+  function autoMapWorkItemsByTitle() {
+    const items = parseScopeWorkItemsFromPayload(payload);
+    if (items.length === 0) return;
+    const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
+    const next = items.map((item, idx) => {
+      if (item.linkedSku) return item;
+      const itemText = normalizeLookupText(item.title);
+      if (!itemText) return item;
+      const match = lines.find((row) => {
+        if (!row || typeof row !== "object") return false;
+        const r = row as Record<string, unknown>;
+        const skuText = normalizeLookupText(r.sku);
+        const descText = normalizeLookupText(r.description);
+        return (
+          (skuText && (skuText.includes(itemText) || itemText.includes(skuText))) ||
+          (descText && (descText.includes(itemText) || itemText.includes(descText)))
+        );
+      }) as Record<string, unknown> | undefined;
+      if (!match) return item;
+      return normalizeScopeWorkItem({ ...item, linkedSku: String(match.sku ?? "") }, idx);
+    });
     void saveQuote({ ...payload, scopeWorkItems: next });
   }
 
@@ -365,6 +409,49 @@ export default function CrmOrganizationClient({
     if (!scopeSummaryForWork?.projects?.length) return;
     const next = syncPilotWorkItemsFromScopeSummary(payload, scopeSummaryForWork);
     void saveQuote(next);
+  }
+
+  async function saveQuoteAsActiveForPm() {
+    if (!selectedQuoteId) return;
+    const nextPayload = {
+      ...payload,
+      pm: {
+        ...(payload.pm && typeof payload.pm === "object"
+          ? (payload.pm as Record<string, unknown>)
+          : {}),
+        activeForPm: true,
+      },
+    };
+    await saveQuote(nextPayload, { status: "SENT" });
+  }
+
+  async function downloadQuotePdf() {
+    if (!quote) return;
+    setBusy(true);
+    setQuoteErr(null);
+    try {
+      const res = await fetch(`/api/admin/crm/quotes/${quote.id}/pdf`, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const message = await res.text();
+        throw new Error(message || "PDF download failed");
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `northline-quote-${quote.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e: unknown) {
+      setQuoteErr(e instanceof Error ? e.message : "PDF download failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loadErr) {
@@ -852,14 +939,25 @@ export default function CrmOrganizationClient({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <a
-                      href={`/api/admin/crm/quotes/${quote.id}/pdf`}
-                      target="_blank"
-                      rel="noreferrer"
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        void downloadQuotePdf();
+                      }}
                       className="rounded-xl border bg-white px-4 py-2 text-sm font-black uppercase shadow-sm"
                       style={{ borderColor: BRAND.border, color: BRAND.dark }}
                     >
                       Download PDF
                     </a>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="rounded-xl px-4 py-2 text-sm font-black uppercase text-white disabled:opacity-50"
+                      style={{ background: BRAND.dark }}
+                      onClick={() => void saveQuoteAsActiveForPm()}
+                    >
+                      Save active quote for PM
+                    </button>
                   </div>
                 </div>
                 <p className="mt-3 text-xs font-semibold" style={{ color: BRAND.muted }}>
@@ -909,6 +1007,15 @@ export default function CrmOrganizationClient({
                         disabled={busy}
                         className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
                         style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        onClick={autoMapWorkItemsByTitle}
+                      >
+                        Auto-map by title
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
                         onClick={applyWorkItemsToPriceBook}
                       >
                         Apply to price book (select lines + qty)
@@ -923,6 +1030,7 @@ export default function CrmOrganizationClient({
                             <th className="px-2 py-2">Hours</th>
                             <th className="px-2 py-2">Qty</th>
                             <th className="px-2 py-2">Price book SKU</th>
+                            <th className="px-2 py-2">Est. cost</th>
                             <th className="px-2 py-2">Notes</th>
                             <th className="px-2 py-2" />
                           </tr>
@@ -989,12 +1097,13 @@ export default function CrmOrganizationClient({
                                 <input
                                   type="number"
                                   min={1}
+                                  step={0.25}
                                   className="w-14 rounded border px-1 py-1 text-xs outline-none"
                                   style={{ borderColor: BRAND.border }}
                                   value={w.billQuantity}
                                   onChange={(e) =>
                                     updateWorkItem(idx, {
-                                      billQuantity: Math.max(1, Math.round(Number(e.target.value) || 1)),
+                                      billQuantity: Math.max(1, Number(e.target.value) || 1),
                                     })
                                   }
                                 />
@@ -1015,6 +1124,24 @@ export default function CrmOrganizationClient({
                                     </option>
                                   ))}
                                 </select>
+                              </td>
+                              <td className="px-2 py-2 align-top text-xs font-black" style={{ color: BRAND.dark }}>
+                                {(() => {
+                                  if (!w.linkedSku) return "—";
+                                  const row = priceLineBySku.get(w.linkedSku);
+                                  if (!row) return "—";
+                                  const unitPrice =
+                                    typeof row.unit_price_cents === "number" && Number.isFinite(row.unit_price_cents)
+                                      ? row.unit_price_cents
+                                      : 0;
+                                  const unitText = String(row.unit ?? "").toLowerCase();
+                                  const isHourly = unitText.includes("hour") || unitText === "hr" || unitText === "hrs";
+                                  const qty =
+                                    isHourly && w.estimatedHours != null
+                                      ? Math.max(0, w.estimatedHours)
+                                      : Math.max(1, w.billQuantity ?? 1);
+                                  return fmtMoney(Math.round(qty * unitPrice));
+                                })()}
                               </td>
                               <td className="px-2 py-2 align-top">
                                 <input

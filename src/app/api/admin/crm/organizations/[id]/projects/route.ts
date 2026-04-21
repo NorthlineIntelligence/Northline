@@ -36,13 +36,37 @@ export async function GET(
     }),
     prisma.crmQuote.findMany({
       where: { organization_id: organizationId },
-      select: { id: true, status: true, total_cents: true, updated_at: true, assessment_id: true },
+      select: {
+        id: true,
+        status: true,
+        total_cents: true,
+        updated_at: true,
+        assessment_id: true,
+        quote_payload: true,
+      },
       orderBy: { updated_at: "desc" },
       take: 20,
     }),
   ]);
+  const quotesForPm = quotes
+    .map((q) => {
+      const payload =
+        q.quote_payload && typeof q.quote_payload === "object"
+          ? (q.quote_payload as Record<string, unknown>)
+          : {};
+      const pm = payload.pm && typeof payload.pm === "object" ? (payload.pm as Record<string, unknown>) : {};
+      return {
+        id: q.id,
+        status: q.status,
+        total_cents: q.total_cents,
+        updated_at: q.updated_at,
+        assessment_id: q.assessment_id,
+        active_for_pm: pm.activeForPm === true,
+      };
+    })
+    .sort((a, b) => Number(b.active_for_pm) - Number(a.active_for_pm));
 
-  return NextResponse.json({ ok: true, projects, quotes });
+  return NextResponse.json({ ok: true, projects, quotes: quotesForPm });
 }
 
 export async function POST(

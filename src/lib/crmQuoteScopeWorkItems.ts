@@ -34,7 +34,7 @@ export function normalizeScopeWorkItem(raw: unknown, fallbackIndex: number): Sco
     typeof hoursRaw === "number" && Number.isFinite(hoursRaw) && hoursRaw >= 0 ? hoursRaw : null;
   const billQ = r.billQuantity;
   const billQuantity =
-    typeof billQ === "number" && Number.isFinite(billQ) && billQ > 0 ? Math.round(billQ) : 1;
+    typeof billQ === "number" && Number.isFinite(billQ) && billQ > 0 ? billQ : 1;
   const spi = r.sourceProjectIndex;
   const sourceProjectIndex =
     typeof spi === "number" && Number.isInteger(spi) && spi >= 0 ? spi : null;
@@ -162,7 +162,7 @@ export function applyScopeWorkItemsToPriceLines(payload: Record<string, unknown>
     const isHourly = unit.includes("hour") || unit === "hr" || unit === "hrs";
     const qty =
       isHourly && item.estimatedHours != null && item.estimatedHours > 0
-        ? Math.max(1, Math.round(item.estimatedHours))
+        ? Math.max(0.25, item.estimatedHours)
         : Math.max(1, item.billQuantity ?? 1);
     lines[idx] = { ...row, selected: true, quantity: qty };
   }

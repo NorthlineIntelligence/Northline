@@ -11,7 +11,7 @@ type PmProjectWithSprints = PmProject & {
 
 type ApiResponse = {
   projects: PmProjectWithSprints[];
-  quotes: Array<Pick<CrmQuote, "id" | "status" | "total_cents" | "updated_at">>;
+  quotes: Array<Pick<CrmQuote, "id" | "status" | "total_cents" | "updated_at"> & { active_for_pm?: boolean }>;
 };
 
 function fmtMoney(cents: number | null | undefined) {
@@ -192,6 +192,7 @@ export default function CrmProjectsClient({ organizationId }: { organizationId: 
               <option value="">Select quote</option>
               {data?.quotes.map((q) => (
                 <option key={q.id} value={q.id}>
+                  {q.active_for_pm ? "ACTIVE · " : ""}
                   {q.status} · {fmtMoney(q.total_cents)} · {new Date(q.updated_at).toLocaleDateString()}
                 </option>
               ))}
