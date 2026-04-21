@@ -14,6 +14,18 @@ export type ScopeWorkItem = {
   billQuantity: number;
   linkedSku: string | null;
   notes: string;
+  engagementName: string | null;
+  companyTierOverride: string | null;
+  pricingModel: "PROJECT" | "HOURLY";
+  pricingSelection:
+    | "BASE_PRICE"
+    | "MIN_PRICE"
+    | "MAX_PRICE"
+    | "HOURLY_RATE_BASE"
+    | "HOURLY_RATE_MIN"
+    | "HOURLY_RATE_MAX";
+  quantity: number;
+  discountPct: number;
 };
 
 const KINDS: ScopeWorkItemKind[] = ["PILOT", "ASSESSMENT_ONLY", "ALACARTE", "CUSTOM"];
@@ -49,6 +61,30 @@ export function normalizeScopeWorkItem(raw: unknown, fallbackIndex: number): Sco
     billQuantity,
     linkedSku: r.linkedSku === null || r.linkedSku === undefined || r.linkedSku === "" ? null : String(r.linkedSku),
     notes: String(r.notes ?? "").slice(0, 2000),
+    engagementName:
+      r.engagementName === null || r.engagementName === undefined || r.engagementName === ""
+        ? null
+        : String(r.engagementName),
+    companyTierOverride:
+      r.companyTierOverride === null || r.companyTierOverride === undefined || r.companyTierOverride === ""
+        ? null
+        : String(r.companyTierOverride),
+    pricingModel: String(r.pricingModel ?? "PROJECT").toUpperCase() === "HOURLY" ? "HOURLY" : "PROJECT",
+    pricingSelection: ((): ScopeWorkItem["pricingSelection"] => {
+      const v = String(r.pricingSelection ?? "BASE_PRICE").toUpperCase();
+      if (v === "MIN_PRICE") return "MIN_PRICE";
+      if (v === "MAX_PRICE") return "MAX_PRICE";
+      if (v === "HOURLY_RATE_BASE") return "HOURLY_RATE_BASE";
+      if (v === "HOURLY_RATE_MIN") return "HOURLY_RATE_MIN";
+      if (v === "HOURLY_RATE_MAX") return "HOURLY_RATE_MAX";
+      return "BASE_PRICE";
+    })(),
+    quantity:
+      typeof r.quantity === "number" && Number.isFinite(r.quantity) && r.quantity > 0 ? r.quantity : 1,
+    discountPct:
+      typeof r.discountPct === "number" && Number.isFinite(r.discountPct)
+        ? Math.max(0, Math.min(100, r.discountPct))
+        : 0,
   };
 }
 
@@ -78,6 +114,12 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
       billQuantity: 1,
       linkedSku: null,
       notes: "",
+      engagementName: null,
+      companyTierOverride: null,
+      pricingModel: "PROJECT",
+      pricingSelection: "BASE_PRICE",
+      quantity: 1,
+      discountPct: 0,
     });
   });
 
@@ -92,6 +134,12 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
     billQuantity: 1,
     linkedSku: null,
     notes: "",
+    engagementName: null,
+    companyTierOverride: null,
+    pricingModel: "PROJECT",
+    pricingSelection: "BASE_PRICE",
+    quantity: 1,
+    discountPct: 0,
   });
 
   items.push({
@@ -105,6 +153,12 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
     billQuantity: 1,
     linkedSku: null,
     notes: "",
+    engagementName: null,
+    companyTierOverride: null,
+    pricingModel: "PROJECT",
+    pricingSelection: "BASE_PRICE",
+    quantity: 1,
+    discountPct: 0,
   });
 
   return items;

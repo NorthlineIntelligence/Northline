@@ -20,7 +20,6 @@ import type {
   CrmInvoice,
 } from "@prisma/client";
 import {
-  applyScopeWorkItemsToPriceLines,
   buildScopeWorkItemsFromScopeSummary,
   normalizeScopeWorkItem,
   parseScopeWorkItemsFromPayload,
@@ -56,6 +55,19 @@ function normalizeLookupText(value: unknown) {
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
+
+type PriceBookRow = {
+  sku: string;
+  description: string;
+  engagement_name: string;
+  company_tier: string;
+  base_price_cents: number;
+  min_price_cents: number;
+  max_price_cents: number;
+  hourly_rate_base_cents: number;
+  hourly_rate_min_cents: number;
+  hourly_rate_max_cents: number;
+};
 
 export default function CrmOrganizationClient({
   organizationId,
@@ -274,15 +286,6 @@ export default function CrmOrganizationClient({
     }
   }
 
-  function updateLine(idx: number, patchRow: Record<string, unknown>) {
-    const lines = [...(Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [])] as Record<
-      string,
-      unknown
-    >[];
-    lines[idx] = { ...lines[idx], ...patchRow };
-    void saveQuote({ ...payload, priceBookLines: lines });
-  }
-
   const scopeSummaryForWork =
     payload.scopeSummary && typeof payload.scopeSummary === "object"
       ? (payload.scopeSummary as {
@@ -300,29 +303,53 @@ export default function CrmOrganizationClient({
 
   const workItems = useMemo(() => parseScopeWorkItemsFromPayload(payload), [payload]);
 
-  const skuOptions = useMemo(() => {
+  const priceBookRows = useMemo(() => {
     const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
-    const skus: string[] = [];
+    const rows: PriceBookRow[] = [];
     for (const row of lines) {
       if (!row || typeof row !== "object") continue;
-      const sku = String((row as Record<string, unknown>).sku ?? "").trim();
-      if (sku && !skus.includes(sku)) skus.push(sku);
+      const r = row as Record<string, unknown>;
+      const engagement = String(r.engagement_name ?? "").trim();
+      const tier = String(r.company_tier ?? "").trim();
+      if (!engagement) continue;
+      rows.push({
+        sku: String(r.sku ?? ""),
+        description: String(r.description ?? ""),
+        engagement_name: engagement,
+        company_tier: tier || "All",
+        base_price_cents: typeof r.base_price_cents === "number" ? r.base_price_cents : 0,
+        min_price_cents: typeof r.min_price_cents === "number" ? r.min_price_cents : 0,
+        max_price_cents: typeof r.max_price_cents === "number" ? r.max_price_cents : 0,
+        hourly_rate_base_cents: typeof r.hourly_rate_base_cents === "number" ? r.hourly_rate_base_cents : 0,
+        hourly_rate_min_cents: typeof r.hourly_rate_min_cents === "number" ? r.hourly_rate_min_cents : 0,
+        hourly_rate_max_cents: typeof r.hourly_rate_max_cents === "number" ? r.hourly_rate_max_cents : 0,
+      });
     }
-    return skus;
+    return rows;
   }, [payload.priceBookLines]);
 
-  const priceLineBySku = useMemo(() => {
-    const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
-    const map = new Map<string, Record<string, unknown>>();
-    for (const row of lines) {
-      if (!row || typeof row !== "object") continue;
-      const record = row as Record<string, unknown>;
-      const sku = String(record.sku ?? "").trim();
-      if (!sku) continue;
-      map.set(sku, record);
+  const engagementOptions = useMemo(() => {
+    const out: string[] = [];
+    for (const r of priceBookRows) {
+      if (!out.includes(r.engagement_name)) out.push(r.engagement_name);
     }
-    return map;
-  }, [payload.priceBookLines]);
+    return out.sort((a, b) => a.localeCompare(b));
+  }, [priceBookRows]);
+
+  const tierOptions = useMemo(() => {
+    const out: string[] = [];
+    for (const r of priceBookRows) {
+      if (!out.includes(r.company_tier)) out.push(r.company_tier);
+    }
+    return out.sort((a, b) => a.localeCompare(b));
+  }, [priceBookRows]);
+
+  const topCompanyTier =
+    payload.pricingDefaults &&
+    typeof payload.pricingDefaults === "object" &&
+    typeof (payload.pricingDefaults as Record<string, unknown>).companyTier === "string"
+      ? String((payload.pricingDefaults as Record<string, unknown>).companyTier)
+      : "";
 
   function updateWorkItem(index: number, patch: Record<string, unknown>) {
     const items = parseScopeWorkItemsFromPayload(payload);
@@ -330,31 +357,134 @@ export default function CrmOrganizationClient({
     if (!current) return;
     const next = [...items];
     next[index] = normalizeScopeWorkItem({ ...current, ...patch, id: current.id }, index);
-    void saveQuote({ ...payload, scopeWorkItems: next });
+    void saveScopePricingItems(next);
+  }
+
+  function getPriceBookRowForItem(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
+    if (!item.engagementName) return null;
+    const tier = item.companyTierOverride || topCompanyTier || "";
+    const exact = priceBookRows.find(
+      (r) =>
+        r.engagement_name === item.engagementName &&
+        (tier ? r.company_tier.toLowerCase() === tier.toLowerCase() : true)
+    );
+    if (exact) return exact;
+    const all = priceBookRows.find(
+      (r) =>
+        r.engagement_name === item.engagementName &&
+        (r.company_tier.toLowerCase() === "all" || r.company_tier.toLowerCase() === "default")
+    );
+    if (all) return all;
+    return priceBookRows.find((r) => r.engagement_name === item.engagementName) ?? null;
+  }
+
+  function getUnitPriceCentsForItem(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
+    const row = getPriceBookRowForItem(item);
+    if (!row) return 0;
+    const selection = item.pricingSelection;
+    if (selection === "MIN_PRICE") return row.min_price_cents || row.base_price_cents || 0;
+    if (selection === "MAX_PRICE") return row.max_price_cents || row.base_price_cents || 0;
+    if (selection === "HOURLY_RATE_BASE") return row.hourly_rate_base_cents || 0;
+    if (selection === "HOURLY_RATE_MIN") return row.hourly_rate_min_cents || 0;
+    if (selection === "HOURLY_RATE_MAX") return row.hourly_rate_max_cents || 0;
+    return row.base_price_cents || 0;
+  }
+
+  function getLineFinalCents(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
+    const unit = getUnitPriceCentsForItem(item);
+    const qty = Math.max(0, item.quantity || 0);
+    const subtotal = Math.round(unit * qty);
+    const discount = Math.max(0, Math.min(100, item.discountPct || 0));
+    return Math.max(0, Math.round(subtotal * (1 - discount / 100)));
+  }
+
+  function buildCustomLinesFromWorkItems(
+    items: ReturnType<typeof parseScopeWorkItemsFromPayload>,
+    fallbackTier: string
+  ) {
+    return items
+      .map((item) => {
+        const finalCents = getLineFinalCents(item);
+        if (!item.engagementName || finalCents <= 0) return null;
+        const row = getPriceBookRowForItem(item);
+        const tier = item.companyTierOverride || fallbackTier || row?.company_tier || "All";
+        const priceLabel =
+          item.pricingSelection === "BASE_PRICE"
+            ? "Base Price"
+            : item.pricingSelection === "MIN_PRICE"
+              ? "Min Price"
+              : item.pricingSelection === "MAX_PRICE"
+                ? "Max Price"
+                : item.pricingSelection === "HOURLY_RATE_BASE"
+                  ? "Hourly Rate (Base)"
+                  : item.pricingSelection === "HOURLY_RATE_MIN"
+                    ? "Hourly Rate (Min)"
+                    : "Hourly Rate (Max)";
+        return {
+          description: `${item.engagementName} (${tier}) — ${item.pricingModel} / ${priceLabel}`,
+          quantity: 1,
+          unit_price_cents: finalCents,
+        };
+      })
+      .filter((x): x is { description: string; quantity: number; unit_price_cents: number } => x !== null);
+  }
+
+  async function saveScopePricingItems(items: ReturnType<typeof parseScopeWorkItemsFromPayload>) {
+    const neutralPriceBookLines = (Array.isArray(payload.priceBookLines) ? payload.priceBookLines : []).map((row) => {
+      if (!row || typeof row !== "object") return row;
+      return { ...(row as Record<string, unknown>), selected: false, quantity: 1 };
+    });
+    const nextPayload = {
+      ...payload,
+      scopeWorkItems: items,
+      customLines: buildCustomLinesFromWorkItems(items, topCompanyTier),
+      priceBookLines: neutralPriceBookLines,
+      pricingDefaults: {
+        ...(payload.pricingDefaults && typeof payload.pricingDefaults === "object"
+          ? (payload.pricingDefaults as Record<string, unknown>)
+          : {}),
+        companyTier: topCompanyTier || null,
+      },
+    };
+    await saveQuote(nextPayload);
+  }
+
+  async function setTopCompanyTier(nextTier: string) {
+    const items = parseScopeWorkItemsFromPayload(payload);
+    const neutralPriceBookLines = (Array.isArray(payload.priceBookLines) ? payload.priceBookLines : []).map((row) => {
+      if (!row || typeof row !== "object") return row;
+      return { ...(row as Record<string, unknown>), selected: false, quantity: 1 };
+    });
+    const nextPayload = {
+      ...payload,
+      pricingDefaults: {
+        ...(payload.pricingDefaults && typeof payload.pricingDefaults === "object"
+          ? (payload.pricingDefaults as Record<string, unknown>)
+          : {}),
+        companyTier: nextTier || null,
+      },
+      customLines: buildCustomLinesFromWorkItems(items, nextTier),
+      priceBookLines: neutralPriceBookLines,
+    };
+    await saveQuote(nextPayload);
   }
 
   function autoMapWorkItemsByTitle() {
     const items = parseScopeWorkItemsFromPayload(payload);
     if (items.length === 0) return;
-    const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
+    const names = engagementOptions;
     const next = items.map((item, idx) => {
-      if (item.linkedSku) return item;
+      if (item.engagementName) return item;
       const itemText = normalizeLookupText(item.title);
       if (!itemText) return item;
-      const match = lines.find((row) => {
-        if (!row || typeof row !== "object") return false;
-        const r = row as Record<string, unknown>;
-        const skuText = normalizeLookupText(r.sku);
-        const descText = normalizeLookupText(r.description);
-        return (
-          (skuText && (skuText.includes(itemText) || itemText.includes(skuText))) ||
-          (descText && (descText.includes(itemText) || itemText.includes(descText)))
-        );
-      }) as Record<string, unknown> | undefined;
+      const match = names.find((name) => {
+        const t = normalizeLookupText(name);
+        return t && (t.includes(itemText) || itemText.includes(t));
+      });
       if (!match) return item;
-      return normalizeScopeWorkItem({ ...item, linkedSku: String(match.sku ?? "") }, idx);
+      return normalizeScopeWorkItem({ ...item, engagementName: match }, idx);
     });
-    void saveQuote({ ...payload, scopeWorkItems: next });
+    void saveScopePricingItems(next);
   }
 
   function addWorkItemRow() {
@@ -372,23 +502,18 @@ export default function CrmOrganizationClient({
       },
       items.length
     );
-    void saveQuote({ ...payload, scopeWorkItems: [...items, row] });
+    void saveScopePricingItems([...items, row]);
   }
 
   function removeWorkItemRow(index: number) {
     const items = parseScopeWorkItemsFromPayload(payload).filter((_, i) => i !== index);
-    void saveQuote({ ...payload, scopeWorkItems: items });
+    void saveScopePricingItems(items);
   }
 
   function initWorkItemsFromScopeSummary() {
     if (!scopeSummaryForWork) return;
     const items = buildScopeWorkItemsFromScopeSummary(scopeSummaryForWork);
-    void saveQuote({ ...payload, scopeWorkItems: items });
-  }
-
-  function applyWorkItemsToPriceBook() {
-    const next = applyScopeWorkItemsToPriceLines({ ...payload });
-    void saveQuote(next);
+    void saveScopePricingItems(items);
   }
 
   async function refreshSimplifiedReadoutFromSnapshot() {
@@ -963,6 +1088,24 @@ export default function CrmOrganizationClient({
                 <p className="mt-3 text-xs font-semibold" style={{ color: BRAND.muted }}>
                   DocuSign e-signature is not wired up yet; export PDF for now and sign outside the app.
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.muted }}>
+                    Default company tier
+                  </label>
+                  <select
+                    className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold outline-none"
+                    style={{ borderColor: BRAND.border }}
+                    value={topCompanyTier}
+                    onChange={(e) => void setTopCompanyTier(e.target.value)}
+                  >
+                    <option value="">Select tier</option>
+                    {tierOptions.map((tier) => (
+                      <option key={tier} value={tier}>
+                        {tier}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 {workItems.length === 0 ? (
                   <div className="mt-4 rounded-xl border border-dashed px-4 py-6 text-center" style={{ borderColor: BRAND.border }}>
@@ -1009,28 +1152,21 @@ export default function CrmOrganizationClient({
                         style={{ borderColor: BRAND.border, color: BRAND.dark }}
                         onClick={autoMapWorkItemsByTitle}
                       >
-                        Auto-map by title
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
-                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                        onClick={applyWorkItemsToPriceBook}
-                      >
-                        Apply to price book (select lines + qty)
+                        Auto-map title to engagement
                       </button>
                     </div>
                     <div className="overflow-x-auto rounded-xl border" style={{ borderColor: BRAND.border }}>
-                      <table className="min-w-[720px] w-full text-left text-sm">
+                      <table className="min-w-[1100px] w-full text-left text-sm">
                         <thead>
                           <tr className="text-[10px] font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
                             <th className="px-2 py-2">Title</th>
-                            <th className="px-2 py-2">Type</th>
-                            <th className="px-2 py-2">Hours</th>
+                            <th className="px-2 py-2">Engagement</th>
+                            <th className="px-2 py-2">Tier override</th>
+                            <th className="px-2 py-2">Hourly / project</th>
+                            <th className="px-2 py-2">Price mode</th>
                             <th className="px-2 py-2">Qty</th>
-                            <th className="px-2 py-2">Price book SKU</th>
-                            <th className="px-2 py-2">Est. cost</th>
+                            <th className="px-2 py-2">Discount %</th>
+                            <th className="px-2 py-2">Final</th>
                             <th className="px-2 py-2">Notes</th>
                             <th className="px-2 py-2" />
                           </tr>
@@ -1077,71 +1213,112 @@ export default function CrmOrganizationClient({
                                 </select>
                               </td>
                               <td className="px-2 py-2 align-top">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={0.5}
-                                  className="w-16 rounded border px-1 py-1 text-xs outline-none"
+                                <select
+                                  className="w-[190px] rounded border px-1 py-1 text-xs outline-none"
                                   style={{ borderColor: BRAND.border }}
-                                  value={w.estimatedHours ?? ""}
-                                  placeholder="—"
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    updateWorkItem(idx, {
-                                      estimatedHours: v === "" ? null : Math.max(0, Number(v) || 0),
-                                    });
-                                  }}
-                                />
-                              </td>
-                              <td className="px-2 py-2 align-top">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  step={0.25}
-                                  className="w-14 rounded border px-1 py-1 text-xs outline-none"
-                                  style={{ borderColor: BRAND.border }}
-                                  value={w.billQuantity}
+                                  value={w.engagementName ?? ""}
                                   onChange={(e) =>
                                     updateWorkItem(idx, {
-                                      billQuantity: Math.max(1, Number(e.target.value) || 1),
+                                      engagementName: e.target.value || null,
+                                      linkedSku: null,
                                     })
                                   }
-                                />
+                                >
+                                  <option value="">Select engagement</option>
+                                  {engagementOptions.map((name) => (
+                                    <option key={name} value={name}>
+                                      {name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <select
+                                  className="w-[130px] rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.companyTierOverride ?? ""}
+                                  onChange={(e) =>
+                                    updateWorkItem(idx, { companyTierOverride: e.target.value || null })
+                                  }
+                                >
+                                  <option value="">Use default</option>
+                                  {tierOptions.map((tier) => (
+                                    <option key={tier} value={tier}>
+                                      {tier}
+                                    </option>
+                                  ))}
+                                </select>
                               </td>
                               <td className="px-2 py-2 align-top">
                                 <select
                                   className="max-w-[120px] rounded border px-1 py-1 text-xs outline-none"
                                   style={{ borderColor: BRAND.border }}
-                                  value={w.linkedSku ?? ""}
+                                  value={w.pricingModel}
                                   onChange={(e) =>
-                                    updateWorkItem(idx, { linkedSku: e.target.value ? e.target.value : null })
+                                    updateWorkItem(idx, {
+                                      pricingModel: e.target.value,
+                                      pricingSelection:
+                                        e.target.value === "HOURLY" ? "HOURLY_RATE_BASE" : "BASE_PRICE",
+                                    })
                                   }
                                 >
-                                  <option value="">—</option>
-                                  {skuOptions.map((sku) => (
-                                    <option key={sku} value={sku}>
-                                      {sku}
-                                    </option>
-                                  ))}
+                                  <option value="PROJECT">Project</option>
+                                  <option value="HOURLY">Hourly</option>
                                 </select>
                               </td>
+                              <td className="px-2 py-2 align-top">
+                                <select
+                                  className="w-[160px] rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.pricingSelection}
+                                  onChange={(e) => updateWorkItem(idx, { pricingSelection: e.target.value })}
+                                >
+                                  {w.pricingModel === "HOURLY" ? (
+                                    <>
+                                      <option value="HOURLY_RATE_BASE">Hourly Rate (Base)</option>
+                                      <option value="HOURLY_RATE_MIN">Hourly Rate (Min)</option>
+                                      <option value="HOURLY_RATE_MAX">Hourly Rate (Max)</option>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <option value="BASE_PRICE">Base Price</option>
+                                      <option value="MIN_PRICE">Min Price</option>
+                                      <option value="MAX_PRICE">Max Price</option>
+                                    </>
+                                  )}
+                                </select>
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.25}
+                                  className="w-16 rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.quantity}
+                                  onChange={(e) =>
+                                    updateWorkItem(idx, { quantity: Math.max(0, Number(e.target.value) || 0) })
+                                  }
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={0.5}
+                                  className="w-16 rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.discountPct}
+                                  onChange={(e) =>
+                                    updateWorkItem(idx, {
+                                      discountPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                                    })
+                                  }
+                                />
+                              </td>
                               <td className="px-2 py-2 align-top text-xs font-black" style={{ color: BRAND.dark }}>
-                                {(() => {
-                                  if (!w.linkedSku) return "—";
-                                  const row = priceLineBySku.get(w.linkedSku);
-                                  if (!row) return "—";
-                                  const unitPrice =
-                                    typeof row.unit_price_cents === "number" && Number.isFinite(row.unit_price_cents)
-                                      ? row.unit_price_cents
-                                      : 0;
-                                  const unitText = String(row.unit ?? "").toLowerCase();
-                                  const isHourly = unitText.includes("hour") || unitText === "hr" || unitText === "hrs";
-                                  const qty =
-                                    isHourly && w.estimatedHours != null
-                                      ? Math.max(0, w.estimatedHours)
-                                      : Math.max(1, w.billQuantity ?? 1);
-                                  return fmtMoney(Math.round(qty * unitPrice));
-                                })()}
+                                {fmtMoney(getLineFinalCents(w))}
                               </td>
                               <td className="px-2 py-2 align-top">
                                 <input
@@ -1281,49 +1458,8 @@ export default function CrmOrganizationClient({
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead>
-                    <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
-                      <th className="pb-2 pr-2">Use</th>
-                      <th className="pb-2 pr-2">SKU</th>
-                      <th className="pb-2 pr-2">Description</th>
-                      <th className="pb-2 pr-2">Qty</th>
-                      <th className="pb-2">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(Array.isArray(payload.priceBookLines) ? payload.priceBookLines : []).map((row, idx) => {
-                      const r = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
-                      return (
-                        <tr key={idx} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
-                          <td className="py-2 pr-2">
-                            <input
-                              type="checkbox"
-                              checked={r.selected === true}
-                              onChange={(e) => updateLine(idx, { selected: e.target.checked })}
-                            />
-                          </td>
-                          <td className="py-2 pr-2">{String(r.sku ?? "")}</td>
-                          <td className="py-2 pr-2 max-w-[220px]">{String(r.description ?? "")}</td>
-                          <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              min={1}
-                              className="w-16 rounded border px-1 py-1 outline-none"
-                              style={{ borderColor: BRAND.border }}
-                              value={typeof r.quantity === "number" ? r.quantity : 1}
-                              onChange={(e) =>
-                                updateLine(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })
-                              }
-                            />
-                          </td>
-                          <td className="py-2">{fmtMoney(typeof r.unit_price_cents === "number" ? r.unit_price_cents : 0)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="rounded-xl border px-3 py-2 text-xs font-semibold" style={{ borderColor: BRAND.border, color: BRAND.muted }}>
+                Quote pricing now comes from the scope line-item calculator above (engagement + tier + pricing mode + quantity + discount).
               </div>
 
               <div>

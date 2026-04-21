@@ -5,6 +5,18 @@ const LineItemSchema = z.object({
   description: z.string().max(2000),
   unit: z.string().max(80).default("unit"),
   unit_price_cents: z.number().int().min(0),
+  engagement_name: z.string().max(200).optional(),
+  category: z.string().max(200).optional(),
+  company_tier: z.string().max(120).optional(),
+  base_price_cents: z.number().int().min(0).optional(),
+  min_price_cents: z.number().int().min(0).optional(),
+  max_price_cents: z.number().int().min(0).optional(),
+  hourly_rate_base_cents: z.number().int().min(0).optional(),
+  hourly_rate_min_cents: z.number().int().min(0).optional(),
+  hourly_rate_max_cents: z.number().int().min(0).optional(),
+  estimated_hours: z.number().min(0).optional(),
+  timeline: z.string().max(120).optional(),
+  project_cost_estimated_cents: z.number().int().min(0).optional(),
 });
 
 function normalizeLineItem(raw: unknown): z.infer<typeof LineItemSchema> | null {
@@ -94,23 +106,53 @@ export function parsePriceBookCsv(text: string): {
   const idx = (name: string) => header.findIndex((h) => h === name || h.replace(/\s+/g, "_") === name);
 
   const iSku = idx("sku");
+  const iEngagement = idx("engagement_name");
+  const iCategory = idx("category");
   const iDesc = idx("description");
+  const iTier = idx("company_tier");
   const iUnit = idx("unit");
   const iCents = idx("unit_price_cents");
   const iPrice = idx("unit_price");
   const iDollars = idx("price");
+  const iBasePrice = idx("base_price");
+  const iMinPrice = idx("min_price");
+  const iMaxPrice = idx("max_price");
+  const iHourlyBase = idx("hourly_rate_base");
+  const iHourlyMin = idx("hourly_rate_min");
+  const iHourlyMax = idx("hourly_rate_max");
+  const iEstimatedHours = idx("estimated_hours");
+  const iTimeline = idx("timeline");
+  const iProjectEstimated = idx("project_cost_estimated");
 
-  if (iSku < 0) {
-    return { line_items: [], warnings: ["CSV header must include a sku column"] };
+  if (iSku < 0 && iEngagement < 0) {
+    return { line_items: [], warnings: ["CSV header must include `sku` or `engagement name` column"] };
   }
+
+  const parseMoneyToCents = (raw: string) => {
+    const n = Number.parseFloat((raw ?? "").replace(/[$,]/g, ""));
+    return Number.isFinite(n) ? Math.max(0, Math.round(n * 100)) : 0;
+  };
+
+  const slug = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
 
   const line_items: z.infer<typeof LineItemSchema>[] = [];
   for (let r = 1; r < lines.length; r++) {
     const cols = splitRow(lines[r]!);
-    const sku = (cols[iSku] ?? "").replace(/^"|"$/g, "").trim();
+    const engagementName = iEngagement >= 0 ? (cols[iEngagement] ?? "").replace(/^"|"$/g, "").trim() : "";
+    const companyTier = iTier >= 0 ? (cols[iTier] ?? "").replace(/^"|"$/g, "").trim() : "";
+    const skuRaw = iSku >= 0 ? (cols[iSku] ?? "").replace(/^"|"$/g, "").trim() : "";
+    const sku = skuRaw || (engagementName ? `${slug(engagementName)}${companyTier ? `-${slug(companyTier)}` : ""}` : "");
     if (!sku) continue;
-    const description = iDesc >= 0 ? (cols[iDesc] ?? "").replace(/^"|"$/g, "").trim() || sku : sku;
-    const unit = iUnit >= 0 ? (cols[iUnit] ?? "").replace(/^"|"$/g, "").trim() || "unit" : "unit";
+    const description =
+      iDesc >= 0
+        ? (cols[iDesc] ?? "").replace(/^"|"$/g, "").trim() || engagementName || sku
+        : engagementName || sku;
+    const unit = iUnit >= 0 ? (cols[iUnit] ?? "").replace(/^"|"$/g, "").trim() || "project" : "project";
 
     let unit_price_cents = 0;
     if (iCents >= 0) {
@@ -124,11 +166,39 @@ export function parsePriceBookCsv(text: string): {
       if (Number.isFinite(n)) unit_price_cents = Math.round(n * 100);
     }
 
+    const basePriceCents = iBasePrice >= 0 ? parseMoneyToCents(cols[iBasePrice] ?? "") : undefined;
+    const minPriceCents = iMinPrice >= 0 ? parseMoneyToCents(cols[iMinPrice] ?? "") : undefined;
+    const maxPriceCents = iMaxPrice >= 0 ? parseMoneyToCents(cols[iMaxPrice] ?? "") : undefined;
+    const hourlyRateBaseCents = iHourlyBase >= 0 ? parseMoneyToCents(cols[iHourlyBase] ?? "") : undefined;
+    const hourlyRateMinCents = iHourlyMin >= 0 ? parseMoneyToCents(cols[iHourlyMin] ?? "") : undefined;
+    const hourlyRateMaxCents = iHourlyMax >= 0 ? parseMoneyToCents(cols[iHourlyMax] ?? "") : undefined;
+    const estimatedHoursRaw = iEstimatedHours >= 0 ? Number.parseFloat((cols[iEstimatedHours] ?? "").replace(/,/g, "")) : NaN;
+    const estimatedHours = Number.isFinite(estimatedHoursRaw) ? Math.max(0, estimatedHoursRaw) : undefined;
+    const timeline = iTimeline >= 0 ? (cols[iTimeline] ?? "").replace(/^"|"$/g, "").trim() : undefined;
+    const projectEstimatedCents = iProjectEstimated >= 0 ? parseMoneyToCents(cols[iProjectEstimated] ?? "") : undefined;
+
     const parsed = LineItemSchema.safeParse({
       sku,
       description,
       unit,
-      unit_price_cents,
+      unit_price_cents:
+        unit_price_cents ||
+        basePriceCents ||
+        hourlyRateBaseCents ||
+        projectEstimatedCents ||
+        0,
+      engagement_name: engagementName || undefined,
+      category: iCategory >= 0 ? (cols[iCategory] ?? "").replace(/^"|"$/g, "").trim() || undefined : undefined,
+      company_tier: companyTier || undefined,
+      base_price_cents: basePriceCents,
+      min_price_cents: minPriceCents,
+      max_price_cents: maxPriceCents,
+      hourly_rate_base_cents: hourlyRateBaseCents,
+      hourly_rate_min_cents: hourlyRateMinCents,
+      hourly_rate_max_cents: hourlyRateMaxCents,
+      estimated_hours: estimatedHours,
+      timeline: timeline || undefined,
+      project_cost_estimated_cents: projectEstimatedCents,
     });
     if (parsed.success) line_items.push(parsed.data);
   }

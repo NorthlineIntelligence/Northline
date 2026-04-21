@@ -73,7 +73,7 @@ export function buildInitialQuotePayload(args: {
           typeof r.unit_price_cents === "number" && Number.isFinite(r.unit_price_cents)
             ? r.unit_price_cents
             : 0,
-        selected: idx < 2,
+        selected: false,
         quantity: 1,
       };
     }),
