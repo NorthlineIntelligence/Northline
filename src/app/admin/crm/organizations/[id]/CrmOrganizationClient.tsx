@@ -84,6 +84,26 @@ type PriceBookRow = {
   hourly_rate_max_cents: number;
 };
 
+function toPriceBookRow(raw: unknown): PriceBookRow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const engagement = String(r.engagement_name ?? r["Engagement Name"] ?? "").trim();
+  if (!engagement) return null;
+  const tier = String(r.company_tier ?? r["Company Tier"] ?? "").trim() || "All";
+  return {
+    sku: String(r.sku ?? ""),
+    description: String(r.description ?? r.Description ?? ""),
+    engagement_name: engagement,
+    company_tier: tier,
+    base_price_cents: typeof r.base_price_cents === "number" ? r.base_price_cents : 0,
+    min_price_cents: typeof r.min_price_cents === "number" ? r.min_price_cents : 0,
+    max_price_cents: typeof r.max_price_cents === "number" ? r.max_price_cents : 0,
+    hourly_rate_base_cents: typeof r.hourly_rate_base_cents === "number" ? r.hourly_rate_base_cents : 0,
+    hourly_rate_min_cents: typeof r.hourly_rate_min_cents === "number" ? r.hourly_rate_min_cents : 0,
+    hourly_rate_max_cents: typeof r.hourly_rate_max_cents === "number" ? r.hourly_rate_max_cents : 0,
+  };
+}
+
 const DEFAULT_ENGAGEMENT_OPTIONS = [
   "AI Readiness Snapshot",
   "AI Readiness Diagnostic",
@@ -128,6 +148,7 @@ export default function CrmOrganizationClient({
   const [invoiceTitle, setInvoiceTitle] = useState("");
   const [invoiceCents, setInvoiceCents] = useState("");
   const [invoiceDue, setInvoiceDue] = useState("");
+  const [priceBookCatalogRows, setPriceBookCatalogRows] = useState<PriceBookRow[]>([]);
   const quoteEditorRef = useRef<HTMLElement | null>(null);
 
     const loadOrg = useCallback(async () => {
@@ -150,6 +171,28 @@ export default function CrmOrganizationClient({
   useEffect(() => {
     loadOrg();
   }, [loadOrg]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/crm/price-book", { credentials: "include" });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.price_books) return;
+        const current = (Array.isArray(json.price_books) ? json.price_books : []).find(
+          (b: Record<string, unknown>) => b?.is_current === true
+        ) as Record<string, unknown> | undefined;
+        const rowsRaw = Array.isArray(current?.line_items) ? current!.line_items : [];
+        const rows = rowsRaw.map(toPriceBookRow).filter((x): x is PriceBookRow => x !== null);
+        if (!cancelled) setPriceBookCatalogRows(rows);
+      } catch {
+        // best-effort catalog load for pricing lookups
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!data?.organization.crm_quotes?.length) {
@@ -345,28 +388,19 @@ export default function CrmOrganizationClient({
 
   const priceBookRows = useMemo(() => {
     const lines = Array.isArray(payload.priceBookLines) ? payload.priceBookLines : [];
-    const rows: PriceBookRow[] = [];
+    const rows: PriceBookRow[] = [...priceBookCatalogRows];
     for (const row of lines) {
-      if (!row || typeof row !== "object") continue;
-      const r = row as Record<string, unknown>;
-      const engagement = String(r.engagement_name ?? "").trim();
-      const tier = String(r.company_tier ?? "").trim();
-      if (!engagement) continue;
-      rows.push({
-        sku: String(r.sku ?? ""),
-        description: String(r.description ?? ""),
-        engagement_name: engagement,
-        company_tier: tier || "All",
-        base_price_cents: typeof r.base_price_cents === "number" ? r.base_price_cents : 0,
-        min_price_cents: typeof r.min_price_cents === "number" ? r.min_price_cents : 0,
-        max_price_cents: typeof r.max_price_cents === "number" ? r.max_price_cents : 0,
-        hourly_rate_base_cents: typeof r.hourly_rate_base_cents === "number" ? r.hourly_rate_base_cents : 0,
-        hourly_rate_min_cents: typeof r.hourly_rate_min_cents === "number" ? r.hourly_rate_min_cents : 0,
-        hourly_rate_max_cents: typeof r.hourly_rate_max_cents === "number" ? r.hourly_rate_max_cents : 0,
-      });
+      const mapped = toPriceBookRow(row);
+      if (mapped) rows.push(mapped);
     }
-    return rows;
-  }, [payload.priceBookLines]);
+    const deduped: PriceBookRow[] = [];
+    for (const row of rows) {
+      const key = `${row.engagement_name}::${row.company_tier}`.toLowerCase();
+      if (deduped.some((d) => `${d.engagement_name}::${d.company_tier}`.toLowerCase() === key)) continue;
+      deduped.push(row);
+    }
+    return deduped;
+  }, [payload.priceBookLines, priceBookCatalogRows]);
 
   const engagementOptions = useMemo(() => {
     const out: string[] = [...DEFAULT_ENGAGEMENT_OPTIONS];
@@ -1361,15 +1395,18 @@ export default function CrmOrganizationClient({
                               </td>
                               <td className="px-2 py-2 align-top">
                                 <input
-                                  type="number"
-                                  min={0}
-                                  step={0.25}
+                                  type="text"
+                                  inputMode="decimal"
                                   className="w-16 rounded border px-1 py-1 text-xs outline-none"
-                                  style={{ borderColor: BRAND.border }}
-                                  value={w.quantity}
-                                  onChange={(e) =>
-                                    updateWorkItem(idx, { quantity: Math.max(0, Number(e.target.value) || 0) })
-                                  }
+                                  style={{ borderColor: BRAND.border, appearance: "textfield" as const }}
+                                  value={String(w.quantity ?? "")}
+                                  onChange={(e) => {
+                                    const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                    const parsed = Number.parseFloat(raw);
+                                    updateWorkItem(idx, {
+                                      quantity: Number.isFinite(parsed) ? Math.max(0, parsed) : 0,
+                                    });
+                                  }}
                                 />
                               </td>
                               <td className="px-2 py-2 align-top">
