@@ -104,22 +104,6 @@ function toPriceBookRow(raw: unknown): PriceBookRow | null {
   };
 }
 
-const DEFAULT_ENGAGEMENT_OPTIONS = [
-  "AI Readiness Snapshot",
-  "AI Readiness Diagnostic",
-  "AI Strategy Workshop",
-  "AI Pilot Project",
-  "AI Systems Implementation",
-] as const;
-
-const DEFAULT_TIER_OPTIONS = [
-  "Startup",
-  "Small Business",
-  "Growth Company",
-  "Mid Market",
-  "Enterprise",
-] as const;
-
 export default function CrmOrganizationClient({
   organizationId,
   view = "overview",
@@ -149,6 +133,7 @@ export default function CrmOrganizationClient({
   const [invoiceCents, setInvoiceCents] = useState("");
   const [invoiceDue, setInvoiceDue] = useState("");
   const [priceBookCatalogRows, setPriceBookCatalogRows] = useState<PriceBookRow[]>([]);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const quoteEditorRef = useRef<HTMLElement | null>(null);
 
     const loadOrg = useCallback(async () => {
@@ -172,22 +157,37 @@ export default function CrmOrganizationClient({
     loadOrg();
   }, [loadOrg]);
 
+  const loadCurrentPriceBook = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/crm/price-book", { credentials: "include" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.price_books) return;
+      const current = (Array.isArray(json.price_books) ? json.price_books : []).find(
+        (b: Record<string, unknown>) => b?.is_current === true
+      ) as Record<string, unknown> | undefined;
+      const rowsRaw = Array.isArray(current?.line_items) ? current!.line_items : [];
+      const rows = rowsRaw.map(toPriceBookRow).filter((x): x is PriceBookRow => x !== null);
+      setPriceBookCatalogRows(rows);
+    } catch {
+      // best-effort catalog load for pricing lookups
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCurrentPriceBook();
+    const onFocus = () => void loadCurrentPriceBook();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadCurrentPriceBook]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/admin/crm/price-book", { credentials: "include" });
+        const res = await fetch("/api/branding/current", { credentials: "include" });
         const json = await res.json().catch(() => null);
-        if (!res.ok || !json?.price_books) return;
-        const current = (Array.isArray(json.price_books) ? json.price_books : []).find(
-          (b: Record<string, unknown>) => b?.is_current === true
-        ) as Record<string, unknown> | undefined;
-        const rowsRaw = Array.isArray(current?.line_items) ? current!.line_items : [];
-        const rows = rowsRaw.map(toPriceBookRow).filter((x): x is PriceBookRow => x !== null);
-        if (!cancelled) setPriceBookCatalogRows(rows);
-      } catch {
-        // best-effort catalog load for pricing lookups
-      }
+        if (!cancelled) setLogoUrl(typeof json?.logo_data_url === "string" ? json.logo_data_url : null);
+      } catch {}
     })();
     return () => {
       cancelled = true;
@@ -403,7 +403,7 @@ export default function CrmOrganizationClient({
   }, [payload.priceBookLines, priceBookCatalogRows]);
 
   const engagementOptions = useMemo(() => {
-    const out: string[] = [...DEFAULT_ENGAGEMENT_OPTIONS];
+    const out: string[] = [];
     for (const r of priceBookRows) {
       if (!out.includes(r.engagement_name)) out.push(r.engagement_name);
     }
@@ -411,7 +411,7 @@ export default function CrmOrganizationClient({
   }, [priceBookRows]);
 
   const tierOptions = useMemo(() => {
-    const out: string[] = [...DEFAULT_TIER_OPTIONS];
+    const out: string[] = [];
     for (const r of priceBookRows) {
       if (!out.includes(r.company_tier)) out.push(r.company_tier);
     }
@@ -485,6 +485,30 @@ export default function CrmOrganizationClient({
     const discount = Math.max(0, Math.min(100, item.discountPct || 0));
     return Math.max(0, Math.round(subtotal * (1 - discount / 100)));
   }
+
+  function getLineSubtotalCents(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
+    const unit = getUnitPriceCentsForItem(item);
+    const qty = Math.max(0, item.quantity || 0);
+    return Math.max(0, Math.round(unit * qty));
+  }
+
+  const pricingSummary = useMemo(() => {
+    const items = parseScopeWorkItemsFromPayload(payload);
+    let priceCents = 0;
+    let totalCents = 0;
+    for (const item of items) {
+      if (!item.engagementName) continue;
+      const subtotal = getLineSubtotalCents(item);
+      const final = getLineFinalCents(item);
+      priceCents += subtotal;
+      totalCents += final;
+    }
+    return {
+      priceCents,
+      discountCents: Math.max(0, priceCents - totalCents),
+      totalCents,
+    };
+  }, [payload, topCompanyTier, priceBookRows]);
 
   function buildCustomLinesFromWorkItems(
     items: ReturnType<typeof parseScopeWorkItemsFromPayload>,
@@ -1002,7 +1026,11 @@ export default function CrmOrganizationClient({
           </section>
         ) : null}
 
-        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+        <section
+          ref={quoteEditorRef}
+          className="rounded-2xl border bg-white/95 p-5 shadow-sm"
+          style={{ borderColor: BRAND.border }}
+        >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
@@ -1073,14 +1101,25 @@ export default function CrmOrganizationClient({
                         <td className="py-2 pr-3">{fmtMoney(q.total_cents)}</td>
                         <td className="py-2 pr-3">{new Date(q.updated_at).toLocaleString()}</td>
                         <td className="py-2">
-                          <button
-                            type="button"
-                            className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
-                            style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                            onClick={() => openQuoteFromLibrary(q.id)}
-                          >
-                            Open
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                              onClick={() => openQuoteFromLibrary(q.id)}
+                            >
+                              Open
+                            </button>
+                            <a
+                              href={`/admin/crm/quotes/${q.id}/preview`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                            >
+                              View
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1195,6 +1234,13 @@ export default function CrmOrganizationClient({
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt="Company logo"
+                        className="mb-2 h-10 w-auto object-contain"
+                      />
+                    ) : null}
                     <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.dark }}>
                       Scope → quote builder
                     </div>
@@ -1204,6 +1250,15 @@ export default function CrmOrganizationClient({
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <a
+                      href={`/admin/crm/quotes/${quote.id}/preview`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border bg-white px-4 py-2 text-sm font-black uppercase shadow-sm"
+                      style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    >
+                      View Quote
+                    </a>
                     <a
                       href="#"
                       onClick={(e) => {
@@ -1485,6 +1540,33 @@ export default function CrmOrganizationClient({
                 </span>
               </div>
 
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border px-3 py-2" style={{ borderColor: BRAND.border }}>
+                  <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                    Price
+                  </div>
+                  <div className="mt-1 text-base font-black" style={{ color: BRAND.dark }}>
+                    {fmtMoney(pricingSummary.priceCents)}
+                  </div>
+                </div>
+                <div className="rounded-lg border px-3 py-2" style={{ borderColor: BRAND.border }}>
+                  <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                    Pricing discount
+                  </div>
+                  <div className="mt-1 text-base font-black" style={{ color: BRAND.danger }}>
+                    -{fmtMoney(pricingSummary.discountCents)}
+                  </div>
+                </div>
+                <div className="rounded-lg border px-3 py-2" style={{ borderColor: BRAND.border, background: "rgba(23,52,100,0.05)" }}>
+                  <div className="text-[11px] font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                    Total price
+                  </div>
+                  <div className="mt-1 text-base font-black" style={{ color: BRAND.dark }}>
+                    {fmtMoney(pricingSummary.totalCents)}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.muted }}>
@@ -1749,11 +1831,7 @@ export default function CrmOrganizationClient({
           </div>
         </section>
 
-        <section
-          ref={quoteEditorRef}
-          className="rounded-2xl border bg-white/95 p-5 shadow-sm"
-          style={{ borderColor: BRAND.border }}
-        >
+        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
           <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
             Assessment archives
           </div>

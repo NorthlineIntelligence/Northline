@@ -48,12 +48,14 @@ export async function GET(
         })
       : null,
   ]);
+  const branding = await prisma.appBranding.findUnique({ where: { id: "default" } });
 
   const pdf = await renderQuotePdfBuffer({
     quote,
     organization,
     signee,
     billing,
+    logoDataUrl: branding?.logo_data_url ?? null,
   });
 
   const filename = `northline-quote-${parsed.data.id.slice(0, 8)}.pdf`;

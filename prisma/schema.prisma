@@ -515,3 +515,10 @@ model PmSprintUpdate {
   @@index([sprint_id, created_at])
   @@index([is_customer_visible])
 }
+
+model AppBranding {
+  id             String   @id @default("default")
+  logo_data_url  String?  @db.Text
+  logo_mime_type String?
+  updated_at     DateTime @updatedAt
+}

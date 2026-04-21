@@ -202,6 +202,21 @@ export default function ProjectScopePage() {
   const [err, setErr] = useState<string | null>(null);
   const [scopeRow, setScopeRow] = useState<any | null>(null);
   const [featureDisabled, setFeatureDisabled] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/branding/current", { credentials: "include" });
+        const json = await res.json().catch(() => null);
+        if (!cancelled) setLogoUrl(typeof json?.logo_data_url === "string" ? json.logo_data_url : null);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadScope = useCallback(async () => {
     if (!assessmentId) return;
@@ -296,9 +311,13 @@ export default function ProjectScopePage() {
         </div>
 
         <header style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue, letterSpacing: "0.06em" }}>
-            NORTHLINE INTELLIGENCE
-          </div>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Company logo" style={{ maxHeight: 42, width: "auto", objectFit: "contain", marginBottom: 8 }} />
+          ) : (
+            <div style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue, letterSpacing: "0.06em" }}>
+              NORTHLINE INTELLIGENCE
+            </div>
+          )}
           <h1 style={{ margin: "8px 0 0", fontSize: 28, fontWeight: 900, color: BRAND.dark, letterSpacing: "-0.02em" }}>
             Project Scope Overview
           </h1>

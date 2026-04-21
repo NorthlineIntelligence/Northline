@@ -22,8 +22,9 @@ export async function renderQuotePdfBuffer(args: {
   organization: Organization;
   signee: OrgContact | null;
   billing: OrgContact | null;
+  logoDataUrl?: string | null;
 }): Promise<Buffer> {
-  const { quote, organization, signee, billing } = args;
+  const { quote, organization, signee, billing, logoDataUrl } = args;
   const payload = (quote.quote_payload ?? {}) as Record<string, unknown>;
   const orgSnap = payload.orgSnapshot && typeof payload.orgSnapshot === "object" ? payload.orgSnapshot : {};
   const snap = orgSnap as Record<string, unknown>;
@@ -40,7 +41,18 @@ export async function renderQuotePdfBuffer(args: {
     const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const left = doc.page.margins.left;
 
-    doc.fontSize(18).fillColor("#173464").text("Northline — client quote", left, 56, {
+    let headerY = 56;
+    if (logoDataUrl && /^data:image\/(png|jpeg|jpg|webp);base64,/i.test(logoDataUrl)) {
+      try {
+        const base64 = logoDataUrl.split(",", 2)[1] ?? "";
+        const imageBuffer = Buffer.from(base64, "base64");
+        doc.image(imageBuffer, left, headerY, { fit: [180, 48] });
+        headerY += 54;
+      } catch {
+        // Fall through to text header if image parsing fails.
+      }
+    }
+    doc.fontSize(18).fillColor("#173464").text("Northline — client quote", left, headerY, {
       width: pageWidth,
     });
     doc.moveDown(0.5);

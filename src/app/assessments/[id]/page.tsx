@@ -90,7 +90,10 @@ const LIKERT: Array<{ value: 1 | 2 | 3 | 4 | 5; label: string }> = [
   { value: 5, label: "Strongly Agree" },
 ];
 
-function BrandWordmark() {
+function BrandWordmark({ logoUrl }: { logoUrl?: string | null }) {
+  if (logoUrl) {
+    return <img src={logoUrl} alt="Company logo" style={{ maxHeight: 40, width: "auto", objectFit: "contain" }} />;
+  }
   return (
     <div aria-label="Northline Intelligence" style={{ lineHeight: 1.2 }}>
       <div
@@ -242,6 +245,7 @@ export default function AssessmentTakePage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   // for hover styling per question/option
   const [hover, setHover] = useState<{ qid: string; value: number } | null>(null);
@@ -273,6 +277,20 @@ export default function AssessmentTakePage() {
   }, [searchParams]);
 
   // Persist invite params when present in URL.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/branding/current", { credentials: "include" });
+        const json = await res.json().catch(() => null);
+        if (!cancelled) setLogoUrl(typeof json?.logo_data_url === "string" ? json.logo_data_url : null);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -514,7 +532,7 @@ export default function AssessmentTakePage() {
               ...glassCard,
             }}
           >
-            <BrandWordmark />
+            <BrandWordmark logoUrl={logoUrl} />
             <div
               style={{
                 marginTop: 16,
@@ -583,7 +601,7 @@ export default function AssessmentTakePage() {
             ...glassCard,
           }}
         >
-          <BrandWordmark />
+          <BrandWordmark logoUrl={logoUrl} />
           <div
             style={{
               marginTop: 14,
@@ -654,7 +672,7 @@ export default function AssessmentTakePage() {
         >
           <div style={{ display: "flex", alignItems: "flex-start", gap: 18, flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 280px" }}>
-              <BrandWordmark />
+              <BrandWordmark logoUrl={logoUrl} />
               <div
                 style={{
                   marginTop: 12,

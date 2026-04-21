@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import AdminControlsToggleButton from "../AdminControlsToggleButton";
 import ProjectScopeToggleButton from "../ProjectScopeToggleButton";
 import DeleteOrganizationButton from "../DeleteOrganizationButton";
+import BrandLogoManager from "../BrandLogoManager";
 export default async function AdminDashboardPage() {
   const cookieStore = await cookies();
 
@@ -122,6 +123,10 @@ export default async function AdminDashboardPage() {
               Upload + store org-specific context (Storage + metadata).
             </div>
           </div>
+        </div>
+
+        <div className="mt-6">
+          <BrandLogoManager />
         </div>
 
         <div className="mt-10">

@@ -780,8 +780,23 @@ export default function AssessmentNarrativePage() {
   const [showResultsDebug, setShowResultsDebug] = useState(false);
   const [openEvidence, setOpenEvidence] = useState<Record<string, boolean>>({});
   const [showProtectionMethod, setShowProtectionMethod] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   const narrativeJson = narrative?.narrative_json ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/branding/current", { credentials: "include" });
+        const json = await res.json().catch(() => null);
+        if (!cancelled) setLogoUrl(typeof json?.logo_data_url === "string" ? json.logo_data_url : null);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Admin controls gate
   useEffect(() => {
@@ -1110,10 +1125,19 @@ const participantsTotal =
 `}</style>
 
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
+        {logoUrl ? (
+          <div data-no-print="true" style={{ marginBottom: 12 }}>
+            <img src={logoUrl} alt="Company logo" style={{ maxHeight: 42, width: "auto", objectFit: "contain" }} />
+          </div>
+        ) : null}
         <div className="print-header" data-print-only="true">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 900, color: BRAND.dark }}>Northline Intelligence</div>
+              {logoUrl ? (
+                <img src={logoUrl} alt="Company logo" style={{ maxHeight: 28, width: "auto", objectFit: "contain" }} />
+              ) : (
+                <div style={{ fontSize: 14, fontWeight: 900, color: BRAND.dark }}>Northline Intelligence</div>
+              )}
               <div style={{ marginTop: 4, fontSize: 18, fontWeight: 900, color: BRAND.dark }}>Executive Insights</div>
               <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: BRAND.dark }}>{organizationName}</div>
 
