@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NORTHLINE_BRAND as BRAND,
   NORTHLINE_SHELL_BG as shellBg,
@@ -24,7 +24,6 @@ import {
   normalizeScopeWorkItem,
   parseScopeWorkItemsFromPayload,
   syncPilotWorkItemsFromScopeSummary,
-  type ScopeWorkItemKind,
 } from "@/lib/crmQuoteScopeWorkItems";
 import { summarizeScopeForQuote } from "@/lib/crmQuoteDefaults";
 
@@ -129,6 +128,7 @@ export default function CrmOrganizationClient({
   const [invoiceTitle, setInvoiceTitle] = useState("");
   const [invoiceCents, setInvoiceCents] = useState("");
   const [invoiceDue, setInvoiceDue] = useState("");
+  const quoteEditorRef = useRef<HTMLElement | null>(null);
 
     const loadOrg = useCallback(async () => {
     setLoadErr(null);
@@ -272,6 +272,14 @@ export default function CrmOrganizationClient({
     } finally {
       setBusy(false);
     }
+  }
+
+  function openQuoteFromLibrary(id: string) {
+    setQuoteErr(null);
+    setSelectedQuoteId(id);
+    setTimeout(() => {
+      quoteEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   async function saveQuote(nextPayload: Record<string, unknown>, extra?: Record<string, unknown>) {
@@ -970,7 +978,11 @@ export default function CrmOrganizationClient({
                 className="rounded-xl border px-3 py-2 text-sm font-bold outline-none"
                 style={{ borderColor: BRAND.border, color: BRAND.dark }}
                 value={selectedQuoteId ?? ""}
-                onChange={(e) => setSelectedQuoteId(e.target.value || null)}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  if (id) openQuoteFromLibrary(id);
+                  else setSelectedQuoteId(null);
+                }}
               >
                 {org.crm_quotes.length === 0 ? <option value="">No quotes yet</option> : null}
                 {org.crm_quotes.map((q) => (
@@ -1017,7 +1029,7 @@ export default function CrmOrganizationClient({
                             type="button"
                             className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
                             style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                            onClick={() => setSelectedQuoteId(q.id)}
+                            onClick={() => openQuoteFromLibrary(q.id)}
                           >
                             Open
                           </button>
@@ -1270,28 +1282,6 @@ export default function CrmOrganizationClient({
                                   value={w.detail}
                                   onChange={(e) => updateWorkItem(idx, { detail: e.target.value })}
                                 />
-                              </td>
-                              <td className="px-2 py-2 align-top">
-                                <select
-                                  className="max-w-[130px] rounded border px-1 py-1 text-xs outline-none"
-                                  style={{ borderColor: BRAND.border }}
-                                  value={w.kind}
-                                  onChange={(e) =>
-                                    updateWorkItem(idx, { kind: e.target.value as ScopeWorkItemKind })
-                                  }
-                                >
-                                  {(["PILOT", "ASSESSMENT_ONLY", "ALACARTE", "CUSTOM"] as const).map((k) => (
-                                    <option key={k} value={k}>
-                                      {k === "ASSESSMENT_ONLY"
-                                        ? "Assessment only"
-                                        : k === "ALACARTE"
-                                          ? "À la carte"
-                                          : k === "PILOT"
-                                            ? "Pilot"
-                                            : "Custom"}
-                                    </option>
-                                  ))}
-                                </select>
                               </td>
                               <td className="px-2 py-2 align-top">
                                 <select
@@ -1707,7 +1697,11 @@ export default function CrmOrganizationClient({
           </div>
         </section>
 
-        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+        <section
+          ref={quoteEditorRef}
+          className="rounded-2xl border bg-white/95 p-5 shadow-sm"
+          style={{ borderColor: BRAND.border }}
+        >
           <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
             Assessment archives
           </div>
