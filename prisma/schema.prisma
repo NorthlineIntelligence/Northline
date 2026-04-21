@@ -320,6 +320,10 @@ enum CrmPipelineStage {
 enum CrmQuoteStatus {
   DRAFT
   SENT
+  ACTIVE
+  APPROVED
+  CLOSED_WON
+  CLOSED_LOST
   ACCEPTED
   DECLINED
 }
