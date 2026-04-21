@@ -17,7 +17,14 @@ type OrgPayload = {
   legal_entity_type: string | null;
   ein: string | null;
   legal_address: string | null;
+  state_of_incorporation: string | null;
+  primary_contact_name: string | null;
+  primary_contact_title: string | null;
+  primary_contact_email: string | null;
+  primary_contact_phone: string | null;
+  billing_contact_name: string | null;
   billing_email: string | null;
+  payment_method: string | null;
   show_admin_controls: boolean;
 };
 
@@ -43,6 +50,7 @@ type LoadResponse = {
 type ParticipantRow = {
   id: string;
   email: string | null;
+  can_view_executive_insights: boolean;
   department: string | null;
   role: string | null;
   seniority_level: string | null;
@@ -94,7 +102,14 @@ export default function AdminAssessmentPage() {
   const [legalEntityType, setLegalEntityType] = useState("");
   const [ein, setEin] = useState("");
   const [legalAddress, setLegalAddress] = useState("");
+  const [stateOfIncorporation, setStateOfIncorporation] = useState("");
+  const [primaryContactName, setPrimaryContactName] = useState("");
+  const [primaryContactTitle, setPrimaryContactTitle] = useState("");
+  const [primaryContactEmail, setPrimaryContactEmail] = useState("");
+  const [primaryContactPhone, setPrimaryContactPhone] = useState("");
+  const [billingContactName, setBillingContactName] = useState("");
   const [billingEmail, setBillingEmail] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [showAdminControls, setShowAdminControls] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -121,6 +136,7 @@ const [resendResult, setResendResult] = useState<string | null>(null);
 
 const [deletingParticipantId, setDeletingParticipantId] = useState<string | null>(null);
 const [deleteResult, setDeleteResult] = useState<string | null>(null);
+const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(null);
 
 async function resendInvite(email: string | null) {
   if (!assessmentId) return;
@@ -194,6 +210,33 @@ async function deleteParticipant(participantId: string) {
   setDeleteResult("Deleted.");
   setDeletingParticipantId(null);
 
+  await refreshParticipants();
+}
+
+async function setParticipantExecutiveInsightsVisibility(
+  participantId: string,
+  canViewExecutiveInsights: boolean
+) {
+  if (!assessmentId) return;
+  setUpdatingVisibilityId(participantId);
+  setDeleteResult(null);
+
+  const res = await fetch(`/api/admin/assessments/${assessmentId}/participants`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      participantId,
+      can_view_executive_insights: canViewExecutiveInsights,
+    }),
+  });
+  const json = await res.json().catch(() => ({} as any));
+  if (!res.ok) {
+    setDeleteResult(`Error (${res.status}): ${json?.error ?? "Update failed."}`);
+    setUpdatingVisibilityId(null);
+    return;
+  }
+  setUpdatingVisibilityId(null);
   await refreshParticipants();
 }
  
@@ -431,7 +474,14 @@ async function deleteParticipant(participantId: string) {
           setLegalEntityType(json.organization.legal_entity_type ?? "");
           setEin(json.organization.ein ?? "");
           setLegalAddress(json.organization.legal_address ?? "");
+          setStateOfIncorporation(json.organization.state_of_incorporation ?? "");
+          setPrimaryContactName(json.organization.primary_contact_name ?? "");
+          setPrimaryContactTitle(json.organization.primary_contact_title ?? "");
+          setPrimaryContactEmail(json.organization.primary_contact_email ?? "");
+          setPrimaryContactPhone(json.organization.primary_contact_phone ?? "");
+          setBillingContactName(json.organization.billing_contact_name ?? "");
           setBillingEmail(json.organization.billing_email ?? "");
+          setPaymentMethod(json.organization.payment_method ?? "");
           setShowAdminControls(Boolean(json.organization.show_admin_controls));
 
           setLoading(false);
@@ -515,7 +565,14 @@ async function deleteParticipant(participantId: string) {
         legal_entity_type: legalEntityType,
         ein,
         legal_address: legalAddress,
+        state_of_incorporation: stateOfIncorporation,
+        primary_contact_name: primaryContactName,
+        primary_contact_title: primaryContactTitle,
+        primary_contact_email: primaryContactEmail,
+        primary_contact_phone: primaryContactPhone,
+        billing_contact_name: billingContactName,
         billing_email: billingEmail,
+        payment_method: paymentMethod,
         show_admin_controls: showAdminControls,
       }),
     });
@@ -549,7 +606,14 @@ async function deleteParticipant(participantId: string) {
       setLegalEntityType(updated.legal_entity_type ?? "");
       setEin(updated.ein ?? "");
       setLegalAddress(updated.legal_address ?? "");
+      setStateOfIncorporation(updated.state_of_incorporation ?? "");
+      setPrimaryContactName(updated.primary_contact_name ?? "");
+      setPrimaryContactTitle(updated.primary_contact_title ?? "");
+      setPrimaryContactEmail(updated.primary_contact_email ?? "");
+      setPrimaryContactPhone(updated.primary_contact_phone ?? "");
+      setBillingContactName(updated.billing_contact_name ?? "");
       setBillingEmail(updated.billing_email ?? "");
+      setPaymentMethod(updated.payment_method ?? "");
       setShowAdminControls(Boolean(updated.show_admin_controls));
     }
   }
@@ -847,6 +911,79 @@ async function deleteParticipant(participantId: string) {
               disabled={disableEdits}
               placeholder="Street, city, state, zip"
             />
+            <Field
+              label="State of Incorporation"
+              value={stateOfIncorporation}
+              onChange={setStateOfIncorporation}
+              disabled={disableEdits}
+              placeholder="Delaware (optional)"
+            />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
+              }}
+            >
+              <Field
+                label="Primary Contact Name"
+                value={primaryContactName}
+                onChange={setPrimaryContactName}
+                disabled={disableEdits}
+                placeholder="Jane Doe"
+              />
+              <Field
+                label="Primary Contact Title"
+                value={primaryContactTitle}
+                onChange={setPrimaryContactTitle}
+                disabled={disableEdits}
+                placeholder="VP Operations"
+              />
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
+              }}
+            >
+              <Field
+                label="Primary Contact Email"
+                value={primaryContactEmail}
+                onChange={setPrimaryContactEmail}
+                disabled={disableEdits}
+                placeholder="jane@client.com"
+              />
+              <Field
+                label="Primary Contact Phone"
+                value={primaryContactPhone}
+                onChange={setPrimaryContactPhone}
+                disabled={disableEdits}
+                placeholder="(optional)"
+              />
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
+              }}
+            >
+              <Field
+                label="Billing Contact Name"
+                value={billingContactName}
+                onChange={setBillingContactName}
+                disabled={disableEdits}
+                placeholder="Can be different from primary contact"
+              />
+              <Field
+                label="Payment Method"
+                value={paymentMethod}
+                onChange={setPaymentMethod}
+                disabled={disableEdits}
+                placeholder="ACH / Wire / Card (optional pre-contract)"
+              />
+            </div>
 
             <div
               style={{
@@ -1294,6 +1431,7 @@ async function deleteParticipant(participantId: string) {
                 <tr style={{ background: "#F6F8FC" }}>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Email</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Department</th>
+                    <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Exec Insights</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Invite</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Completed</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Created</th>
@@ -1318,6 +1456,22 @@ async function deleteParticipant(participantId: string) {
                         </td>
                         <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
                           {p.department ?? "—"}
+                        </td>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(p.can_view_executive_insights)}
+                              disabled={isLocked || updatingVisibilityId === p.id}
+                              onChange={(e) =>
+                                setParticipantExecutiveInsightsVisibility(
+                                  p.id,
+                                  e.target.checked
+                                )
+                              }
+                            />
+                            {p.can_view_executive_insights ? "Allowed" : "Hidden"}
+                          </label>
                         </td>
                         <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
                           <div style={{ fontWeight: 800 }}>{inviteState}</div>

@@ -25,7 +25,14 @@ model Organization {
   legal_entity_type  String?
   ein                String?
   legal_address      String?
+  state_of_incorporation String?
+  primary_contact_name String?
+  primary_contact_title String?
+  primary_contact_email String?
+  primary_contact_phone String?
+  billing_contact_name String?
   billing_email      String?
+  payment_method     String?
 
   created_at         DateTime               @default(now())
   assessments        Assessment[]
@@ -116,6 +123,7 @@ model Participant {
   /// Department/team the participant represents (used to select variant questions).
   /// If assessment.locked_department is set, this can be null.
   department Department?
+  can_view_executive_insights Boolean @default(true)
 
   Assessment   Assessment   @relation(fields: [assessment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
@@ -494,6 +502,11 @@ model PmSprint {
   title             String
   status            PmSprintStatus @default(NOT_STARTED)
   stage_label       String?
+  cost_band         String?
+  scope_summary     String?        @db.Text
+  estimated_duration_value Float?
+  estimated_duration_unit  String?
+  estimated_completion_date DateTime?
   completion_pct    Int            @default(0)
   target_start_at   DateTime?
   target_end_at     DateTime?

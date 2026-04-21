@@ -113,6 +113,22 @@ export async function POST(
     }
   }
 
+  const quotePayload =
+    quote.quote_payload && typeof quote.quote_payload === "object"
+      ? (quote.quote_payload as Record<string, unknown>)
+      : {};
+  const scopeProjectsLocked = quotePayload.scopeProjectsLocked === true;
+  if (!scopeProjectsLocked) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Projects must be locked in the quote workspace before creating a PM project. Lock scope first, then retry.",
+      },
+      { status: 409 }
+    );
+  }
+
   const bootstrap = buildProjectFromQuote({
     quote,
     fallbackTitle: input.data.title ?? `Project for quote ${quote.id.slice(0, 8)}`,
@@ -133,6 +149,11 @@ export async function POST(
           sprint_number: s.sprint_number,
           title: s.title,
           stage_label: s.stage_label,
+          cost_band: s.cost_band,
+          scope_summary: s.scope_summary,
+          estimated_duration_value: s.estimated_duration_value,
+          estimated_duration_unit: s.estimated_duration_unit,
+          estimated_completion_date: s.estimated_completion_date,
           target_start_at: s.target_start_at,
           target_end_at: s.target_end_at,
           completion_pct: s.completion_pct,

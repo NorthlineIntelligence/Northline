@@ -78,10 +78,10 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
         invite_token_hash: tokenHash,
         OR: [{ invite_token_expires_at: null }, { invite_token_expires_at: { gt: new Date() } }],
       },
-      select: { id: true },
+      select: { id: true, can_view_executive_insights: true },
     });
 
-    if (!participant) return { ok: false as const };
+    if (!participant || !participant.can_view_executive_insights) return { ok: false as const };
 
     return { ok: true as const, cacheKeyOwner: `invite:${participant.id}` };
   }
@@ -97,15 +97,17 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
 
   const membership = await prisma.participant.findFirst({
     where: { assessment_id: assessmentId, user_id: user.id },
-    select: { id: true },
+    select: { id: true, can_view_executive_insights: true },
   });
 
+  const isAdmin = isAdminEmail(user.email ?? null);
   if (!membership) {
-    if (isAdminEmail(user.email ?? null)) {
+    if (isAdmin) {
       return { ok: true as const, cacheKeyOwner: `admin:${user.id}` };
     }
     return { ok: false as const };
   }
+  if (!isAdmin && !membership.can_view_executive_insights) return { ok: false as const };
 
   return { ok: true as const, cacheKeyOwner: `admin:${user.id}` };
 }

@@ -11,6 +11,16 @@ const PatchSchema = z.object({
   crm_pipeline_stage: z.nativeEnum(CrmPipelineStage).optional(),
   crm_next_follow_up_at: z.union([z.string().datetime(), z.null()]).optional(),
   crm_internal_notes: z.union([z.string().max(20000), z.null()]).optional(),
+  legal_name: z.union([z.string().max(300), z.null()]).optional(),
+  legal_address: z.union([z.string().max(500), z.null()]).optional(),
+  state_of_incorporation: z.union([z.string().max(200), z.null()]).optional(),
+  primary_contact_name: z.union([z.string().max(300), z.null()]).optional(),
+  primary_contact_title: z.union([z.string().max(300), z.null()]).optional(),
+  primary_contact_email: z.union([z.string().max(320), z.null()]).optional(),
+  primary_contact_phone: z.union([z.string().max(100), z.null()]).optional(),
+  billing_contact_name: z.union([z.string().max(300), z.null()]).optional(),
+  billing_email: z.union([z.string().max(320), z.null()]).optional(),
+  payment_method: z.union([z.string().max(200), z.null()]).optional(),
 });
 
 export async function GET(
@@ -164,6 +174,28 @@ export async function PATCH(
   if (patch.data.crm_internal_notes !== undefined) {
     data.crm_internal_notes = patch.data.crm_internal_notes;
   }
+  if (patch.data.legal_name !== undefined) data.legal_name = patch.data.legal_name;
+  if (patch.data.legal_address !== undefined) data.legal_address = patch.data.legal_address;
+  if (patch.data.state_of_incorporation !== undefined) {
+    data.state_of_incorporation = patch.data.state_of_incorporation;
+  }
+  if (patch.data.primary_contact_name !== undefined) {
+    data.primary_contact_name = patch.data.primary_contact_name;
+  }
+  if (patch.data.primary_contact_title !== undefined) {
+    data.primary_contact_title = patch.data.primary_contact_title;
+  }
+  if (patch.data.primary_contact_email !== undefined) {
+    data.primary_contact_email = patch.data.primary_contact_email;
+  }
+  if (patch.data.primary_contact_phone !== undefined) {
+    data.primary_contact_phone = patch.data.primary_contact_phone;
+  }
+  if (patch.data.billing_contact_name !== undefined) {
+    data.billing_contact_name = patch.data.billing_contact_name;
+  }
+  if (patch.data.billing_email !== undefined) data.billing_email = patch.data.billing_email;
+  if (patch.data.payment_method !== undefined) data.payment_method = patch.data.payment_method;
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ ok: false, error: "No updates" }, { status: 400 });

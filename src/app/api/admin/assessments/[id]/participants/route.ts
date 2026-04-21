@@ -10,6 +10,10 @@ const ParamsSchema = z.object({ id: z.string().uuid() });
 const DeleteQuerySchema = z.object({
   participantId: z.string().uuid(),
 });
+const PatchBodySchema = z.object({
+  participantId: z.string().uuid(),
+  can_view_executive_insights: z.boolean(),
+});
 
 async function getSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -109,6 +113,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
             invite_sent_at: true,
             invite_accepted_at: true,
             completed_at: true,
+            can_view_executive_insights: true,
             created_at: true,
           },
           orderBy: { created_at: "asc" },
@@ -230,6 +235,76 @@ export async function DELETE(req: NextRequest, context: { params: Promise<{ id: 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err: any) {
     console.error("DELETE participant error:", err);
+    return NextResponse.json(
+      { ok: false, error: "Internal server error.", message: err?.message ?? String(err) },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try {
+    const admin = await assertAdmin(req);
+    if (!admin.ok) {
+      return NextResponse.json({ ok: false, error: admin.error }, { status: admin.status });
+    }
+
+    const params = await context.params;
+    const parsedParams = ParamsSchema.safeParse(params);
+    if (!parsedParams.success) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid assessment id (UUID)" },
+        { status: 400 }
+      );
+    }
+    const body = await req.json().catch(() => null);
+    const parsedBody = PatchBodySchema.safeParse(body);
+    if (!parsedBody.success) {
+      return NextResponse.json({ ok: false, error: "Invalid request body" }, { status: 400 });
+    }
+    const { participantId, can_view_executive_insights } = parsedBody.data;
+    const assessmentId = parsedParams.data.id;
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        id: true,
+        Participant: { select: { id: true, completed_at: true } },
+      },
+    });
+    if (!assessment) {
+      return NextResponse.json({ ok: false, error: "Assessment not found" }, { status: 404 });
+    }
+
+    const participantsTotal = assessment.Participant.length;
+    const participantsCompleted = assessment.Participant.filter(
+      (p) => p.completed_at !== null
+    ).length;
+    const isLocked =
+      participantsTotal > 0 && participantsCompleted === participantsTotal;
+    if (isLocked) {
+      return NextResponse.json(
+        { ok: false, error: "Assessment is locked. Participants are read-only." },
+        { status: 423 }
+      );
+    }
+
+    const existing = await prisma.participant.findFirst({
+      where: { id: participantId, assessment_id: assessmentId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ ok: false, error: "Participant not found" }, { status: 404 });
+    }
+
+    const updated = await prisma.participant.update({
+      where: { id: participantId },
+      data: { can_view_executive_insights },
+      select: { id: true, can_view_executive_insights: true },
+    });
+    return NextResponse.json({ ok: true, participant: updated }, { status: 200 });
+  } catch (err: any) {
+    console.error("PATCH participant error:", err);
     return NextResponse.json(
       { ok: false, error: "Internal server error.", message: err?.message ?? String(err) },
       { status: 500 }

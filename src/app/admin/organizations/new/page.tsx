@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin";
 import { INDUSTRY_OPTIONS } from "@/lib/assessmentIndustry";
 import Link from "next/link";
 import IntakeDocumentDropInput from "./IntakeDocumentDropInput";
+import ParticipantRowsInput from "./ParticipantRowsInput";
 
 export default async function NewOrganizationPage() {
   await requireAdmin();
@@ -163,34 +164,9 @@ export default async function NewOrganizationPage() {
             <div className="text-base font-semibold">Participants</div>
 
             <div className="text-sm text-[#66819e]">
-              Enter participant emails one at a time (up to 10). Leave unused rows blank.
-              (Comma-separated paste still works as a fallback.)
+              Starts with 5 rows. Add more as needed (up to 25).
             </div>
-
-            <div className="space-y-3">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <input
-                  key={i}
-                  name="participant_email"
-                  type="email"
-                  placeholder={`person${i === 0 ? "" : ` ${i + 1}`}@company.com`}
-                  className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
-                />
-              ))}
-            </div>
-
-            {/* Fallback: comma-separated paste (still accepted by API) */}
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Or paste a comma-separated list (optional)
-              </label>
-              <textarea
-                name="participant_emails"
-                rows={2}
-                placeholder="person1@company.com, person2@company.com"
-                className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
-              />
-            </div>
+            <ParticipantRowsInput />
           </div>
 
           <button

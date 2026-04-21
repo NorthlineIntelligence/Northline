@@ -116,7 +116,14 @@ export async function GET(
       legal_entity_type: true,
       ein: true,
       legal_address: true,
+      state_of_incorporation: true,
+      primary_contact_name: true,
+      primary_contact_title: true,
+      primary_contact_email: true,
+      primary_contact_phone: true,
+      billing_contact_name: true,
       billing_email: true,
+      payment_method: true,
       show_admin_controls: true,
     },
   });
@@ -201,7 +208,20 @@ export async function PATCH(
     typeof payload?.legal_entity_type === "string" ? payload.legal_entity_type.trim() : null;
   const nextEin = typeof payload?.ein === "string" ? payload.ein.trim() : null;
   const nextLegalAddress = typeof payload?.legal_address === "string" ? payload.legal_address.trim() : null;
+  const nextStateOfIncorporation =
+    typeof payload?.state_of_incorporation === "string" ? payload.state_of_incorporation.trim() : null;
+  const nextPrimaryContactName =
+    typeof payload?.primary_contact_name === "string" ? payload.primary_contact_name.trim() : null;
+  const nextPrimaryContactTitle =
+    typeof payload?.primary_contact_title === "string" ? payload.primary_contact_title.trim() : null;
+  const nextPrimaryContactEmail =
+    typeof payload?.primary_contact_email === "string" ? payload.primary_contact_email.trim() : null;
+  const nextPrimaryContactPhone =
+    typeof payload?.primary_contact_phone === "string" ? payload.primary_contact_phone.trim() : null;
+  const nextBillingContactName =
+    typeof payload?.billing_contact_name === "string" ? payload.billing_contact_name.trim() : null;
   const nextBillingEmail = typeof payload?.billing_email === "string" ? payload.billing_email.trim() : null;
+  const nextPaymentMethod = typeof payload?.payment_method === "string" ? payload.payment_method.trim() : null;
 
   if (!nextName) {
     return NextResponse.json(
@@ -230,7 +250,14 @@ export async function PATCH(
       legal_entity_type: nextLegalEntityType,
       ein: nextEin,
       legal_address: nextLegalAddress,
+      state_of_incorporation: nextStateOfIncorporation,
+      primary_contact_name: nextPrimaryContactName,
+      primary_contact_title: nextPrimaryContactTitle,
+      primary_contact_email: nextPrimaryContactEmail,
+      primary_contact_phone: nextPrimaryContactPhone,
+      billing_contact_name: nextBillingContactName,
       billing_email: nextBillingEmail,
+      payment_method: nextPaymentMethod,
       ...(typeof nextShowAdminControls === "boolean"
         ? { show_admin_controls: nextShowAdminControls }
         : {}),
@@ -248,7 +275,14 @@ export async function PATCH(
       legal_entity_type: true,
       ein: true,
       legal_address: true,
+      state_of_incorporation: true,
+      primary_contact_name: true,
+      primary_contact_title: true,
+      primary_contact_email: true,
+      primary_contact_phone: true,
+      billing_contact_name: true,
       billing_email: true,
+      payment_method: true,
       show_admin_controls: true,
     },
   });

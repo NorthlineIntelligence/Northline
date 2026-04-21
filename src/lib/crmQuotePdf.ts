@@ -151,6 +151,13 @@ export async function renderQuotePdfBuffer(args: {
     doc.fontSize(11).fillColor("#173464").text(`Total: ${fmtMoney(total)}`, left, doc.y, { width: pageWidth });
 
     const terms = String(payload.terms ?? "").trim();
+    const paymentTerms = String(payload.paymentTerms ?? "").trim();
+    if (paymentTerms) {
+      doc.moveDown(0.9);
+      if (doc.y > doc.page.height - 90) doc.addPage();
+      doc.fontSize(10).fillColor("#173464").text("Payment terms", { underline: true });
+      doc.fillColor("#333333").fontSize(9).text(paymentTerms, { width: pageWidth });
+    }
     if (terms) {
       doc.moveDown(1.2);
       if (doc.y > doc.page.height - 100) doc.addPage();

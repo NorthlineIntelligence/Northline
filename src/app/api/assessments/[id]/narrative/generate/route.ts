@@ -1356,8 +1356,8 @@ async function assertInviteAccess(args: { assessmentId: string; email: string; t
   const email = args.email.trim().toLowerCase();
   const tokenHash = crypto.createHash("sha256").update(args.token).digest("hex");
 
-  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT id
+  const rows = await prisma.$queryRaw<Array<{ id: string; can_view_executive_insights: boolean }>>`
+    SELECT id, can_view_executive_insights
     FROM "Participant"
     WHERE assessment_id = ${args.assessmentId}::uuid
       AND email = ${email}
@@ -1367,7 +1367,7 @@ async function assertInviteAccess(args: { assessmentId: string; email: string; t
   `;
 
   const row = rows?.[0] ?? null;
-  if (!row) return { ok: false as const, participantId: null as any };
+  if (!row || !row.can_view_executive_insights) return { ok: false as const, participantId: null as any };
 
   return { ok: true as const, participantId: row.id };
 }
@@ -1577,6 +1577,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         });
 
         if (membership) {
+          const visibilityRows = await prisma.$queryRaw<Array<{ can_view_executive_insights: boolean }>>`
+            SELECT can_view_executive_insights
+            FROM "Participant"
+            WHERE id = ${membership.id}::uuid
+            LIMIT 1;
+          `;
+          const canView = visibilityRows?.[0]?.can_view_executive_insights ?? true;
+          if (!canView) {
+            return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+          }
           participantIdForAccess = membership.id;
         } else if (isAdminEmail(supaUser.email ?? null)) {
           adminSessionWithoutParticipant = true;

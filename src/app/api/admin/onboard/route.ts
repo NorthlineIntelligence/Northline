@@ -82,24 +82,6 @@ async function extractTextFromFile(file: File, mime: string | null): Promise<str
   return null;
 }
 
-function parseEmailList(raw: string | null): string[] {
-  if (!raw) return [];
-  const parts = raw
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const e of parts) {
-    if (!seen.has(e)) {
-      seen.add(e);
-      out.push(e);
-    }
-  }
-  return out;
-}
-
 function buildInviteEmailHtml(args: { orgName: string; startUrl: string }) {
   const { orgName, startUrl } = args;
 
@@ -223,18 +205,26 @@ export async function POST(req: NextRequest) {
     const assessmentType = String(form.get("assessment_type") ?? "FULL").trim(); // FULL | DEPARTMENT
     const lockedDepartment = String(form.get("locked_department") ?? "").trim(); // Department enum value or ""
 
-    const participantEmailsRaw = String(form.get("participant_emails") ?? "");
-    const participantEmailsFromCsv = parseEmailList(participantEmailsRaw);
-
-    const participantEmailsFromFields = (form.getAll(
-      "participant_email"
-    ) as unknown[])
-      .map((v) => String(v ?? "").trim().toLowerCase())
-      .filter(Boolean);
-
-    const participantEmails = Array.from(
-      new Set([...participantEmailsFromCsv, ...participantEmailsFromFields])
+    const participantEmailsFromFields = (form.getAll("participant_email") as unknown[]).map((v) =>
+      String(v ?? "").trim().toLowerCase()
     );
+    const participantVisibilityRaw = (form.getAll("participant_can_view_executive_insights") as unknown[]).map(
+      (v) => String(v ?? "").trim()
+    );
+    const participantEntries = participantEmailsFromFields
+      .map((email, idx) => ({
+        email,
+        can_view_executive_insights:
+          (participantVisibilityRaw[idx] ?? "1").toLowerCase() !== "0",
+      }))
+      .filter((row) => row.email);
+    const dedupedParticipantEntries: Array<{ email: string; can_view_executive_insights: boolean }> = [];
+    const seen = new Set<string>();
+    for (const row of participantEntries) {
+      if (seen.has(row.email)) continue;
+      seen.add(row.email);
+      dedupedParticipantEntries.push(row);
+    }
     const uploadFiles = form
       .getAll("documents")
       .filter((x): x is File => x instanceof File && x.size > 0);
@@ -284,7 +274,7 @@ export async function POST(req: NextRequest) {
       normalizeIndustryText(industryRaw) ??
       null;
 
-    const invitees = participantEmails.filter((e) => e !== adminEmail);
+    const invitees = dedupedParticipantEntries.filter((e) => e.email !== adminEmail);
 
     const result = await prisma.$transaction(async (tx) => {
       const org = await tx.organization.create({
@@ -314,10 +304,11 @@ export async function POST(req: NextRequest) {
       // Create invitee participants (email-only)
       if (invitees.length > 0) {
         await tx.participant.createMany({
-          data: invitees.map((email) => ({
+          data: invitees.map((row) => ({
             organization_id: org.id,
             assessment_id: assessment.id,
-            email,
+            email: row.email,
+            can_view_executive_insights: row.can_view_executive_insights,
           })),
           skipDuplicates: true,
         });
@@ -384,7 +375,8 @@ export async function POST(req: NextRequest) {
           // Create a unique token per invitee and store its hash/expiry on their Participant row
           if (invitees.length > 0) {
             await Promise.all(
-              invitees.map(async (to) => {
+        invitees.map(async (entry) => {
+          const to = entry.email;
                 const rawToken =
                   crypto.randomUUID().replaceAll("-", "") +
                   crypto.randomUUID().replaceAll("-", "");
@@ -415,7 +407,8 @@ export async function POST(req: NextRequest) {
     if (invitees.length > 0) {
       const subject = `Northline AI Readiness Diagnostic — ${result.orgName}`;
       await Promise.all(
-        invitees.map(async (to) => {
+        invitees.map(async (entry) => {
+            const to = entry.email;
             const startUrl = startUrlFor(to);
             console.log("[invite] startUrl", { to, startUrl });
             const html = buildInviteEmailHtml({

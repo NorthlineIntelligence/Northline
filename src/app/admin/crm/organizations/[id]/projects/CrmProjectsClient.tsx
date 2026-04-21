@@ -19,6 +19,13 @@ function fmtMoney(cents: number | null | undefined) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function toDateInputValue(value: string | Date | null | undefined) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
 export default function CrmProjectsClient({ organizationId }: { organizationId: string }) {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,6 +36,12 @@ export default function CrmProjectsClient({ organizationId }: { organizationId: 
   const [statusWhy, setStatusWhy] = useState("");
   const [customerVisible, setCustomerVisible] = useState(false);
   const [creatingDuplicate, setCreatingDuplicate] = useState(false);
+  const [newScopeTitle, setNewScopeTitle] = useState("");
+  const [newScopeCostBand, setNewScopeCostBand] = useState("");
+  const [newScopeDurationValue, setNewScopeDurationValue] = useState("2");
+  const [newScopeDurationUnit, setNewScopeDurationUnit] = useState("weeks");
+  const [newScopeSummary, setNewScopeSummary] = useState("");
+  const [newScopeCompletionDate, setNewScopeCompletionDate] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -156,6 +169,61 @@ export default function CrmProjectsClient({ organizationId }: { organizationId: 
     }
   }
 
+  async function addProjectScopeRow() {
+    if (!project || !newScopeTitle.trim()) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/crm/projects/${project.id}/sprints`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newScopeTitle.trim(),
+          cost_band: newScopeCostBand.trim() || null,
+          scope_summary: newScopeSummary.trim() || null,
+          estimated_duration_value: Math.max(0.1, Number(newScopeDurationValue) || 2),
+          estimated_duration_unit: newScopeDurationUnit,
+          estimated_completion_date: newScopeCompletionDate
+            ? new Date(`${newScopeCompletionDate}T12:00:00.000Z`).toISOString()
+            : null,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error || "Failed to add project scope");
+      setNewScopeTitle("");
+      setNewScopeCostBand("");
+      setNewScopeDurationValue("2");
+      setNewScopeDurationUnit("weeks");
+      setNewScopeSummary("");
+      setNewScopeCompletionDate("");
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to add project scope");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProjectScopeRow(sprintId: string) {
+    if (!project) return;
+    const ok = window.confirm("Delete this project scope?");
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/crm/projects/${project.id}/sprints/${sprintId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error || "Failed to delete project scope");
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete project scope");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: shellBg, color: BRAND.text }}>
       <div className="mx-auto max-w-6xl space-y-6">
@@ -275,12 +343,81 @@ export default function CrmProjectsClient({ organizationId }: { organizationId: 
                   </div>
                 ) : null}
 
+                <div className="rounded-xl border p-3" style={{ borderColor: BRAND.border }}>
+                  <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                    Add manual project scope
+                  </div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    <input
+                      value={newScopeTitle}
+                      onChange={(e) => setNewScopeTitle(e.target.value)}
+                      className="rounded border px-2 py-1 text-xs font-semibold"
+                      style={{ borderColor: BRAND.border }}
+                      placeholder="Title"
+                    />
+                    <input
+                      value={newScopeCostBand}
+                      onChange={(e) => setNewScopeCostBand(e.target.value)}
+                      className="rounded border px-2 py-1 text-xs font-semibold"
+                      style={{ borderColor: BRAND.border }}
+                      placeholder="Cost band"
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min={0.1}
+                        step={0.1}
+                        value={newScopeDurationValue}
+                        onChange={(e) => setNewScopeDurationValue(e.target.value)}
+                        className="w-24 rounded border px-2 py-1 text-xs font-semibold"
+                        style={{ borderColor: BRAND.border }}
+                        placeholder="Duration"
+                      />
+                      <select
+                        value={newScopeDurationUnit}
+                        onChange={(e) => setNewScopeDurationUnit(e.target.value)}
+                        className="rounded border px-2 py-1 text-xs font-semibold"
+                        style={{ borderColor: BRAND.border }}
+                      >
+                        {["hours", "days", "weeks", "months"].map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        value={newScopeCompletionDate}
+                        onChange={(e) => setNewScopeCompletionDate(e.target.value)}
+                        className="rounded border px-2 py-1 text-xs font-semibold"
+                        style={{ borderColor: BRAND.border }}
+                      />
+                    </div>
+                    <textarea
+                      value={newScopeSummary}
+                      onChange={(e) => setNewScopeSummary(e.target.value)}
+                      className="min-h-[64px] rounded border px-2 py-1 text-xs font-semibold md:col-span-2"
+                      style={{ borderColor: BRAND.border }}
+                      placeholder="Project scope summary"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addProjectScopeRow}
+                    disabled={busy || !newScopeTitle.trim()}
+                    className="mt-2 rounded-lg border px-2 py-1 text-xs font-black uppercase disabled:opacity-50"
+                    style={{ borderColor: BRAND.border }}
+                  >
+                    Add project scope
+                  </button>
+                </div>
+
                 <div className="space-y-3">
                   {project.sprints.map((s) => (
                     <div key={s.id} className="rounded-xl border p-3" style={{ borderColor: BRAND.border }}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="font-black" style={{ color: BRAND.dark }}>
-                          Sprint {s.sprint_number}: {s.title}
+                          Project Scope {s.sprint_number}: {s.title}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <select
@@ -302,7 +439,93 @@ export default function CrmProjectsClient({ organizationId }: { organizationId: 
                             className="w-16 rounded border px-2 py-1 text-xs font-semibold"
                             style={{ borderColor: BRAND.border }}
                           />
+                          <button
+                            type="button"
+                            onClick={() => deleteProjectScopeRow(s.id)}
+                            disabled={busy}
+                            className="rounded border px-2 py-1 text-xs font-black uppercase disabled:opacity-50"
+                            style={{ borderColor: BRAND.danger, color: BRAND.danger }}
+                          >
+                            Delete
+                          </button>
                         </div>
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-2">
+                        <input
+                          value={s.title}
+                          onChange={(e) => patchSprint(s.id, { title: e.target.value })}
+                          className="rounded border px-2 py-1 text-xs font-semibold"
+                          style={{ borderColor: BRAND.border }}
+                          placeholder="Title"
+                        />
+                        <input
+                          value={s.cost_band ?? ""}
+                          onChange={(e) => patchSprint(s.id, { cost_band: e.target.value || null })}
+                          className="rounded border px-2 py-1 text-xs font-semibold"
+                          style={{ borderColor: BRAND.border }}
+                          placeholder="Cost band"
+                        />
+                        <div className="flex gap-2 md:col-span-2">
+                          <input
+                            type="number"
+                            min={0.1}
+                            step={0.1}
+                            value={s.estimated_duration_value ?? ""}
+                            onChange={(e) =>
+                              patchSprint(s.id, {
+                                estimated_duration_value: Math.max(
+                                  0.1,
+                                  Number(e.target.value) || 0.1
+                                ),
+                              })
+                            }
+                            className="w-24 rounded border px-2 py-1 text-xs font-semibold"
+                            style={{ borderColor: BRAND.border }}
+                            placeholder="Duration"
+                          />
+                          <select
+                            value={s.estimated_duration_unit ?? "weeks"}
+                            onChange={(e) =>
+                              patchSprint(s.id, { estimated_duration_unit: e.target.value })
+                            }
+                            className="rounded border px-2 py-1 text-xs font-semibold"
+                            style={{ borderColor: BRAND.border }}
+                          >
+                            {["hours", "days", "weeks", "months"].map((u) => (
+                              <option key={u} value={u}>
+                                {u}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="date"
+                            value={toDateInputValue(s.estimated_completion_date)}
+                            onChange={(e) =>
+                              patchSprint(s.id, {
+                                estimated_completion_date: e.target.value
+                                  ? new Date(`${e.target.value}T12:00:00.000Z`).toISOString()
+                                  : null,
+                              })
+                            }
+                            className="rounded border px-2 py-1 text-xs font-semibold"
+                            style={{ borderColor: BRAND.border }}
+                          />
+                        </div>
+                        <textarea
+                          value={s.scope_summary ?? ""}
+                          onChange={(e) => patchSprint(s.id, { scope_summary: e.target.value || null })}
+                          className="min-h-[64px] rounded border px-2 py-1 text-xs font-semibold md:col-span-2"
+                          style={{ borderColor: BRAND.border }}
+                          placeholder="Project scope summary"
+                        />
+                      </div>
+                      <div className="mt-2 text-xs font-semibold" style={{ color: BRAND.muted }}>
+                        Estimated timeline: {s.estimated_duration_value ?? "—"} {s.estimated_duration_unit ?? ""}
+                        {s.estimated_completion_date
+                          ? ` • Estimated completion date: ${new Date(
+                              s.estimated_completion_date
+                            ).toLocaleDateString()}`
+                          : ""}
                       </div>
                       <div className="mt-2 h-2 w-full rounded bg-slate-100">
                         <div className="h-2 rounded" style={{ width: `${s.completion_pct}%`, background: BRAND.cyan }} />

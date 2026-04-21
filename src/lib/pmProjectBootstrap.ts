@@ -4,6 +4,8 @@ type ScopeSummaryProject = {
   name?: string;
   timelineLabel?: string;
   summary?: string;
+  costBand?: string | null;
+  deliverables?: string[];
 };
 
 function clampPct(n: number) {
@@ -27,6 +29,15 @@ function estimateDaysFromTimelineLabel(label: string | null | undefined): number
   return n * 30;
 }
 
+function parseTimelineLabel(label: string | null | undefined): { value: number; unit: string } {
+  const s = (label ?? "").toLowerCase();
+  const m = s.match(/(\d+(?:\.\d+)?)\s*(hour|hours|day|days|week|weeks|month|months)/i);
+  if (!m) return { value: 2, unit: "weeks" };
+  const value = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  return { value: Number.isFinite(value) && value > 0 ? value : 2, unit };
+}
+
 export function buildProjectFromQuote(args: {
   quote: CrmQuote;
   fallbackTitle: string;
@@ -38,6 +49,11 @@ export function buildProjectFromQuote(args: {
     sprint_number: number;
     title: string;
     stage_label: string;
+    cost_band: string | null;
+    scope_summary: string | null;
+    estimated_duration_value: number;
+    estimated_duration_unit: string;
+    estimated_completion_date: Date;
     target_start_at: Date;
     target_end_at: Date;
     completion_pct: number;
@@ -52,6 +68,7 @@ export function buildProjectFromQuote(args: {
     payload.scopeSummary && typeof payload.scopeSummary === "object"
       ? (payload.scopeSummary as Record<string, unknown>)
       : {};
+  const projectsLocked = payload.scopeProjectsLocked === true;
   const projects = Array.isArray(scopeSummary.projects)
     ? (scopeSummary.projects as ScopeSummaryProject[])
     : [];
@@ -64,16 +81,32 @@ export function buildProjectFromQuote(args: {
     args.fallbackTitle;
 
   let cursor = now;
-  const sprints = (projects.length ? projects : [{ name: "Discovery & delivery", timelineLabel: "2 weeks" }]).map(
+  const sourceProjects =
+    projectsLocked && projects.length ? projects : [{ name: "Discovery & delivery", timelineLabel: "2 weeks" }];
+
+  const sprints = sourceProjects.map(
     (p, idx) => {
       const days = estimateDaysFromTimelineLabel(p.timelineLabel);
+      const timeline = parseTimelineLabel(p.timelineLabel);
       const start = cursor;
       const end = addDays(start, days);
       cursor = end;
+      const checklist = Array.isArray(p.deliverables)
+        ? p.deliverables.map((d) => d.trim()).filter(Boolean)
+        : [];
+      const milestoneText = checklist.length
+        ? `Milestones:\n${checklist.map((d) => `- [ ] ${d}`).join("\n")}`
+        : "";
+      const mergedSummary = [p.summary?.trim() || "", milestoneText].filter(Boolean).join("\n\n");
       return {
         sprint_number: idx + 1,
-        title: (p.name?.trim() || `Sprint ${idx + 1}`).slice(0, 200),
-        stage_label: `Sprint ${idx + 1}`,
+        title: (p.name?.trim() || `Project scope ${idx + 1}`).slice(0, 200),
+        stage_label: checklist.length ? checklist[0].slice(0, 120) : `Project scope ${idx + 1}`,
+        cost_band: p.costBand?.trim() || null,
+        scope_summary: mergedSummary || null,
+        estimated_duration_value: timeline.value,
+        estimated_duration_unit: timeline.unit,
+        estimated_completion_date: end,
         target_start_at: start,
         target_end_at: end,
         completion_pct: clampPct(0),

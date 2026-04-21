@@ -12,6 +12,7 @@ export type ScopeSummaryProject = {
   costBand: string | null;
   objectivesBrief: string;
   phaseHighlights: string[];
+  priority?: number | null;
 };
 
 export function summarizeScopeForQuote(scopeJson: unknown): {
@@ -29,6 +30,7 @@ export function summarizeScopeForQuote(scopeJson: unknown): {
       costBand: p.costBand,
       objectivesBrief: p.objectivesBrief,
       phaseHighlights: p.phaseHighlights,
+      priority: null,
     })),
   };
 }
@@ -48,6 +50,14 @@ export function buildInitialQuotePayload(args: {
   const lines = Array.isArray(args.priceLineItems) ? args.priceLineItems : [];
 
   const scopeWorkItems = buildScopeWorkItemsFromScopeSummary(scopeSummary);
+  const topThree = scopeSummary.projects.slice(0, 3);
+  const defaultCoverNarrative = topThree
+    .map((p, i) => {
+      const timeline = p.timelineLabel?.trim() || "TBD";
+      const costBand = p.costBand?.trim() || "TBD";
+      return `${i + 1}. ${p.name}\nTimeline: ${timeline}\nCost Band: ${costBand}`;
+    })
+    .join("\n\n");
 
   return {
     schemaVersion: 1,
@@ -84,8 +94,8 @@ export function buildInitialQuotePayload(args: {
     }>,
     terms:
       "Payment net 30 unless otherwise agreed. Final scope, deliverables, and fees to be confirmed in a Statement of Work following written acceptance of this quote.",
-    coverNarrative: scopeSummary.executiveMemo
-      ? `${scopeSummary.executiveMemo}\n\nThis quote is built from the simplified scope readout (deliverables, timelines, and investment bands are indicative until SOW).`
-      : "",
+    paymentTerms:
+      "100% of fees are due with an executed MSA and prior to commencement of work.",
+    coverNarrative: defaultCoverNarrative,
   };
 }

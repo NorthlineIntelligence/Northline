@@ -9,9 +9,15 @@ const ParamsSchema = z.object({
 });
 
 const PatchSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
   status: z.enum(["NOT_STARTED", "ON_TIME", "DELAYED", "OVERDUE", "COMPLETED"]).optional(),
   completion_pct: z.number().int().min(0).max(100).optional(),
   stage_label: z.union([z.string().max(200), z.null()]).optional(),
+  cost_band: z.union([z.string().max(200), z.null()]).optional(),
+  scope_summary: z.union([z.string().max(20000), z.null()]).optional(),
+  estimated_duration_value: z.number().positive().max(10000).optional(),
+  estimated_duration_unit: z.union([z.string().max(40), z.null()]).optional(),
+  estimated_completion_date: z.union([z.string().datetime(), z.null()]).optional(),
   notes: z.union([z.string().max(12000), z.null()]).optional(),
   target_start_at: z.union([z.string().datetime(), z.null()]).optional(),
   target_end_at: z.union([z.string().datetime(), z.null()]).optional(),
@@ -50,6 +56,13 @@ export async function PATCH(
       ...(patch.data.target_end_at !== undefined
         ? { target_end_at: patch.data.target_end_at ? new Date(patch.data.target_end_at) : null }
         : {}),
+      ...(patch.data.estimated_completion_date !== undefined
+        ? {
+            estimated_completion_date: patch.data.estimated_completion_date
+              ? new Date(patch.data.estimated_completion_date)
+              : null,
+          }
+        : {}),
     },
   });
 
@@ -67,5 +80,38 @@ export async function PATCH(
   });
 
   return NextResponse.json({ ok: true, sprint: updated, project_completion_pct: completion });
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string; sprintId: string }> }
+) {
+  const auth = await getAdminApiUser();
+  if (!auth.ok) return auth.response;
+  const parsed = ParamsSchema.safeParse(await context.params);
+  if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid ids" }, { status: 400 });
+
+  const sprint = await prisma.pmSprint.findFirst({
+    where: { id: parsed.data.sprintId, project_id: parsed.data.id },
+    select: { id: true },
+  });
+  if (!sprint) return NextResponse.json({ ok: false, error: "Sprint not found" }, { status: 404 });
+
+  await prisma.pmSprint.delete({ where: { id: parsed.data.sprintId } });
+
+  const sprints = await prisma.pmSprint.findMany({
+    where: { project_id: parsed.data.id },
+    select: { completion_pct: true },
+  });
+  const completion =
+    sprints.length > 0
+      ? Math.round(sprints.reduce((sum, s) => sum + (s.completion_pct ?? 0), 0) / sprints.length)
+      : 0;
+  await prisma.pmProject.update({
+    where: { id: parsed.data.id },
+    data: { completion_pct: completion },
+  });
+
+  return NextResponse.json({ ok: true, project_completion_pct: completion });
 }
 

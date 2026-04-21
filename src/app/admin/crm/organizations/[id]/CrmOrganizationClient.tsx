@@ -65,6 +65,15 @@ const QUOTE_STATUS_ORDER: CrmQuoteStatus[] = [
   "CLOSED_LOST",
 ];
 
+const QUOTE_PAYMENT_TERMS_OPTIONS = [
+  "100% of fees are due with an executed MSA and prior to commencement of work.",
+  "50% of the total fees are due with an executed MSA. The remaining 50% is due upon delivery of the agreed scope.",
+  "40% of the total fees are due with an executed MSA, 30% is due at the agreed project midpoint or milestone completion, and the remaining 30% is due upon final delivery.",
+  "Fees are billed monthly in advance and are due on the first day of each billing period unless otherwise stated in this Quote.",
+  "The monthly retainer fee is billed in advance and includes the hours or services stated in this Quote. Additional hours or out-of-scope work will be billed at the agreed rate.",
+  "Fees will be invoiced weekly based on actual services performed and are due within fifteen (15) days of invoice date.",
+] as const;
+
 function quoteStatusLabel(status: CrmQuoteStatus) {
   if (status === "CLOSED_WON") return "Closed Won";
   if (status === "CLOSED_LOST") return "Closed Lost";
@@ -118,6 +127,16 @@ export default function CrmOrganizationClient({
 
   const [followUp, setFollowUp] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
+  const [legalBusinessName, setLegalBusinessName] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
+  const [stateOfIncorporation, setStateOfIncorporation] = useState("");
+  const [primaryContactName, setPrimaryContactName] = useState("");
+  const [primaryContactTitle, setPrimaryContactTitle] = useState("");
+  const [primaryContactEmail, setPrimaryContactEmail] = useState("");
+  const [primaryContactPhone, setPrimaryContactPhone] = useState("");
+  const [billingContactName, setBillingContactName] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -128,6 +147,7 @@ export default function CrmOrganizationClient({
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
   const [coverDraft, setCoverDraft] = useState("");
   const [termsDraft, setTermsDraft] = useState("");
+  const [paymentTermsDraft, setPaymentTermsDraft] = useState("");
 
   const [contractTitle, setContractTitle] = useState("");
   const [invoiceTitle, setInvoiceTitle] = useState("");
@@ -136,6 +156,7 @@ export default function CrmOrganizationClient({
   const [priceBookCatalogRows, setPriceBookCatalogRows] = useState<PriceBookRow[]>([]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const quoteEditorRef = useRef<HTMLElement | null>(null);
+  const projectSummaryRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
 
     const loadOrg = useCallback(async () => {
     setLoadErr(null);
@@ -149,6 +170,16 @@ export default function CrmOrganizationClient({
         o.crm_next_follow_up_at ? new Date(o.crm_next_follow_up_at).toISOString().slice(0, 16) : ""
       );
       setInternalNotes(o.crm_internal_notes ?? "");
+      setLegalBusinessName(o.legal_name ?? "");
+      setBusinessAddress(o.legal_address ?? "");
+      setStateOfIncorporation(o.state_of_incorporation ?? "");
+      setPrimaryContactName(o.primary_contact_name ?? "");
+      setPrimaryContactTitle(o.primary_contact_title ?? "");
+      setPrimaryContactEmail(o.primary_contact_email ?? "");
+      setPrimaryContactPhone(o.primary_contact_phone ?? "");
+      setBillingContactName(o.billing_contact_name ?? "");
+      setBillingEmail(o.billing_email ?? "");
+      setPaymentMethod(o.payment_method ?? "");
     } catch (e: unknown) {
       setLoadErr(e instanceof Error ? e.message : "Load failed");
     }
@@ -239,6 +270,9 @@ export default function CrmOrganizationClient({
   useEffect(() => {
     setCoverDraft(String(payload.coverNarrative ?? ""));
     setTermsDraft(String(payload.terms ?? ""));
+    setPaymentTermsDraft(
+      typeof payload.paymentTerms === "string" ? payload.paymentTerms : QUOTE_PAYMENT_TERMS_OPTIONS[0]
+    );
   }, [quote?.id, payload.coverNarrative, payload.terms]);
 
   async function patchOrg(body: Record<string, unknown>) {
@@ -268,6 +302,21 @@ export default function CrmOrganizationClient({
     await patchOrg({
       crm_internal_notes: internalNotes.trim() || null,
       crm_next_follow_up_at: followUp.trim() ? new Date(followUp).toISOString() : null,
+    });
+  }
+
+  async function saveBusinessInfo() {
+    await patchOrg({
+      legal_name: legalBusinessName.trim() || null,
+      legal_address: businessAddress.trim() || null,
+      state_of_incorporation: stateOfIncorporation.trim() || null,
+      primary_contact_name: primaryContactName.trim() || null,
+      primary_contact_title: primaryContactTitle.trim() || null,
+      primary_contact_email: primaryContactEmail.trim() || null,
+      primary_contact_phone: primaryContactPhone.trim() || null,
+      billing_contact_name: billingContactName.trim() || null,
+      billing_email: billingEmail.trim() || null,
+      payment_method: paymentMethod.trim() || null,
     });
   }
 
@@ -313,6 +362,49 @@ export default function CrmOrganizationClient({
       if (json.quote?.id) setSelectedQuoteId(json.quote.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Quote create failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncQuoteToNewDraftFromProjects() {
+    setBusy(true);
+    setQuoteErr(null);
+    try {
+      const createRes = await fetch(`/api/admin/crm/organizations/${organizationId}/quotes`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const createJson = await createRes.json().catch(() => null);
+      if (!createRes.ok || !createJson?.quote?.id) {
+        throw new Error(createJson?.error || "Failed to create draft quote");
+      }
+
+      const newQuoteId = createJson.quote.id as string;
+      const nextPayload = {
+        ...payload,
+        scopeSummary: {
+          executiveMemo: scopeSummaryForWork?.executiveMemo ?? "",
+          projects: scopeProjects,
+        },
+      };
+      const patchRes = await fetch(`/api/admin/crm/quotes/${newQuoteId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quote_payload: nextPayload, status: "DRAFT" }),
+      });
+      const patchJson = await patchRes.json().catch(() => null);
+      if (!patchRes.ok) {
+        throw new Error(patchJson?.error || "Failed to sync projects into new draft");
+      }
+
+      await loadOrg();
+      openQuoteFromLibrary(newQuoteId);
+    } catch (e: unknown) {
+      setQuoteErr(e instanceof Error ? e.message : "Sync quote failed");
     } finally {
       setBusy(false);
     }
@@ -381,9 +473,12 @@ export default function CrmOrganizationClient({
             timelineLabel?: string;
             costBand?: string | null;
             objectivesBrief?: string;
+            priority?: number | null;
           }>;
         })
       : null;
+  const scopeProjects = Array.isArray(scopeSummaryForWork?.projects) ? scopeSummaryForWork.projects : [];
+  const projectsLocked = payload.scopeProjectsLocked === true;
 
   const workItems = useMemo(() => parseScopeWorkItemsFromPayload(payload), [payload]);
 
@@ -659,6 +754,110 @@ export default function CrmOrganizationClient({
     void saveQuote(next);
   }
 
+  async function saveScopeProjects(
+    nextProjects: Array<{
+      name?: string;
+      summary?: string;
+      deliverables?: string[];
+      timelineLabel?: string;
+      costBand?: string | null;
+      objectivesBrief?: string;
+      priority?: number | null;
+    }>
+  ) {
+    const nextScopeSummary = {
+      executiveMemo: scopeSummaryForWork?.executiveMemo ?? "",
+      projects: nextProjects,
+    };
+    await saveQuote({ ...payload, scopeSummary: nextScopeSummary });
+  }
+
+  function addScopeProjectCard() {
+    if (projectsLocked) return;
+    const next = [
+      ...scopeProjects,
+      {
+        name: "New project",
+        summary: "",
+        deliverables: [],
+        timelineLabel: "TBD",
+        costBand: "TBD",
+        objectivesBrief: "",
+        priority: scopeProjects.length + 1,
+      },
+    ];
+    void saveScopeProjects(next);
+  }
+
+  function deleteScopeProjectCard(index: number) {
+    if (projectsLocked) return;
+    const next = scopeProjects.filter((_, i) => i !== index);
+    void saveScopeProjects(next);
+  }
+
+  function updateScopeProjectCard(
+    index: number,
+    patch: Partial<{
+      name?: string;
+      summary?: string;
+      deliverables?: string[];
+      timelineLabel?: string;
+      costBand?: string | null;
+      objectivesBrief?: string;
+      priority?: number | null;
+    }>
+  ) {
+    if (projectsLocked) return;
+    const current = scopeProjects[index];
+    if (!current) return;
+    const next = [...scopeProjects];
+    next[index] = {
+      ...current,
+      ...patch,
+    };
+    void saveScopeProjects(next);
+  }
+
+  function applySummaryFormat(index: number, mode: "bold" | "italic" | "bullet" | "number") {
+    if (projectsLocked) return;
+    const el = projectSummaryRefs.current[index];
+    if (!el) return;
+    const text = el.value || "";
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
+    const selected = text.slice(start, end);
+    let replacement = selected;
+    let nextStart = start;
+    let nextEnd = end;
+
+    if (mode === "bold") {
+      replacement = `**${selected || "text"}**`;
+      nextStart = start + 2;
+      nextEnd = nextStart + (selected || "text").length;
+    } else if (mode === "italic") {
+      replacement = `*${selected || "text"}*`;
+      nextStart = start + 1;
+      nextEnd = nextStart + (selected || "text").length;
+    } else if (mode === "bullet") {
+      const src = (selected || "item").split("\n");
+      replacement = src.map((line) => (line.trim() ? `- ${line}` : "- ")).join("\n");
+      nextEnd = start + replacement.length;
+    } else if (mode === "number") {
+      const src = (selected || "item").split("\n");
+      replacement = src.map((line, i) => `${i + 1}. ${line || ""}`).join("\n");
+      nextEnd = start + replacement.length;
+    }
+
+    const nextText = `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+    updateScopeProjectCard(index, { summary: nextText });
+    requestAnimationFrame(() => {
+      const ref = projectSummaryRefs.current[index];
+      if (!ref) return;
+      ref.focus();
+      ref.setSelectionRange(nextStart, nextEnd);
+    });
+  }
+
   async function saveQuoteAsActiveForPm() {
     if (!selectedQuoteId) return;
     const nextPayload = {
@@ -671,6 +870,15 @@ export default function CrmOrganizationClient({
       },
     };
     await saveQuote(nextPayload, { status: "ACTIVE" });
+  }
+
+  async function setProjectsLocked(nextLocked: boolean) {
+    const nextPayload = {
+      ...payload,
+      scopeProjectsLocked: nextLocked,
+      scopeProjectsLockedAt: nextLocked ? new Date().toISOString() : null,
+    };
+    await saveQuote(nextPayload);
   }
 
   async function downloadQuotePdf() {
@@ -909,6 +1117,93 @@ export default function CrmOrganizationClient({
               Save tracking
             </button>
           </div>
+        </section>
+
+        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+          <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+            Client business & billing info
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Legal Business Name"
+              value={legalBusinessName}
+              onChange={(e) => setLegalBusinessName(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="State of incorporation (optional)"
+              value={stateOfIncorporation}
+              onChange={(e) => setStateOfIncorporation(e.target.value)}
+            />
+            <textarea
+              className="min-h-[84px] rounded-xl border px-3 py-2 text-sm font-semibold outline-none md:col-span-2"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Business Address (HQ or billing)"
+              value={businessAddress}
+              onChange={(e) => setBusinessAddress(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Primary contact name"
+              value={primaryContactName}
+              onChange={(e) => setPrimaryContactName(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Primary contact title"
+              value={primaryContactTitle}
+              onChange={(e) => setPrimaryContactTitle(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Primary contact email"
+              value={primaryContactEmail}
+              onChange={(e) => setPrimaryContactEmail(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Primary contact phone (optional)"
+              value={primaryContactPhone}
+              onChange={(e) => setPrimaryContactPhone(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Billing contact name"
+              value={billingContactName}
+              onChange={(e) => setBillingContactName(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Billing email"
+              value={billingEmail}
+              onChange={(e) => setBillingEmail(e.target.value)}
+            />
+            <input
+              className="rounded-xl border px-3 py-2 text-sm font-semibold outline-none md:col-span-2"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Payment method (required before work starts)"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            className="mt-3 rounded-xl px-4 py-2 text-sm font-black uppercase tracking-wide text-white disabled:opacity-50"
+            style={{ background: BRAND.dark }}
+            onClick={saveBusinessInfo}
+          >
+            Save business info
+          </button>
         </section>
 
         {view === "overview" ? (
@@ -1161,7 +1456,7 @@ export default function CrmOrganizationClient({
             </div>
           ) : null}
 
-          {quote && scopeSummaryForWork ? (
+          {quote ? (
             <div
               className="mt-5 rounded-2xl border px-4 py-4"
               style={{ borderColor: BRAND.border, background: "rgba(23, 52, 100, 0.04)" }}
@@ -1188,6 +1483,33 @@ export default function CrmOrganizationClient({
                   </button>
                   <button
                     type="button"
+                    disabled={busy || projectsLocked}
+                    className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
+                    style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    onClick={addScopeProjectCard}
+                  >
+                    Add project
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || scopeProjects.length === 0 || projectsLocked}
+                    className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
+                    style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    onClick={() => void syncQuoteToNewDraftFromProjects()}
+                  >
+                    Sync quote (new draft)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || scopeProjects.length === 0}
+                    className="rounded-xl border bg-white px-3 py-2 text-xs font-black uppercase disabled:opacity-50"
+                    style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    onClick={() => void setProjectsLocked(!projectsLocked)}
+                  >
+                    {projectsLocked ? "Unlock projects" : "Projects locked"}
+                  </button>
+                  <button
+                    type="button"
                     disabled={busy || workItems.length === 0}
                     className="rounded-xl px-3 py-2 text-xs font-black uppercase text-white disabled:opacity-50"
                     style={{ background: BRAND.cyan }}
@@ -1198,55 +1520,152 @@ export default function CrmOrganizationClient({
                 </div>
               </div>
 
-              {scopeSummaryForWork.executiveMemo ? (
+              {scopeSummaryForWork?.executiveMemo ? (
                 <p className="mt-4 text-sm font-semibold leading-relaxed" style={{ color: BRAND.text }}>
                   <span className="font-black" style={{ color: BRAND.greyBlue }}>
                     Executive brief:{" "}
                   </span>
-                  {scopeSummaryForWork.executiveMemo}
+                  {scopeSummaryForWork?.executiveMemo}
                 </p>
               ) : null}
+              <p className="mt-2 text-xs font-semibold" style={{ color: BRAND.muted }}>
+                {projectsLocked
+                  ? "Projects are locked for client quote + PM handoff. Unlock to edit."
+                  : "Projects are editable. Lock when scope is approved for client view and PM handoff."}
+              </p>
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                {(scopeSummaryForWork.projects ?? []).map((p, i) => (
+                {scopeProjects.map((p, i) => (
                   <div
                     key={`${p.name ?? i}-${i}`}
                     className="rounded-xl border bg-white/90 p-4 shadow-sm"
                     style={{ borderColor: BRAND.border }}
                   >
-                    <div className="text-sm font-black" style={{ color: BRAND.dark }}>
-                      {p.name ?? `Initiative ${i + 1}`}
-                    </div>
-                    {p.timelineLabel ? (
-                      <p className="mt-1 text-xs font-bold" style={{ color: BRAND.muted }}>
-                        Timeline: {p.timelineLabel}
-                      </p>
-                    ) : null}
-                    {p.costBand ? (
-                      <p className="mt-0.5 text-xs font-bold" style={{ color: BRAND.muted }}>
-                        Cost band (indicative): {p.costBand}
-                      </p>
-                    ) : null}
-                    {Array.isArray(p.deliverables) && p.deliverables.length > 0 ? (
-                      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm font-semibold" style={{ color: BRAND.text }}>
-                        {p.deliverables.map((d, j) => (
-                          <li key={j}>{d}</li>
-                        ))}
-                      </ul>
-                    ) : p.summary ? (
-                      <pre
-                        className="mt-3 whitespace-pre-wrap font-sans text-sm font-semibold leading-relaxed"
-                        style={{ color: BRAND.text }}
+                    <div className="flex items-start justify-between gap-2">
+                      <input
+                        className="w-full rounded border px-2 py-1 text-sm font-black outline-none"
+                        style={{ borderColor: BRAND.border }}
+                        value={p.name ?? ""}
+                        disabled={projectsLocked}
+                        onChange={(e) => updateScopeProjectCard(i, { name: e.target.value })}
+                        placeholder={`Initiative ${i + 1}`}
+                      />
+                      <button
+                        type="button"
+                        className="rounded border px-2 py-1 text-[10px] font-black uppercase"
+                        style={{ borderColor: BRAND.danger, color: BRAND.danger }}
+                        disabled={projectsLocked}
+                        onClick={() => deleteScopeProjectCard(i)}
                       >
-                        {p.summary}
-                      </pre>
-                    ) : (
-                      <p className="mt-2 text-sm font-semibold" style={{ color: BRAND.muted }}>
-                        No simplified text yet — use “Rebuild readout from scope”.
-                      </p>
-                    )}
+                        Delete
+                      </button>
+                    </div>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <input
+                        className="rounded border px-2 py-1 text-xs font-semibold outline-none"
+                        style={{ borderColor: BRAND.border }}
+                        value={p.timelineLabel ?? ""}
+                        disabled={projectsLocked}
+                        onChange={(e) => updateScopeProjectCard(i, { timelineLabel: e.target.value })}
+                        placeholder="Timeline (e.g., 12 weeks)"
+                      />
+                      <input
+                        className="rounded border px-2 py-1 text-xs font-semibold outline-none"
+                        style={{ borderColor: BRAND.border }}
+                        value={p.costBand ?? ""}
+                        disabled={projectsLocked}
+                        onChange={(e) => updateScopeProjectCard(i, { costBand: e.target.value })}
+                        placeholder="Cost band"
+                      />
+                      <select
+                        className="rounded border px-2 py-1 text-xs font-semibold outline-none"
+                        style={{ borderColor: BRAND.border }}
+                        value={String(p.priority ?? i + 1)}
+                        disabled={projectsLocked}
+                        onChange={(e) =>
+                          updateScopeProjectCard(i, {
+                            priority: Number(e.target.value) || i + 1,
+                          })
+                        }
+                      >
+                        {Array.from({ length: Math.max(1, scopeProjects.length) }).map((_, idx) => (
+                          <option key={idx + 1} value={idx + 1}>
+                            Priority {idx + 1}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <textarea
+                      className="mt-2 min-h-[76px] w-full rounded border px-2 py-1 text-xs font-semibold outline-none"
+                      style={{ borderColor: BRAND.border }}
+                      value={Array.isArray(p.deliverables) ? p.deliverables.join("\n") : ""}
+                      disabled={projectsLocked}
+                      onChange={(e) =>
+                        updateScopeProjectCard(i, {
+                          deliverables: e.target.value
+                            .split("\n")
+                            .map((v) => v.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      placeholder="One deliverable per line"
+                    />
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        className="rounded border px-2 py-1 text-[10px] font-black uppercase"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        disabled={projectsLocked}
+                        onClick={() => applySummaryFormat(i, "bold")}
+                      >
+                        Bold
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border px-2 py-1 text-[10px] font-black uppercase"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        disabled={projectsLocked}
+                        onClick={() => applySummaryFormat(i, "italic")}
+                      >
+                        Italic
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border px-2 py-1 text-[10px] font-black uppercase"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        disabled={projectsLocked}
+                        onClick={() => applySummaryFormat(i, "bullet")}
+                      >
+                        Bullets
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border px-2 py-1 text-[10px] font-black uppercase"
+                        style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                        disabled={projectsLocked}
+                        onClick={() => applySummaryFormat(i, "number")}
+                      >
+                        Numbered
+                      </button>
+                    </div>
+                    <textarea
+                      className="mt-2 min-h-[68px] w-full rounded border px-2 py-1 text-xs font-semibold outline-none"
+                      style={{ borderColor: BRAND.border }}
+                      value={p.summary ?? ""}
+                      disabled={projectsLocked}
+                      ref={(el) => {
+                        projectSummaryRefs.current[i] = el;
+                      }}
+                      onChange={(e) => updateScopeProjectCard(i, { summary: e.target.value })}
+                      placeholder="Project scope summary"
+                    />
                   </div>
                 ))}
+                {scopeProjects.length === 0 ? (
+                  <div className="rounded-xl border border-dashed p-4 text-sm font-semibold" style={{ borderColor: BRAND.border, color: BRAND.muted }}>
+                    No projects yet. Click “Add project” to create one.
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -1283,6 +1702,15 @@ export default function CrmOrganizationClient({
                       style={{ borderColor: BRAND.border, color: BRAND.dark }}
                     >
                       View Quote
+                    </a>
+                    <a
+                      href={`/admin/crm/quotes/${quote.id}/client`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border bg-white px-4 py-2 text-sm font-black uppercase shadow-sm"
+                      style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                    >
+                      Client Side Quote
                     </a>
                     <a
                       href="#"
@@ -1693,6 +2121,32 @@ export default function CrmOrganizationClient({
                   onClick={() => void saveQuote({ ...payload, coverNarrative: coverDraft })}
                 >
                   Save narrative
+                </button>
+              </div>
+              <div>
+                <label className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.muted }}>
+                  Payment terms
+                </label>
+                <select
+                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm font-semibold outline-none"
+                  style={{ borderColor: BRAND.border }}
+                  value={paymentTermsDraft}
+                  onChange={(e) => setPaymentTermsDraft(e.target.value)}
+                >
+                  {QUOTE_PAYMENT_TERMS_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="mt-2 rounded-lg px-3 py-1.5 text-xs font-black uppercase text-white disabled:opacity-50"
+                  style={{ background: BRAND.dark }}
+                  onClick={() => void saveQuote({ ...payload, paymentTerms: paymentTermsDraft })}
+                >
+                  Save payment terms
                 </button>
               </div>
               <div>
