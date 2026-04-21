@@ -56,6 +56,22 @@ function normalizeLookupText(value: unknown) {
     .trim();
 }
 
+const QUOTE_STATUS_ORDER: CrmQuoteStatus[] = [
+  "DRAFT",
+  "SENT",
+  "ACTIVE",
+  "APPROVED",
+  "CLOSED_WON",
+  "CLOSED_LOST",
+];
+
+function quoteStatusLabel(status: CrmQuoteStatus) {
+  if (status === "CLOSED_WON") return "Closed Won";
+  if (status === "CLOSED_LOST") return "Closed Lost";
+  const lower = status.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
 type PriceBookRow = {
   sku: string;
   description: string;
@@ -68,6 +84,22 @@ type PriceBookRow = {
   hourly_rate_min_cents: number;
   hourly_rate_max_cents: number;
 };
+
+const DEFAULT_ENGAGEMENT_OPTIONS = [
+  "AI Readiness Snapshot",
+  "AI Readiness Diagnostic",
+  "AI Strategy Workshop",
+  "AI Pilot Project",
+  "AI Systems Implementation",
+] as const;
+
+const DEFAULT_TIER_OPTIONS = [
+  "Startup",
+  "Small Business",
+  "Growth Company",
+  "Mid Market",
+  "Enterprise",
+] as const;
 
 export default function CrmOrganizationClient({
   organizationId,
@@ -329,7 +361,7 @@ export default function CrmOrganizationClient({
   }, [payload.priceBookLines]);
 
   const engagementOptions = useMemo(() => {
-    const out: string[] = [];
+    const out: string[] = [...DEFAULT_ENGAGEMENT_OPTIONS];
     for (const r of priceBookRows) {
       if (!out.includes(r.engagement_name)) out.push(r.engagement_name);
     }
@@ -337,7 +369,7 @@ export default function CrmOrganizationClient({
   }, [priceBookRows]);
 
   const tierOptions = useMemo(() => {
-    const out: string[] = [];
+    const out: string[] = [...DEFAULT_TIER_OPTIONS];
     for (const r of priceBookRows) {
       if (!out.includes(r.company_tier)) out.push(r.company_tier);
     }
@@ -547,7 +579,7 @@ export default function CrmOrganizationClient({
         activeForPm: true,
       },
     };
-    await saveQuote(nextPayload, { status: "SENT" });
+    await saveQuote(nextPayload, { status: "ACTIVE" });
   }
 
   async function downloadQuotePdf() {
@@ -943,7 +975,7 @@ export default function CrmOrganizationClient({
                 {org.crm_quotes.length === 0 ? <option value="">No quotes yet</option> : null}
                 {org.crm_quotes.map((q) => (
                   <option key={q.id} value={q.id}>
-                    {q.status} · {fmtMoney(q.total_cents)} · {new Date(q.updated_at).toLocaleDateString()}
+                    {quoteStatusLabel(q.status)} · {fmtMoney(q.total_cents)} · {new Date(q.updated_at).toLocaleDateString()}
                   </option>
                 ))}
               </select>
@@ -953,6 +985,55 @@ export default function CrmOrganizationClient({
           {quoteErr ? (
             <div className="mt-3 rounded-lg px-3 py-2 text-sm font-bold" style={{ background: "#fef2f2", color: BRAND.danger }}>
               {quoteErr}
+            </div>
+          ) : null}
+
+          {view === "quotes" ? (
+            <div className="mt-4 rounded-xl border p-3" style={{ borderColor: BRAND.border }}>
+              <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                Quote library
+              </div>
+              <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                All saved quotes and where they are in process.
+              </p>
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                      <th className="pb-2 pr-3">Status</th>
+                      <th className="pb-2 pr-3">Total</th>
+                      <th className="pb-2 pr-3">Updated</th>
+                      <th className="pb-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {org.crm_quotes.map((q) => (
+                      <tr key={q.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
+                        <td className="py-2 pr-3">{quoteStatusLabel(q.status)}</td>
+                        <td className="py-2 pr-3">{fmtMoney(q.total_cents)}</td>
+                        <td className="py-2 pr-3">{new Date(q.updated_at).toLocaleString()}</td>
+                        <td className="py-2">
+                          <button
+                            type="button"
+                            className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                            style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                            onClick={() => setSelectedQuoteId(q.id)}
+                          >
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {org.crm_quotes.length === 0 ? (
+                      <tr>
+                        <td className="py-2" colSpan={4} style={{ color: BRAND.muted }}>
+                          No quotes yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : null}
 
@@ -1474,9 +1555,9 @@ export default function CrmOrganizationClient({
                     saveQuote(payload as Record<string, unknown>, { status: e.target.value as CrmQuoteStatus })
                   }
                 >
-                  {(["DRAFT", "SENT", "ACCEPTED", "DECLINED"] as const).map((s) => (
+                  {QUOTE_STATUS_ORDER.map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {quoteStatusLabel(s)}
                     </option>
                   ))}
                 </select>

@@ -31,6 +31,7 @@ export function CrmPriceBookPanel() {
   const [saving, setSaving] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function load() {
     setErr(null);
@@ -138,6 +139,26 @@ export function CrmPriceBookPanel() {
     }
   }
 
+  async function deleteBook(id: string, label: string) {
+    const ok = window.confirm(`Delete price book "${label}"? This cannot be undone.`);
+    if (!ok) return;
+    setDeletingId(id);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/admin/crm/price-book/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Delete failed");
+      await load();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <div className="rounded-2xl p-5" style={{ ...glass, borderColor: BRAND.border }}>
       <h2 className="text-lg font-black" style={{ color: BRAND.dark }}>
@@ -199,16 +220,29 @@ export function CrmPriceBookPanel() {
                       </a>
                     ) : null}
                   </span>
-                  {!b.is_current ? (
+                  <div className="flex items-center gap-2">
+                    {!b.is_current ? (
+                      <button
+                        type="button"
+                        className="rounded-lg px-2 py-1 text-xs font-black uppercase text-white"
+                        style={{ background: BRAND.cyan }}
+                        onClick={() => setCurrent(b.id)}
+                      >
+                        Set current
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      className="rounded-lg px-2 py-1 text-xs font-black uppercase text-white"
-                      style={{ background: BRAND.cyan }}
-                      onClick={() => setCurrent(b.id)}
+                      title="Delete price book"
+                      aria-label="Delete price book"
+                      disabled={deletingId === b.id}
+                      className="rounded-lg border px-2 py-1 text-xs font-black disabled:opacity-50"
+                      style={{ borderColor: BRAND.border, color: BRAND.danger, background: "#fff" }}
+                      onClick={() => void deleteBook(b.id, b.label)}
                     >
-                      Set current
+                      {deletingId === b.id ? "…" : "🗑"}
                     </button>
-                  ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
