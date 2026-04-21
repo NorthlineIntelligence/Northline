@@ -417,13 +417,22 @@ export default function CrmOrganizationClient({
                 ← Back to customer
               </Link>
             ) : (
-              <Link
-                href={`/admin/crm/organizations/${org.id}/quotes`}
-                className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-                style={{ borderColor: BRAND.border, color: BRAND.dark }}
-              >
-                Open quote workspace
-              </Link>
+              <>
+                <Link
+                  href={`/admin/crm/organizations/${org.id}/quotes`}
+                  className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
+                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                >
+                  Open quote workspace
+                </Link>
+                <Link
+                  href={`/admin/crm/organizations/${org.id}/projects`}
+                  className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
+                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                >
+                  Open PM workspace
+                </Link>
+              </>
             )}
             <Link
               href={`/admin/organizations/${org.id}`}
@@ -605,6 +614,28 @@ export default function CrmOrganizationClient({
                 No quotes yet.
               </div>
             )}
+          </section>
+        ) : null}
+
+        {view === "overview" ? (
+          <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                  Project Management
+                </div>
+                <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                  Internal sprint tracking workspace with AI status overviews and customer-safe update controls.
+                </p>
+              </div>
+              <Link
+                href={`/admin/crm/organizations/${org.id}/projects`}
+                className="rounded-xl px-4 py-2 text-sm font-black uppercase text-white"
+                style={{ background: BRAND.dark }}
+              >
+                Open PM workspace
+              </Link>
+            </div>
           </section>
         ) : null}
 

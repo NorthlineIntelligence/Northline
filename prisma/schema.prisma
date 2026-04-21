@@ -41,6 +41,7 @@ model Organization {
   crm_quotes     CrmQuote[]
   crm_contracts  CrmContract[]
   crm_invoices   CrmInvoice[]
+  pm_projects    PmProject[]
 
   @@index([name])
   @@index([created_at])
@@ -71,6 +72,7 @@ model Assessment {
   narratives         AssessmentNarrative[]
   project_scopes     AssessmentProjectScope[]
   crm_quotes         CrmQuote[]
+  pm_projects        PmProject[]
 
   @@index([organization_id])
   @@index([status])
@@ -385,6 +387,7 @@ model CrmQuote {
 
   crm_contracts CrmContract[]
   crm_invoices  CrmInvoice[]
+  pm_projects   PmProject[]
 
   @@index([organization_id])
   @@index([organization_id, status])
@@ -426,4 +429,85 @@ model CrmInvoice {
   @@index([organization_id])
   @@index([status])
   @@index([due_date])
+}
+
+enum PmProjectStatus {
+  PLANNED
+  ACTIVE
+  AT_RISK
+  DELAYED
+  OVERDUE
+  COMPLETED
+}
+
+enum PmSprintStatus {
+  NOT_STARTED
+  ON_TIME
+  DELAYED
+  OVERDUE
+  COMPLETED
+}
+
+model PmProject {
+  id                  String          @id @default(uuid()) @db.Uuid
+  organization_id     String          @db.Uuid
+  quote_id            String?         @db.Uuid
+  assessment_id       String?         @db.Uuid
+  title               String
+  status              PmProjectStatus @default(PLANNED)
+  target_start_at     DateTime?
+  target_end_at       DateTime?
+  completion_pct      Int             @default(0)
+  internal_notes      String?         @db.Text
+  customer_summary    String?         @db.Text
+  last_ai_summary     String?         @db.Text
+  ai_summary_updated_at DateTime?
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  quote        CrmQuote?    @relation(fields: [quote_id], references: [id], onDelete: SetNull)
+  assessment   Assessment?  @relation(fields: [assessment_id], references: [id], onDelete: SetNull)
+  sprints      PmSprint[]
+
+  @@index([organization_id])
+  @@index([organization_id, status])
+  @@index([quote_id])
+  @@index([assessment_id])
+}
+
+model PmSprint {
+  id                String         @id @default(uuid()) @db.Uuid
+  project_id        String         @db.Uuid
+  sprint_number     Int
+  title             String
+  status            PmSprintStatus @default(NOT_STARTED)
+  stage_label       String?
+  completion_pct    Int            @default(0)
+  target_start_at   DateTime?
+  target_end_at     DateTime?
+  notes             String?        @db.Text
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+
+  project PmProject        @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  updates PmSprintUpdate[]
+
+  @@unique([project_id, sprint_number], map: "pm_sprint_unique_per_project_number")
+  @@index([project_id, status])
+}
+
+model PmSprintUpdate {
+  id                 String   @id @default(uuid()) @db.Uuid
+  sprint_id          String   @db.Uuid
+  status_label       String
+  why_text           String?  @db.Text
+  is_customer_visible Boolean @default(false)
+  author_email       String?
+  created_at         DateTime @default(now())
+
+  sprint PmSprint @relation(fields: [sprint_id], references: [id], onDelete: Cascade)
+
+  @@index([sprint_id, created_at])
+  @@index([is_customer_visible])
 }

@@ -188,6 +188,13 @@ export default async function AdminCrmHubPage() {
                           >
                             Quotes
                           </Link>
+                          <Link
+                            href={`/admin/crm/organizations/${o.id}/projects`}
+                            className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
+                            style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                          >
+                            Projects
+                          </Link>
                         </div>
                       </td>
                     </tr>
