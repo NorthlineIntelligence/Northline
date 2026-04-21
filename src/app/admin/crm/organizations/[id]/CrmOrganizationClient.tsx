@@ -26,6 +26,7 @@ import {
   syncPilotWorkItemsFromScopeSummary,
 } from "@/lib/crmQuoteScopeWorkItems";
 import { summarizeScopeForQuote } from "@/lib/crmQuoteDefaults";
+import { QUOTE_STANDARD_TERMS_TEXT, QUOTE_STANDARD_TERMS_VERSION } from "@/lib/quoteStandardTerms";
 
 type OrgResponse = {
   organization: Organization & {
@@ -495,16 +496,26 @@ export default function CrmOrganizationClient({
   const pricingSummary = useMemo(() => {
     const items = parseScopeWorkItemsFromPayload(payload);
     let priceCents = 0;
-    let totalCents = 0;
+    let lineTotalCents = 0;
     for (const item of items) {
       if (!item.engagementName) continue;
       const subtotal = getLineSubtotalCents(item);
       const final = getLineFinalCents(item);
       priceCents += subtotal;
-      totalCents += final;
+      lineTotalCents += final;
     }
+    const overallDiscountPctRaw = payload.quoteDiscountPct;
+    const overallDiscountPct =
+      typeof overallDiscountPctRaw === "number" && Number.isFinite(overallDiscountPctRaw)
+        ? Math.max(0, Math.min(100, overallDiscountPctRaw))
+        : 0;
+    const overallDiscountCents = Math.max(0, Math.round(lineTotalCents * (overallDiscountPct / 100)));
+    const totalCents = Math.max(0, lineTotalCents - overallDiscountCents);
     return {
       priceCents,
+      lineDiscountCents: Math.max(0, priceCents - lineTotalCents),
+      overallDiscountPct,
+      overallDiscountCents,
       discountCents: Math.max(0, priceCents - totalCents),
       totalCents,
     };
@@ -756,6 +767,13 @@ export default function CrmOrganizationClient({
                 >
                   Open PM workspace
                 </Link>
+                <Link
+                  href={`/admin/crm/organizations/${org.id}/msa`}
+                  className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
+                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                >
+                  Open MSA workspace
+                </Link>
               </>
             )}
             <Link
@@ -958,6 +976,13 @@ export default function CrmOrganizationClient({
                 style={{ background: BRAND.dark }}
               >
                 Open PM workspace
+              </Link>
+              <Link
+                href={`/admin/crm/organizations/${org.id}/msa`}
+                className="rounded-xl px-4 py-2 text-sm font-black uppercase text-white"
+                style={{ background: BRAND.dark }}
+              >
+                Open MSA workspace
               </Link>
             </div>
           </section>
@@ -1566,6 +1591,34 @@ export default function CrmOrganizationClient({
                   </div>
                 </div>
               </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.muted }}>
+                  Overall quote discount %
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  className="w-24 rounded-lg border px-2 py-1 text-xs font-semibold outline-none"
+                  style={{ borderColor: BRAND.border }}
+                  value={pricingSummary.overallDiscountPct}
+                  onChange={(e) =>
+                    void saveQuote({
+                      ...payload,
+                      quoteDiscountPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+                <span className="text-xs font-semibold" style={{ color: BRAND.muted }}>
+                  Applies after line-item discounts.
+                </span>
+              </div>
+              {pricingSummary.overallDiscountPct > 0 ? (
+                <div className="text-xs font-semibold" style={{ color: BRAND.muted }}>
+                  Overall discount: -{fmtMoney(pricingSummary.overallDiscountCents)}
+                </div>
+              ) : null}
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
@@ -1660,6 +1713,19 @@ export default function CrmOrganizationClient({
                   onClick={() => void saveQuote({ ...payload, terms: termsDraft })}
                 >
                   Save terms
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="ml-2 mt-2 rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase disabled:opacity-50"
+                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                  onClick={() =>
+                    setTermsDraft(
+                      `${QUOTE_STANDARD_TERMS_TEXT}\n\nThis Quote incorporates Northline Intelligence Standard Terms & Conditions (${QUOTE_STANDARD_TERMS_VERSION}).`
+                    )
+                  }
+                >
+                  Insert standard terms
                 </button>
               </div>
 

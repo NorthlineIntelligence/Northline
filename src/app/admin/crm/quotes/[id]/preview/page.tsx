@@ -3,12 +3,20 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBg } from "@/lib/northlineBrand";
+import { parseScopeWorkItemsFromPayload } from "@/lib/crmQuoteScopeWorkItems";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
 function fmtMoney(cents: number | null | undefined) {
   if (cents == null || Number.isNaN(cents)) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
+function normalizeLookupText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 export default async function QuotePreviewPage(context: { params: Promise<{ id: string }> }) {
@@ -35,9 +43,26 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
   const payload = quote.quote_payload && typeof quote.quote_payload === "object"
     ? (quote.quote_payload as Record<string, unknown>)
     : {};
-  const cover = String(payload.coverNarrative ?? "").trim();
   const terms = String(payload.terms ?? "").trim();
+  const workItems = parseScopeWorkItemsFromPayload(payload);
   const customLines = Array.isArray(payload.customLines) ? payload.customLines : [];
+  const pricedItems = workItems.filter((w) => Boolean(w.engagementName));
+  const hasAssessmentInScope = pricedItems.some((w) => {
+    const t = normalizeLookupText(w.title);
+    const e = normalizeLookupText(w.engagementName);
+    return t.includes("assessment") || e.includes("assessment") || t.includes("readiness diagnostic");
+  });
+  const hasWorkshopInScope = pricedItems.some((w) => {
+    const t = normalizeLookupText(w.title);
+    const e = normalizeLookupText(w.engagementName);
+    return t.includes("workshop") || e.includes("workshop");
+  });
+  const proposedProjects = pricedItems.map((w) => w.title || w.engagementName || "Project line");
+  const overallDiscountPct =
+    typeof payload.quoteDiscountPct === "number" && Number.isFinite(payload.quoteDiscountPct)
+      ? Math.max(0, Math.min(100, payload.quoteDiscountPct))
+      : 0;
+  const hasLineDiscounts = workItems.some((w) => (w.discountPct ?? 0) > 0);
 
   return (
     <div className="min-h-screen px-6 py-10" style={{ background: shellBg, color: BRAND.text }}>
@@ -61,18 +86,58 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
             >
               Back to quote workspace
             </Link>
+            <button
+              type="button"
+              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+            >
+              Client Side Quote
+            </button>
           </div>
           <p className="mt-2 text-sm font-semibold" style={{ color: BRAND.muted }}>
             {quote.organization.name} • {quote.status} • Updated {new Date(quote.updated_at).toLocaleString()}
           </p>
         </header>
 
-        {cover ? (
+        <section>
+          <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+            Scope inclusion
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {hasAssessmentInScope ? (
+              <span
+                className="rounded-full px-2 py-1 text-xs font-black uppercase"
+                style={{ background: "rgba(23,52,100,0.08)", color: BRAND.dark }}
+              >
+                Assessment included
+              </span>
+            ) : null}
+            {hasWorkshopInScope ? (
+              <span
+                className="rounded-full px-2 py-1 text-xs font-black uppercase"
+                style={{ background: "rgba(52,176,180,0.18)", color: BRAND.dark }}
+              >
+                Workshop included
+              </span>
+            ) : null}
+            {!hasAssessmentInScope && !hasWorkshopInScope ? (
+              <span className="text-sm font-semibold" style={{ color: BRAND.muted }}>
+                No assessment/workshop scope tags found.
+              </span>
+            ) : null}
+          </div>
+        </section>
+
+        {proposedProjects.length > 0 ? (
           <section>
             <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
-              Executive summary
+              Proposed projects
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed">{cover}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold">
+              {proposedProjects.map((p, i) => (
+                <li key={`${p}-${i}`}>{p}</li>
+              ))}
+            </ul>
           </section>
         ) : null}
 
@@ -86,23 +151,32 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
                 <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
                   <th className="pb-2 pr-3">Description</th>
                   <th className="pb-2 pr-3">Qty</th>
+                  <th className="pb-2 pr-3">Discount</th>
                   <th className="pb-2">Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {customLines.map((row, i) => {
-                  const r = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+                {pricedItems.map((w, i) => {
+                  const line = customLines[i];
+                  const lineObj = line && typeof line === "object" ? (line as Record<string, unknown>) : {};
+                  const amountCents =
+                    typeof lineObj.unit_price_cents === "number" && Number.isFinite(lineObj.unit_price_cents)
+                      ? lineObj.unit_price_cents
+                      : 0;
                   return (
-                    <tr key={i} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
-                      <td className="py-2 pr-3">{String(r.description ?? "Line item")}</td>
-                      <td className="py-2 pr-3">{typeof r.quantity === "number" ? r.quantity : 1}</td>
-                      <td className="py-2">{fmtMoney(typeof r.unit_price_cents === "number" ? r.unit_price_cents : 0)}</td>
+                    <tr key={w.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
+                      <td className="py-2 pr-3">{w.title || w.engagementName}</td>
+                      <td className="py-2 pr-3">{w.quantity}</td>
+                      <td className="py-2 pr-3">
+                        {w.discountPct > 0 ? `${w.discountPct.toFixed(1).replace(/\.0$/, "")}%` : ""}
+                      </td>
+                      <td className="py-2">{fmtMoney(amountCents)}</td>
                     </tr>
                   );
                 })}
-                {customLines.length === 0 ? (
+                {pricedItems.length === 0 ? (
                   <tr>
-                    <td className="py-2" colSpan={3} style={{ color: BRAND.muted }}>
+                    <td className="py-2" colSpan={4} style={{ color: BRAND.muted }}>
                       No pricing lines yet.
                     </td>
                   </tr>
@@ -110,6 +184,16 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
               </tbody>
             </table>
           </div>
+          {hasLineDiscounts ? (
+            <div className="mt-2 text-sm font-semibold" style={{ color: BRAND.muted }}>
+              Line-item discounts are included above.
+            </div>
+          ) : null}
+          {overallDiscountPct > 0 ? (
+            <div className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+              Overall quote discount: {overallDiscountPct.toFixed(1).replace(/\.0$/, "")}%
+            </div>
+          ) : null}
           <div className="mt-3 text-right text-base font-black" style={{ color: BRAND.dark }}>
             Total: {fmtMoney(quote.total_cents)}
           </div>

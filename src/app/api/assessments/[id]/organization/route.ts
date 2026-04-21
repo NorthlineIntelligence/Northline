@@ -112,6 +112,11 @@ export async function GET(
       primary_pressures: true,
       website: true,
       context_notes: true,
+      legal_name: true,
+      legal_entity_type: true,
+      ein: true,
+      legal_address: true,
+      billing_email: true,
       show_admin_controls: true,
     },
   });
@@ -191,6 +196,12 @@ export async function PATCH(
     typeof payload?.show_admin_controls === "boolean"
       ? payload.show_admin_controls
       : undefined;
+  const nextLegalName = typeof payload?.legal_name === "string" ? payload.legal_name.trim() : null;
+  const nextLegalEntityType =
+    typeof payload?.legal_entity_type === "string" ? payload.legal_entity_type.trim() : null;
+  const nextEin = typeof payload?.ein === "string" ? payload.ein.trim() : null;
+  const nextLegalAddress = typeof payload?.legal_address === "string" ? payload.legal_address.trim() : null;
+  const nextBillingEmail = typeof payload?.billing_email === "string" ? payload.billing_email.trim() : null;
 
   if (!nextName) {
     return NextResponse.json(
@@ -215,6 +226,11 @@ export async function PATCH(
       primary_pressures: nextPrimaryPressures,
       website: nextWebsite,
       context_notes: sanitizedContextNotes,
+      legal_name: nextLegalName,
+      legal_entity_type: nextLegalEntityType,
+      ein: nextEin,
+      legal_address: nextLegalAddress,
+      billing_email: nextBillingEmail,
       ...(typeof nextShowAdminControls === "boolean"
         ? { show_admin_controls: nextShowAdminControls }
         : {}),
@@ -228,6 +244,11 @@ export async function PATCH(
       primary_pressures: true,
       website: true,
       context_notes: true,
+      legal_name: true,
+      legal_entity_type: true,
+      ein: true,
+      legal_address: true,
+      billing_email: true,
       show_admin_controls: true,
     },
   });

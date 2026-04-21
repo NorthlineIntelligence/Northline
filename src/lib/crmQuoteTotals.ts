@@ -23,5 +23,11 @@ export function quoteTotalCentsFromPayload(payload: Record<string, unknown>): nu
         : 0;
     total += Math.round(qty * unit);
   }
-  return total;
+  const overallDiscountPctRaw = payload.quoteDiscountPct;
+  const overallDiscountPct =
+    typeof overallDiscountPctRaw === "number" && Number.isFinite(overallDiscountPctRaw)
+      ? Math.max(0, Math.min(100, overallDiscountPctRaw))
+      : 0;
+  if (overallDiscountPct <= 0) return total;
+  return Math.max(0, Math.round(total * (1 - overallDiscountPct / 100)));
 }

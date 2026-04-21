@@ -195,6 +195,13 @@ export default async function AdminCrmHubPage() {
                           >
                             Projects
                           </Link>
+                          <Link
+                            href={`/admin/crm/organizations/${o.id}/msa`}
+                            className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
+                            style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                          >
+                            MSA
+                          </Link>
                         </div>
                       </td>
                     </tr>

@@ -13,6 +13,11 @@ type OrgPayload = {
   primary_pressures: string | null;
   website: string | null;
   context_notes: string | null;
+  legal_name: string | null;
+  legal_entity_type: string | null;
+  ein: string | null;
+  legal_address: string | null;
+  billing_email: string | null;
   show_admin_controls: boolean;
 };
 
@@ -85,6 +90,11 @@ export default function AdminAssessmentPage() {
   const [primaryPressures, setPrimaryPressures] = useState("");
   const [website, setWebsite] = useState("");
   const [contextNotes, setContextNotes] = useState("");
+  const [legalName, setLegalName] = useState("");
+  const [legalEntityType, setLegalEntityType] = useState("");
+  const [ein, setEin] = useState("");
+  const [legalAddress, setLegalAddress] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
   const [showAdminControls, setShowAdminControls] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -417,6 +427,11 @@ async function deleteParticipant(participantId: string) {
           setPrimaryPressures(json.organization.primary_pressures ?? "");
           setWebsite(json.organization.website ?? "");
           setContextNotes(json.organization.context_notes ?? "");
+          setLegalName(json.organization.legal_name ?? "");
+          setLegalEntityType(json.organization.legal_entity_type ?? "");
+          setEin(json.organization.ein ?? "");
+          setLegalAddress(json.organization.legal_address ?? "");
+          setBillingEmail(json.organization.billing_email ?? "");
           setShowAdminControls(Boolean(json.organization.show_admin_controls));
 
           setLoading(false);
@@ -496,6 +511,11 @@ async function deleteParticipant(participantId: string) {
         primary_pressures: primaryPressures,
         website,
         context_notes: contextNotes,
+        legal_name: legalName,
+        legal_entity_type: legalEntityType,
+        ein,
+        legal_address: legalAddress,
+        billing_email: billingEmail,
         show_admin_controls: showAdminControls,
       }),
     });
@@ -525,6 +545,11 @@ async function deleteParticipant(participantId: string) {
       setPrimaryPressures(updated.primary_pressures ?? "");
       setWebsite(updated.website ?? "");
       setContextNotes(updated.context_notes ?? "");
+      setLegalName(updated.legal_name ?? "");
+      setLegalEntityType(updated.legal_entity_type ?? "");
+      setEin(updated.ein ?? "");
+      setLegalAddress(updated.legal_address ?? "");
+      setBillingEmail(updated.billing_email ?? "");
       setShowAdminControls(Boolean(updated.show_admin_controls));
     }
   }
@@ -770,6 +795,57 @@ async function deleteParticipant(participantId: string) {
               onChange={setContextNotes}
               disabled={disableEdits}
               placeholder="What they do, offerings, customer type, internal context…"
+            />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
+              }}
+            >
+              <Field
+                label="Client Legal Name"
+                value={legalName}
+                onChange={setLegalName}
+                disabled={disableEdits}
+                placeholder="Acme, Inc."
+              />
+              <Field
+                label="Legal Entity Type"
+                value={legalEntityType}
+                onChange={setLegalEntityType}
+                disabled={disableEdits}
+                placeholder="LLC / Inc / LP"
+              />
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
+              }}
+            >
+              <Field
+                label="EIN / Tax ID"
+                value={ein}
+                onChange={setEin}
+                disabled={disableEdits}
+                placeholder="12-3456789"
+              />
+              <Field
+                label="Billing Email"
+                value={billingEmail}
+                onChange={setBillingEmail}
+                disabled={disableEdits}
+                placeholder="ap@client.com"
+              />
+            </div>
+            <TextArea
+              label="Legal Address"
+              value={legalAddress}
+              onChange={setLegalAddress}
+              disabled={disableEdits}
+              placeholder="Street, city, state, zip"
             />
 
             <div

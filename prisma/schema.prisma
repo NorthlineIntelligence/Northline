@@ -21,6 +21,11 @@ model Organization {
 
   /// Admin-pasted context about the org (what they do, ICP, offerings, etc.)
   context_notes      String?
+  legal_name         String?
+  legal_entity_type  String?
+  ein                String?
+  legal_address      String?
+  billing_email      String?
 
   created_at         DateTime               @default(now())
   assessments        Assessment[]
@@ -42,6 +47,7 @@ model Organization {
   crm_contracts  CrmContract[]
   crm_invoices   CrmInvoice[]
   pm_projects    PmProject[]
+  crm_msas       CrmMsa[]
 
   @@index([name])
   @@index([created_at])
@@ -392,6 +398,7 @@ model CrmQuote {
   crm_contracts CrmContract[]
   crm_invoices  CrmInvoice[]
   pm_projects   PmProject[]
+  crm_msas      CrmMsa[]
 
   @@index([organization_id])
   @@index([organization_id, status])
@@ -514,6 +521,44 @@ model PmSprintUpdate {
 
   @@index([sprint_id, created_at])
   @@index([is_customer_visible])
+}
+
+enum CrmMsaStatus {
+  DRAFT
+  INTERNAL_REVIEW
+  SENT_TO_CLIENT
+  CLIENT_REVIEW
+  SIGNED
+  SUPERSEDED
+  ARCHIVED
+}
+
+model CrmMsa {
+  id                         String       @id @default(uuid()) @db.Uuid
+  organization_id            String       @db.Uuid
+  source_quote_id            String?      @db.Uuid
+  title                      String
+  status                     CrmMsaStatus @default(DRAFT)
+  version_number             Int          @default(1)
+  terms_version              String?
+  body_markdown              String?      @db.Text
+  exhibit_a_snapshot_json    Json?
+  exhibit_b_snapshot_json    Json?
+  accepted_snapshot_text     String?      @db.Text
+  accepted_by_name           String?
+  accepted_by_title          String?
+  accepted_by_email          String?
+  accepted_at                DateTime?
+  accepted_ip                String?
+  created_at                 DateTime     @default(now())
+  updated_at                 DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  source_quote  CrmQuote?    @relation(fields: [source_quote_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id, status])
+  @@index([organization_id, updated_at])
+  @@index([source_quote_id])
 }
 
 model AppBranding {
