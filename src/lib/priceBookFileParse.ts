@@ -19,6 +19,17 @@ const LineItemSchema = z.object({
   project_cost_estimated_cents: z.number().int().min(0).optional(),
 });
 
+export const PRICE_BOOK_REQUIRED_HEADERS = [
+  "engagement_name",
+  "company_tier",
+  "base_price",
+  "min_price",
+  "max_price",
+  "hourly_rate_base",
+  "hourly_rate_min",
+  "hourly_rate_max",
+] as const;
+
 function normalizeLineItem(raw: unknown): z.infer<typeof LineItemSchema> | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -78,11 +89,26 @@ export function parsePriceBookJson(text: string): {
 export function parsePriceBookCsv(text: string): {
   line_items: z.infer<typeof LineItemSchema>[];
   warnings: string[];
+  summary: {
+    total_rows: number;
+    parsed_rows: number;
+    skipped_rows: number;
+    missing_required_headers: string[];
+  };
 } {
   const warnings: string[] = [];
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) {
-    return { line_items: [], warnings: ["CSV needs a header row and at least one data row"] };
+    return {
+      line_items: [],
+      warnings: ["CSV needs a header row and at least one data row"],
+      summary: {
+        total_rows: 0,
+        parsed_rows: 0,
+        skipped_rows: 0,
+        missing_required_headers: [...PRICE_BOOK_REQUIRED_HEADERS],
+      },
+    };
   }
 
   const splitRow = (line: string) => {
@@ -125,7 +151,27 @@ export function parsePriceBookCsv(text: string): {
   const iProjectEstimated = idx("project_cost_estimated");
 
   if (iSku < 0 && iEngagement < 0) {
-    return { line_items: [], warnings: ["CSV header must include `sku` or `engagement name` column"] };
+    return {
+      line_items: [],
+      warnings: ["CSV header must include `sku` or `engagement name` column"],
+      summary: {
+        total_rows: Math.max(0, lines.length - 1),
+        parsed_rows: 0,
+        skipped_rows: Math.max(0, lines.length - 1),
+        missing_required_headers: [...PRICE_BOOK_REQUIRED_HEADERS],
+      },
+    };
+  }
+
+  const hasHeader = (name: string) =>
+    header.some((h) => h === name || h.replace(/\s+/g, "_") === name);
+  const missingRequiredHeaders = PRICE_BOOK_REQUIRED_HEADERS.filter((h) => !hasHeader(h));
+  if (missingRequiredHeaders.length > 0) {
+    warnings.push(
+      `Missing required headers: ${missingRequiredHeaders
+        .map((h) => h.replace(/_/g, " "))
+        .join(", ")}`
+    );
   }
 
   const parseMoneyToCents = (raw: string) => {
@@ -141,13 +187,17 @@ export function parsePriceBookCsv(text: string): {
       .slice(0, 80);
 
   const line_items: z.infer<typeof LineItemSchema>[] = [];
+  let skipped_rows = 0;
   for (let r = 1; r < lines.length; r++) {
     const cols = splitRow(lines[r]!);
     const engagementName = iEngagement >= 0 ? (cols[iEngagement] ?? "").replace(/^"|"$/g, "").trim() : "";
     const companyTier = iTier >= 0 ? (cols[iTier] ?? "").replace(/^"|"$/g, "").trim() : "";
     const skuRaw = iSku >= 0 ? (cols[iSku] ?? "").replace(/^"|"$/g, "").trim() : "";
     const sku = skuRaw || (engagementName ? `${slug(engagementName)}${companyTier ? `-${slug(companyTier)}` : ""}` : "");
-    if (!sku) continue;
+    if (!sku) {
+      skipped_rows += 1;
+      continue;
+    }
     const description =
       iDesc >= 0
         ? (cols[iDesc] ?? "").replace(/^"|"$/g, "").trim() || engagementName || sku
@@ -201,22 +251,50 @@ export function parsePriceBookCsv(text: string): {
       project_cost_estimated_cents: projectEstimatedCents,
     });
     if (parsed.success) line_items.push(parsed.data);
+    else skipped_rows += 1;
   }
 
   if (line_items.length === 0) warnings.push("No data rows parsed from CSV");
-  return { line_items, warnings };
+  return {
+    line_items,
+    warnings,
+    summary: {
+      total_rows: Math.max(0, lines.length - 1),
+      parsed_rows: line_items.length,
+      skipped_rows,
+      missing_required_headers: missingRequiredHeaders,
+    },
+  };
 }
 
 export function parsePriceBookFile(
   buf: Buffer,
   filename: string,
   mimeType: string
-): { line_items: z.infer<typeof LineItemSchema>[]; warnings: string[] } {
+): {
+  line_items: z.infer<typeof LineItemSchema>[];
+  warnings: string[];
+  summary?: {
+    total_rows: number;
+    parsed_rows: number;
+    skipped_rows: number;
+    missing_required_headers: string[];
+  };
+} {
   const lower = filename.toLowerCase();
   const mime = (mimeType || "").toLowerCase();
 
   if (lower.endsWith(".json") || mime.includes("json")) {
-    return parsePriceBookJson(buf.toString("utf8"));
+    const parsed = parsePriceBookJson(buf.toString("utf8"));
+    return {
+      ...parsed,
+      summary: {
+        total_rows: parsed.line_items.length,
+        parsed_rows: parsed.line_items.length,
+        skipped_rows: 0,
+        missing_required_headers: [],
+      },
+    };
   }
 
   if (lower.endsWith(".csv") || mime === "text/csv" || mime === "application/csv") {
@@ -235,6 +313,12 @@ export function parsePriceBookFile(
     warnings: [
       "File stored in Supabase; line items not auto-imported for this type. Use .json or .csv for import, or paste JSON below.",
     ],
+      summary: {
+        total_rows: 0,
+        parsed_rows: 0,
+        skipped_rows: 0,
+        missing_required_headers: [...PRICE_BOOK_REQUIRED_HEADERS],
+      },
   };
 }
 

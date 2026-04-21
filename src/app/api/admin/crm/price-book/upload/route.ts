@@ -9,7 +9,11 @@ import {
   normalizeSupabaseApiKey,
   serviceRoleKeyTroubleshootingHint,
 } from "@/lib/supabaseServiceRole";
-import { parsePriceBookFile, safeStorageFileName } from "@/lib/priceBookFileParse";
+import {
+  parsePriceBookFile,
+  PRICE_BOOK_REQUIRED_HEADERS,
+  safeStorageFileName,
+} from "@/lib/priceBookFileParse";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -132,6 +136,39 @@ export async function POST(req: NextRequest) {
   const parse = parsePriceBookFile(buf, file.name, file.type || "application/octet-stream");
   let line_items = parse.line_items;
   let notes = notesRaw || null;
+
+  const lowerName = file.name.toLowerCase();
+  const isCsv = lowerName.endsWith(".csv") || (file.type || "").toLowerCase().includes("csv");
+  if (isCsv) {
+    const parsedRows = parse.summary?.parsed_rows ?? line_items.length;
+    const missing = parse.summary?.missing_required_headers ?? [];
+    if (missing.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `CSV is missing required headers: ${missing
+            .map((h) => h.replace(/_/g, " "))
+            .join(", ")}.`,
+          required_headers: PRICE_BOOK_REQUIRED_HEADERS,
+          parse_summary: parse.summary,
+        },
+        { status: 400 }
+      );
+    }
+    if (parsedRows < 5) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Parsed too few rows from CSV. Upload blocked to prevent partial/broken price books. Verify template and data formatting.",
+          required_headers: PRICE_BOOK_REQUIRED_HEADERS,
+          parse_summary: parse.summary,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   if (parse.warnings.length > 0) {
     const w = parse.warnings.join("; ");
     notes = notes ? `${notes}\n\nParse: ${w}` : `Parse: ${w}`;
@@ -177,6 +214,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       price_book: created,
       parse_warnings: parse.warnings,
+      parse_summary: parse.summary ?? null,
+      required_headers: PRICE_BOOK_REQUIRED_HEADERS,
     },
     { status: 201 }
   );

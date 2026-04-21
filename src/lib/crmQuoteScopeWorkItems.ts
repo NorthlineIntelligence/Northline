@@ -80,7 +80,7 @@ export function normalizeScopeWorkItem(raw: unknown, fallbackIndex: number): Sco
       return "BASE_PRICE";
     })(),
     quantity:
-      typeof r.quantity === "number" && Number.isFinite(r.quantity) && r.quantity > 0 ? r.quantity : 1,
+      typeof r.quantity === "number" && Number.isFinite(r.quantity) && r.quantity >= 0 ? r.quantity : 0,
     discountPct:
       typeof r.discountPct === "number" && Number.isFinite(r.discountPct)
         ? Math.max(0, Math.min(100, r.discountPct))
@@ -118,7 +118,7 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
       companyTierOverride: null,
       pricingModel: "PROJECT",
       pricingSelection: "BASE_PRICE",
-      quantity: 1,
+      quantity: 0,
       discountPct: 0,
     });
   });
@@ -138,7 +138,7 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
     companyTierOverride: null,
     pricingModel: "PROJECT",
     pricingSelection: "BASE_PRICE",
-    quantity: 1,
+    quantity: 0,
     discountPct: 0,
   });
 
@@ -157,7 +157,7 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
     companyTierOverride: null,
     pricingModel: "PROJECT",
     pricingSelection: "BASE_PRICE",
-    quantity: 1,
+    quantity: 0,
     discountPct: 0,
   });
 

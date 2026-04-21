@@ -5,6 +5,7 @@ import {
   NORTHLINE_BRAND as BRAND,
   NORTHLINE_GLASS_CARD as glass,
 } from "@/lib/northlineBrand";
+import { PRICE_BOOK_REQUIRED_HEADERS } from "@/lib/priceBookFileParse";
 
 type PriceBookRow = {
   id: string;
@@ -32,6 +33,11 @@ export function CrmPriceBookPanel() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [parseSummary, setParseSummary] = useState<{
+    total_rows?: number;
+    parsed_rows?: number;
+    skipped_rows?: number;
+  } | null>(null);
 
   async function load() {
     setErr(null);
@@ -93,6 +99,7 @@ export function CrmPriceBookPanel() {
     }
     setUploading(true);
     setErr(null);
+    setParseSummary(null);
     try {
       const fd = new FormData();
       fd.set("file", uploadFile);
@@ -107,8 +114,10 @@ export function CrmPriceBookPanel() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
+        if (data?.parse_summary) setParseSummary(data.parse_summary);
         throw new Error(data?.error || data?.message || "Upload failed");
       }
+      if (data?.parse_summary) setParseSummary(data.parse_summary);
       const warns = Array.isArray(data.parse_warnings) ? data.parse_warnings : [];
       if (warns.length > 0) {
         setErr(`Saved with notes: ${warns.join(" ")}`);
@@ -170,6 +179,9 @@ export function CrmPriceBookPanel() {
         bucket override <code className="rounded bg-black/[0.06] px-1">SUPABASE_PRICE_BOOK_BUCKET{" "}</code>
         (default <code className="rounded bg-black/[0.06] px-1">price-books</code>).
       </p>
+      <div className="mt-2 rounded-lg border px-3 py-2 text-xs font-semibold" style={{ borderColor: BRAND.border, color: BRAND.muted }}>
+        Required CSV headers: {PRICE_BOOK_REQUIRED_HEADERS.map((h) => h.replace(/_/g, " ")).join(", ")}.
+      </div>
 
       {err ? (
         <div className="mt-3 rounded-lg px-3 py-2 text-sm font-bold" style={{ background: "#fef2f2", color: BRAND.danger }}>
@@ -280,6 +292,61 @@ export function CrmPriceBookPanel() {
             onClick={uploadToStorage}
           >
             {uploading ? "Uploading…" : "Upload to Supabase & set as current"}
+          </button>
+          {parseSummary ? (
+            <div className="mt-2 rounded-lg border px-3 py-2 text-xs font-semibold" style={{ borderColor: BRAND.border, color: BRAND.dark }}>
+              Parsed {parseSummary.parsed_rows ?? 0} / {parseSummary.total_rows ?? 0} rows
+              {(parseSummary.skipped_rows ?? 0) > 0 ? ` (${parseSummary.skipped_rows} skipped)` : ""}.
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="mt-2 w-full rounded-xl border bg-white py-2 text-xs font-black uppercase tracking-wide"
+            style={{ borderColor: BRAND.border, color: BRAND.dark }}
+            onClick={() => {
+              const headers = [
+                "Engagement Name",
+                "Category",
+                "Description",
+                "Company Tier",
+                "Base Price",
+                "Min Price",
+                "Max Price",
+                "Estimated Hours",
+                "Timeline",
+                "Hourly Rate (Base)",
+                "Hourly Rate (Min)",
+                "Hourly Rate (Max)",
+                "Project Cost (Estimated)",
+              ];
+              const sample = [
+                "AI Readiness Snapshot",
+                "Lite Diagnostic",
+                "Quick readiness evaluation for early AI exploration",
+                "Startup",
+                "750",
+                "750",
+                "750",
+                "3",
+                "1 week",
+                "250",
+                "250",
+                "250",
+                "750",
+              ];
+              const csv = `${headers.join(",")}\n${sample.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")}\n`;
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "northline_price_book_template.csv";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download CSV template
           </button>
           <div className="mt-3 text-center text-xs font-bold uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
             or paste JSON

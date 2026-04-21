@@ -436,20 +436,34 @@ export default function CrmOrganizationClient({
 
   function getPriceBookRowForItem(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
     if (!item.engagementName) return null;
+    const target = normalizeLookupText(item.engagementName);
     const tier = item.companyTierOverride || topCompanyTier || "";
     const exact = priceBookRows.find(
       (r) =>
-        r.engagement_name === item.engagementName &&
+        normalizeLookupText(r.engagement_name) === target &&
         (tier ? r.company_tier.toLowerCase() === tier.toLowerCase() : true)
     );
     if (exact) return exact;
+    const fuzzy = priceBookRows.find(
+      (r) =>
+        (normalizeLookupText(r.engagement_name).includes(target) ||
+          target.includes(normalizeLookupText(r.engagement_name))) &&
+        (tier ? r.company_tier.toLowerCase() === tier.toLowerCase() : true)
+    );
+    if (fuzzy) return fuzzy;
     const all = priceBookRows.find(
       (r) =>
-        r.engagement_name === item.engagementName &&
+        normalizeLookupText(r.engagement_name) === target &&
         (r.company_tier.toLowerCase() === "all" || r.company_tier.toLowerCase() === "default")
     );
     if (all) return all;
-    return priceBookRows.find((r) => r.engagement_name === item.engagementName) ?? null;
+    return (
+      priceBookRows.find(
+        (r) =>
+          normalizeLookupText(r.engagement_name).includes(target) ||
+          target.includes(normalizeLookupText(r.engagement_name))
+      ) ?? null
+    );
   }
 
   function getUnitPriceCentsForItem(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
@@ -1400,6 +1414,7 @@ export default function CrmOrganizationClient({
                                   className="w-16 rounded border px-1 py-1 text-xs outline-none"
                                   style={{ borderColor: BRAND.border, appearance: "textfield" as const }}
                                   value={String(w.quantity ?? "")}
+                                  onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e) => {
                                     const raw = e.target.value.replace(/[^0-9.]/g, "");
                                     const parsed = Number.parseFloat(raw);
