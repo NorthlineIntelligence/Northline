@@ -20,6 +20,7 @@ import {
   summarizePublicWebExcerptForMemo,
 } from "@/lib/publicWebsiteEnrichment";
 import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
+import { PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE } from "@/lib/perceptionAlignmentSignals";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 const DEFAULT_NARRATIVE_MODEL = "claude-sonnet-4-6";
@@ -844,6 +845,13 @@ async function generateNarrativeJsonWithAI(args: {
 
   const maturity = resultsBody?.maturity ?? null;
   const riskFlags = Array.isArray(resultsBody?.riskFlags) ? resultsBody.riskFlags : [];
+  const perceptionAlignmentSignals = Array.isArray(resultsBody?.perceptionAlignmentSignals)
+    ? resultsBody.perceptionAlignmentSignals
+    : [];
+  const perceptionAlignmentExecutiveNote =
+    typeof resultsBody?.perceptionAlignmentExecutiveNote === "string"
+      ? resultsBody.perceptionAlignmentExecutiveNote
+      : null;
 
   const pillarsObj = resultsBody?.aggregate?.pillars ?? {};
   const pillarScores = Object.entries(pillarsObj).map(([pillar, v]: any) => ({
@@ -935,6 +943,8 @@ async function generateNarrativeJsonWithAI(args: {
       maturity,
       protectionExplanation: resultsBody?.protectionExplanation ?? null,
       riskFlags,
+      perceptionAlignmentSignals,
+      perceptionAlignmentExecutiveNote,
       pillars: pillarScores,
     },
     documents: {
@@ -1075,6 +1085,7 @@ async function generateNarrativeJsonWithAI(args: {
     "- Use provided risk flags when present.",
     "- implications (shown as 'In brief' in the product) must be a substantive paragraph (at least 4 sentences).",
     "- When INPUT.results.riskFlags is empty, this is a value moment: explain where the organization can still improve AI outcomes even without doctrine flags—summarize themes from your Executive Memo (e.g., data flows, ownership, governance) and connect them to disciplined sequencing.",
+    "- When INPUT.results.perceptionAlignmentSignals is non-empty, risks.implications should acknowledge that additional validation may strengthen implementation—without implying respondents were wrong.",
     "- When risk flags exist, implications should connect those flags to leadership sequencing and ownership.",
     "- pillarRiskInterpretation is REQUIRED: four camelCase keys: systemIntegrity, humanAlignment, strategicCoherence, sustainabilityPractice.",
     "- Each pillar field: at least 3 substantial sentences; plain-language, executive audience—what this score means for AI adoption risk OR upside, why it matters, and concrete actions leadership can take (priorities, guardrails, sequencing). Avoid jargon.",
@@ -1085,6 +1096,13 @@ async function generateNarrativeJsonWithAI(args: {
     "10. evidenceUsed",
     "- freeTextThemes: short bullets summarizing patterns seen in free-text responses.",
     "- participantOpportunityThemes: short bullets summarizing patterns seen in participant opportunity notes.",
+    "",
+    "PERCEPTION & ALIGNMENT LAYER (INPUT.results.perceptionAlignmentSignals):",
+    "- These are pattern-based discrepancy checks. They are NOT accusations, NOT score overrides, and NOT claims that respondents were wrong.",
+    "- When INPUT.results.perceptionAlignmentSignals is non-empty:",
+    "  - Add INPUT.results.perceptionAlignmentExecutiveNote verbatim as its own item in executiveSummaryBullets (one bullet).",
+    "  - Reflect the same themes once in maturityInterpretation.explanation (within the Executive narrative / takeaway sections) using neutral, insight-oriented language about validation and cross-functional alignment.",
+    "- When the array is empty, ignore this layer.",
     "",
     "OUTPUT RULES:",
     "- Return ONLY valid JSON through the tool.",
@@ -1449,18 +1467,25 @@ function buildPlaceholderNarrative(args: {
       industry: org.industry ?? null,
       size: org.size ?? null,
     },
-    executiveSummaryBullets: [
-      `${reference} shows a current maturity profile of ${tierLabel}${
-        posture ? ` with a ${String(posture).toLowerCase()} posture` : ""
-      }.`,
-      protectedScore !== null
-        ? `The protected readiness score is ${protectedScore}, which should guide sequencing and expectations.`
-        : "The protected readiness score could not be calculated from available data.",
-      riskFlags.length > 0
-        ? "There are clear structural risks that should shape how the first AI efforts are scoped."
-        : "No major doctrine-based risk flags were triggered, but disciplined sequencing still matters.",
-      "The next step should focus on a small number of practical, low-risk pilots tied to real workflow friction.",
-    ],
+    executiveSummaryBullets: (() => {
+      const bullets = [
+        `${reference} shows a current maturity profile of ${tierLabel}${
+          posture ? ` with a ${String(posture).toLowerCase()} posture` : ""
+        }.`,
+        protectedScore !== null
+          ? `The protected readiness score is ${protectedScore}, which should guide sequencing and expectations.`
+          : "The protected readiness score could not be calculated from available data.",
+        riskFlags.length > 0
+          ? "There are clear structural risks that should shape how the first AI efforts are scoped."
+          : "No major doctrine-based risk flags were triggered, but disciplined sequencing still matters.",
+        "The next step should focus on a small number of practical, low-risk pilots tied to real workflow friction.",
+      ];
+      const perception = results?.perceptionAlignmentSignals;
+      if (Array.isArray(perception) && perception.length > 0) {
+        bullets.push(PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE);
+      }
+      return bullets;
+    })(),
     maturityInterpretation: {
       anchorTruth:
         "Maturity represents structural capability, while readiness indicates how safely the company can move into practical AI action.",

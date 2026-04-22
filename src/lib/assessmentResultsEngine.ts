@@ -1,5 +1,9 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  buildPerceptionAlignmentSignals,
+  PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE,
+} from "@/lib/perceptionAlignmentSignals";
 
 /** Row shape for organization fields used in assessment results (must match Prisma schema). */
 type OrganizationResultsRow = {
@@ -316,6 +320,7 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
       pillar: true,
       weight: true,
       question_text: true,
+      inverse_question_id: true,
     },
   });
 
@@ -325,6 +330,7 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
       question_id: true,
       score: true,
       free_write: true,
+      participant_id: true,
       Participant: {
         select: {
           role: true,
@@ -465,6 +471,26 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
     pillarEntries,
   });
 
+  const perceptionAlignmentSignals = buildPerceptionAlignmentSignals({
+    pillars,
+    overallWeightedAverageRaw,
+    questions: questions.map((q) => ({
+      id: q.id,
+      pillar: String(q.pillar),
+      weight: typeof q.weight === "number" && q.weight > 0 ? q.weight : 1,
+      inverse_question_id: q.inverse_question_id ?? null,
+    })),
+    responses: responses.map((r) => ({
+      question_id: r.question_id,
+      score: r.score,
+      participant_id: r.participant_id,
+      Participant: { role: r.Participant.role },
+    })),
+  });
+
+  const perceptionAlignmentExecutiveNote =
+    perceptionAlignmentSignals.length > 0 ? PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE : null;
+
   const protectionExplanation =
     typeof protectedOverall.protectionExplanation.summary === "string"
       ? protectedOverall.protectionExplanation.summary
@@ -507,6 +533,8 @@ export async function buildAssessmentResultsPayload(args: { assessmentId: string
       },
       maturity,
       riskFlags,
+      perceptionAlignmentSignals,
+      perceptionAlignmentExecutiveNote,
       riskSignals,
       bands: {
         legend: bandsLegend,

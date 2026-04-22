@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Open_Sans } from "next/font/google";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
+import { briefForPerceptionSignal } from "@/lib/perceptionAlignmentBriefs";
+import { pickPerceptionSignalsForDisplay, PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE } from "@/lib/perceptionAlignmentSignals";
 
 const openSans = Open_Sans({
   subsets: ["latin"],
@@ -142,10 +144,18 @@ function buildRadarData(payload: any): RadarPoint[] {
 
 function severityStyle(severity: string | undefined) {
   const s = String(severity ?? "").toUpperCase();
-  if (s === "HIGH")
-    return { label: "HIGH", dot: "#b42318", border: "#FCA5A5", bg: "#FFF5F5", text: "#7F1D1D" };
-  if (s === "MEDIUM")
-    return { label: "MEDIUM", dot: "#d97706", border: "#FCD34D", bg: "#FFFBEB", text: "#7C2D12" };
+  if (s === "HIGH" || s === "CRITICAL")
+    return {
+      label: s === "CRITICAL" ? "CRITICAL" : "HIGH",
+      dot: "#b42318",
+      border: "#FCA5A5",
+      bg: "#FFF5F5",
+      text: "#7F1D1D",
+    };
+  if (s === "MEDIUM" || s === "MODERATE" || s === "SIGNIFICANT") {
+    const label = s === "SIGNIFICANT" ? "SIGNIFICANT" : s === "MODERATE" ? "MODERATE" : "MEDIUM";
+    return { label, dot: "#d97706", border: "#FCD34D", bg: "#FFFBEB", text: "#7C2D12" };
+  }
   if (s === "LOW")
     return { label: "LOW", dot: "#16a34a", border: "#86EFAC", bg: "#F0FDF4", text: "#14532D" };
   return { label: s || "INFO", dot: "#64748B", border: BRAND.border, bg: "#F8FAFC", text: BRAND.muted };
@@ -178,6 +188,15 @@ function formatRiskDetails(details: any): string {
 
   if (typeof details.rule === "string") return `Rule: ${details.rule}`;
   return "";
+}
+
+function formatPerceptionDetails(details: unknown): string {
+  if (!details || typeof details !== "object") return "";
+  try {
+    return JSON.stringify(details, null, 0).slice(0, 520);
+  } catch {
+    return "";
+  }
 }
 
 type RiskBrief = { signal: string; meaning: string; focus: string };
@@ -558,6 +577,18 @@ export default function AssessmentResultsPage() {
     return Array.isArray(arr) ? arr : [];
   }, [diagnosticData]);
 
+  const perceptionAlignmentSignals: any[] = useMemo(() => {
+    const arr = diagnosticData?.perceptionAlignmentSignals;
+    return Array.isArray(arr) ? arr : [];
+  }, [diagnosticData]);
+
+  const perceptionSignalsDisplay = useMemo(
+    () => pickPerceptionSignalsForDisplay(perceptionAlignmentSignals, 3),
+    [perceptionAlignmentSignals]
+  );
+
+  const totalSignalCount = riskFlags.length + perceptionAlignmentSignals.length;
+
   const executiveBullets: string[] = useMemo(() => {
     const arr = narrativeJson?.executiveSummaryBullets;
     return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
@@ -601,13 +632,17 @@ export default function AssessmentResultsPage() {
       }
     }
 
+    if (perceptionAlignmentSignals.length > 0) {
+      bullets.push(PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE);
+    }
+
     const lowest = [...radarData].sort((a, b) => a.value - b.value)[0];
     if (lowest?.label) {
       bullets.push(`Primary focus area: strengthen ${lowest.label} first to reduce constraint and improve balance.`);
     }
 
-    return bullets.slice(0, 4);
-  }, [readinessIndex, maturity, riskFlags, radarData]);
+    return bullets.slice(0, 5);
+  }, [readinessIndex, maturity, riskFlags, perceptionAlignmentSignals.length, radarData]);
 
   const recommendedNextActions: string[] = useMemo(() => {
     // Prefer narrative-provided actions if available
@@ -1214,20 +1249,29 @@ export default function AssessmentResultsPage() {
                 <div>
                   <h2 style={{ margin: 0, color: BRAND.dark, fontSize: 18, fontWeight: 980 }}>Risk Signals</h2>
                   <div style={{ marginTop: 6, color: BRAND.muted, fontWeight: 750, lineHeight: 1.35 }}>
-                    These are <b>structural signals</b> triggered by protective rules. They indicate where focus creates
-                    stability — not “bad news.”
+                    <b>Structural</b> signals follow protective rules. <b>Perception & alignment</b> signals are pattern
+                    checks—validation opportunities, not accusations.
                   </div>
                 </div>
 
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ color: BRAND.muted, fontSize: 12, fontWeight: 900 }}>Signals Detected</div>
-                  <div style={{ marginTop: 6, fontSize: 18, fontWeight: 980, color: BRAND.dark }}>{riskFlags.length}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: BRAND.muted, fontSize: 11, fontWeight: 900 }}>Total</div>
+                    <div style={{ marginTop: 2, fontSize: 18, fontWeight: 980, color: BRAND.dark }}>{totalSignalCount}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: BRAND.muted, fontSize: 11, fontWeight: 900 }}>Discrepancies</div>
+                    <div style={{ marginTop: 2, fontSize: 18, fontWeight: 980, color: BRAND.dark }}>
+                      {perceptionAlignmentSignals.length}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+              <div style={{ marginTop: 12, fontSize: 13, fontWeight: 950, color: BRAND.dark }}>Structural doctrine signals</div>
+              <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
                 {riskFlags.length === 0 ? (
-                  <div style={{ color: BRAND.muted, fontWeight: 750 }}>No risk signals detected for current inputs.</div>
+                  <div style={{ color: BRAND.muted, fontWeight: 750 }}>No structural doctrine signals for current inputs.</div>
                 ) : (
                   riskFlags.map((rf: any, idx: number) => {
                     const st = severityStyle(rf?.severity);
@@ -1339,6 +1383,112 @@ export default function AssessmentResultsPage() {
                               ) : null}
                             </div>
                           ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div style={{ marginTop: 16, fontSize: 13, fontWeight: 950, color: BRAND.dark }}>
+                Perception & alignment signals
+              </div>
+              <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
+                {perceptionSignalsDisplay.length === 0 ? (
+                  <div style={{ color: BRAND.muted, fontWeight: 750 }}>No perception & alignment signals for current inputs.</div>
+                ) : (
+                  perceptionSignalsDisplay.map((sig: any, idx: number) => {
+                    const st = severityStyle(sig?.severity);
+                    const brief = briefForPerceptionSignal(sig);
+                    const key = String(sig?.key ?? `perception-${idx}`);
+                    const cardId = `perception:${key}`;
+                    const isOpen = !!openEvidence[cardId];
+                    const evidence = formatPerceptionDetails(sig?.details);
+
+                    return (
+                      <div
+                        key={cardId}
+                        style={{
+                          border: `1px solid ${st.border}`,
+                          background: "#ffffff",
+                          borderRadius: 14,
+                          padding: 14,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: 999,
+                                background: st.dot,
+                                display: "inline-block",
+                              }}
+                            />
+                            <div style={{ fontWeight: 980, color: BRAND.dark, fontSize: 14 }}>{brief.signal}</div>
+                          </div>
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              border: `1px solid ${st.border}`,
+                              background: st.bg,
+                              fontWeight: 950,
+                              color: st.text,
+                              fontSize: 12,
+                            }}
+                          >
+                            {st.label}
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 950, color: BRAND.greyBlue }}>What this suggests</div>
+                            <div style={{ marginTop: 4, color: BRAND.text, fontWeight: 750, lineHeight: 1.45 }}>
+                              {brief.meaning}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 950, color: BRAND.greyBlue }}>Suggested next step</div>
+                            <div style={{ marginTop: 4, color: BRAND.text, fontWeight: 800, lineHeight: 1.45 }}>
+                              {brief.focus}
+                            </div>
+                          </div>
+                          <div style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => setOpenEvidence((prev) => ({ ...prev, [cardId]: !prev[cardId] }))}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                padding: 0,
+                                color: BRAND.greyBlue,
+                                fontWeight: 900,
+                                cursor: "pointer",
+                                fontSize: 12,
+                              }}
+                            >
+                              {isOpen ? "Hide detail fields" : "Show detail fields"}
+                            </button>
+                            {isOpen && evidence ? (
+                              <div
+                                style={{
+                                  marginTop: 8,
+                                  paddingTop: 10,
+                                  borderTop: `1px dashed ${BRAND.border}`,
+                                  color: BRAND.muted,
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                }}
+                              >
+                                {evidence}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     );

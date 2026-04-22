@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { briefForRiskFlag } from "@/lib/riskBriefs";
+import { briefForPerceptionSignal } from "@/lib/perceptionAlignmentBriefs";
+import { pickPerceptionSignalsForDisplay } from "@/lib/perceptionAlignmentSignals";
 import { Open_Sans } from "next/font/google";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
@@ -184,11 +186,12 @@ function buildRadarData(payload: any): RadarPoint[] {
 
 function severityStyle(severity: string | undefined) {
   const s = String(severity ?? "").toUpperCase();
-  if (s === "HIGH") {
-    return { label: "HIGH", dot: "#b42318", border: "#FCA5A5", bg: "#FFF5F5", text: "#7F1D1D" };
+  if (s === "HIGH" || s === "CRITICAL") {
+    return { label: s === "CRITICAL" ? "CRITICAL" : "HIGH", dot: "#b42318", border: "#FCA5A5", bg: "#FFF5F5", text: "#7F1D1D" };
   }
-  if (s === "MEDIUM") {
-    return { label: "MEDIUM", dot: "#d97706", border: "#FCD34D", bg: "#FFFBEB", text: "#7C2D12" };
+  if (s === "MEDIUM" || s === "MODERATE" || s === "SIGNIFICANT") {
+    const label = s === "SIGNIFICANT" ? "SIGNIFICANT" : s === "MODERATE" ? "MODERATE" : "MEDIUM";
+    return { label, dot: "#d97706", border: "#FCD34D", bg: "#FFFBEB", text: "#7C2D12" };
   }
   if (s === "LOW") {
     return { label: "LOW", dot: "#16a34a", border: "#86EFAC", bg: "#F0FDF4", text: "#14532D" };
@@ -223,6 +226,16 @@ function formatRiskDetails(details: any): string {
 
   if (typeof details.rule === "string") return `Rule: ${details.rule}`;
   return "";
+}
+
+function formatPerceptionDetails(details: unknown): string {
+  if (!details || typeof details !== "object") return "";
+  const d = details as Record<string, unknown>;
+  try {
+    return JSON.stringify(d, null, 0).slice(0, 520);
+  } catch {
+    return "";
+  }
 }
 
 // ---- Minimal dependency-free Radar Chart (SVG) ----
@@ -1075,6 +1088,18 @@ const showProjectScopeLink = Boolean(
     return Array.isArray(arr) ? arr : [];
   }, [diagnosticData]);
 
+  const perceptionAlignmentSignals: any[] = useMemo(() => {
+    const arr = diagnosticData?.perceptionAlignmentSignals;
+    return Array.isArray(arr) ? arr : [];
+  }, [diagnosticData]);
+
+  const perceptionSignalsDisplay = useMemo(
+    () => pickPerceptionSignalsForDisplay(perceptionAlignmentSignals, 3),
+    [perceptionAlignmentSignals]
+  );
+
+  const totalSignalCount = riskFlags.length + perceptionAlignmentSignals.length;
+
   const pillarRiskInterpretationMap = useMemo(
     () => buildPillarRiskInterpretationDisplay(narrativeJson?.risks?.pillarRiskInterpretation, diagnosticData),
     [narrativeJson, diagnosticData]
@@ -1091,16 +1116,24 @@ const showProjectScopeLink = Boolean(
         : "";
     const excerpt = memo.replace(/\s+/g, " ").slice(0, 420).trim();
 
+    const perceptionTail =
+      perceptionAlignmentSignals.length > 0
+        ? " Separately, perception and alignment checks surfaced patterns that often benefit from light validation and cross-functional input—see the perception cards below."
+        : "";
+
     if (excerpt.length > 90) {
       return `No structural doctrine flags fired on this snapshot—use that headroom to invest deliberately, not casually. From the executive narrative: ${excerpt}${
         memo.length > 420 ? "…" : ""
-      } The pillar notes below still highlight where AI adoption can strain the organization without careful sequencing—improvement opportunities even when formal signals are quiet.`;
+      } The pillar notes below still highlight where AI adoption can strain the organization without careful sequencing—improvement opportunities even when formal signals are quiet.${perceptionTail}`;
     }
 
-    return riskFlags.length > 0
-      ? "Structural risk signals are active—use the pillar notes below to align scope, ownership, and guardrails."
-      : "No structural doctrine flags fired on this snapshot; the pillar notes below still explain where AI adoption could create strain without careful sequencing.";
-  }, [narrativeJson, riskFlags.length]);
+    return (
+      (riskFlags.length > 0
+        ? "Structural risk signals are active—use the pillar notes below to align scope, ownership, and guardrails."
+        : "No structural doctrine flags fired on this snapshot; the pillar notes below still explain where AI adoption could create strain without careful sequencing.") +
+      perceptionTail
+    );
+  }, [narrativeJson, riskFlags.length, perceptionAlignmentSignals.length]);
 
   const missingInputs: string[] = useMemo(() => {
     const arr = narrativeJson?.missingInputs;
@@ -1902,21 +1935,41 @@ const participantsTotal =
             >
               <h2 style={{ margin: 0, color: BRAND.dark, fontSize: 20, fontWeight: 900 }}>Risk Signals</h2>
 
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "8px 14px",
-                  borderRadius: 999,
-                  border: `1px solid ${BRAND.border}`,
-                  background: "#FFFFFF",
-                }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue, letterSpacing: 0.5 }}>
-                  SIGNALS DETECTED
-                </span>
-                <span style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>{riskFlags.length}</span>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 14px",
+                    borderRadius: 999,
+                    border: `1px solid ${BRAND.border}`,
+                    background: "#FFFFFF",
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue, letterSpacing: 0.5 }}>
+                    TOTAL SIGNALS
+                  </span>
+                  <span style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>{totalSignalCount}</span>
+                </div>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 14px",
+                    borderRadius: 999,
+                    border: `1px solid ${BRAND.border}`,
+                    background: "#F8FAFC",
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue, letterSpacing: 0.5 }}>
+                    DISCREPANCIES
+                  </span>
+                  <span style={{ fontSize: 22, fontWeight: 900, color: BRAND.dark }}>
+                    {perceptionAlignmentSignals.length}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1926,7 +1979,12 @@ const participantsTotal =
                 border: `1px solid ${BRAND.border}`,
                 borderRadius: 16,
                 padding: 16,
-                background: riskFlags.length > 0 ? "#FFFBEB" : "#F0FDF4",
+                background:
+                  riskFlags.length > 0
+                    ? "#FFFBEB"
+                    : perceptionAlignmentSignals.length > 0
+                      ? "#EFF6FF"
+                      : "#F0FDF4",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -1939,8 +1997,16 @@ const participantsTotal =
 
                 <div style={{ marginTop: 4, fontSize: 16, fontWeight: 900, color: BRAND.dark }}>
                   {riskFlags.length === 0
-                    ? "No structural risk signals detected"
-                    : `${riskFlags.length} structural risk signal${riskFlags.length === 1 ? "" : "s"} detected`}
+                    ? "No structural doctrine signals detected"
+                    : `${riskFlags.length} structural doctrine signal${riskFlags.length === 1 ? "" : "s"} detected`}
+                </div>
+
+                <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: BRAND.dark, lineHeight: 1.45 }}>
+                  {perceptionAlignmentSignals.length === 0
+                    ? "No perception & alignment pattern signals detected."
+                    : `${perceptionAlignmentSignals.length} perception & alignment signal${
+                        perceptionAlignmentSignals.length === 1 ? "" : "s"
+                      } — validation opportunities, not score corrections.`}
                 </div>
 
                 {riskFlags.length > 0 ? (
@@ -1966,8 +2032,13 @@ const participantsTotal =
               </div>
 
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue }}>Count</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: BRAND.dark }}>{riskFlags.length}</div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: BRAND.greyBlue }}>Total</div>
+                <div style={{ fontSize: 28, fontWeight: 900, color: BRAND.dark }}>{totalSignalCount}</div>
+                <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: BRAND.greyBlue, lineHeight: 1.35 }}>
+                  Structural {riskFlags.length}
+                  <br />
+                  Perception {perceptionAlignmentSignals.length}
+                </div>
               </div>
             </div>
 
@@ -2149,113 +2220,242 @@ const participantsTotal =
               </div>
             </div>
 
-            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-              {riskFlags.length === 0 ? (
-                <div style={{ color: BRAND.muted, fontWeight: 700 }}>No flags to display.</div>
-              ) : (
-                riskFlags.map((rf: any, idx: number) => {
-                  const st = severityStyle(rf?.severity);
-                  const brief = briefForRiskFlag(rf);
-                  const key = String(rf?.key ?? rf?.details?.rule ?? `risk-${idx}`);
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: BRAND.dark, letterSpacing: "-0.02em" }}>
+                Structural doctrine signals
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700, color: BRAND.greyBlue, lineHeight: 1.45 }}>
+                Rules-based protective signals from the diagnostic doctrine (imbalance, minimum thresholds).
+              </div>
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                {riskFlags.length === 0 ? (
+                  <div style={{ color: BRAND.muted, fontWeight: 700 }}>No structural doctrine flags to display.</div>
+                ) : (
+                  riskFlags.map((rf: any, idx: number) => {
+                    const st = severityStyle(rf?.severity);
+                    const brief = briefForRiskFlag(rf);
+                    const key = String(rf?.key ?? rf?.details?.rule ?? `risk-${idx}`);
 
-                  const detailsLine = formatRiskDetails(rf?.details);
-                  const cardId = key;
-                  const isOpen = !!openEvidence[cardId];
+                    const detailsLine = formatRiskDetails(rf?.details);
+                    const cardId = key;
+                    const isOpen = !!openEvidence[cardId];
 
-                  return (
-                    <div
-                      key={key}
-                      style={{
-                        border: `1px solid ${st.border}`,
-                        background: "#FFFFFF",
-                        borderRadius: 14,
-                        padding: 14,
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span
-                            style={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: 999,
-                              background: st.dot,
-                              display: "inline-block",
-                            }}
-                          />
-                          <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 14 }}>{brief.signal}</div>
-                        </div>
+                    return (
+                      <div
+                        key={key}
+                        style={{
+                          border: `1px solid ${st.border}`,
+                          background: "#FFFFFF",
+                          borderRadius: 14,
+                          padding: 14,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: 999,
+                                background: st.dot,
+                                display: "inline-block",
+                              }}
+                            />
+                            <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 14 }}>{brief.signal}</div>
+                          </div>
 
-                        <div
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 8,
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            border: `1px solid ${st.border}`,
-                            background: st.bg,
-                            fontWeight: 800,
-                            color: st.text,
-                            fontSize: 12,
-                          }}
-                        >
-                          {st.label}
-                        </div>
-                      </div>
-
-                      {detailsLine ? (
-                        <div style={{ marginTop: 8, color: BRAND.greyBlue, fontWeight: 700, fontSize: 12, lineHeight: 1.4 }}>
-                          {detailsLine}
-                        </div>
-                      ) : null}
-
-                      <div style={{ marginTop: 10 }}>
-                        <button
-                          type="button"
-                          onClick={() => setOpenEvidence((prev) => ({ ...prev, [cardId]: !prev[cardId] }))}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            padding: 0,
-                            color: BRAND.greyBlue,
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            fontSize: 12,
-                          }}
-                        >
-                          {isOpen ? "Hide details" : "Show details"}
-                        </button>
-
-                        {isOpen ? (
                           <div
                             style={{
-                              marginTop: 8,
-                              paddingTop: 10,
-                              borderTop: `1px dashed ${BRAND.border}`,
-                              color: BRAND.text,
-                              fontWeight: 700,
-                              fontSize: 13,
-                              lineHeight: 1.55,
-                              display: "grid",
+                              display: "inline-flex",
+                              alignItems: "center",
                               gap: 8,
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              border: `1px solid ${st.border}`,
+                              background: st.bg,
+                              fontWeight: 800,
+                              color: st.text,
+                              fontSize: 12,
                             }}
                           >
-                            <div>
-                              <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>Meaning: </span>
-                              {brief.meaning}
-                            </div>
-                            <div>
-                              <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>Recommended focus: </span>
-                              {brief.focus}
-                            </div>
+                            {st.label}
+                          </div>
+                        </div>
+
+                        {detailsLine ? (
+                          <div
+                            style={{ marginTop: 8, color: BRAND.greyBlue, fontWeight: 700, fontSize: 12, lineHeight: 1.4 }}
+                          >
+                            {detailsLine}
                           </div>
                         ) : null}
+
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            type="button"
+                            onClick={() => setOpenEvidence((prev) => ({ ...prev, [cardId]: !prev[cardId] }))}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: 0,
+                              color: BRAND.greyBlue,
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              fontSize: 12,
+                            }}
+                          >
+                            {isOpen ? "Hide details" : "Show details"}
+                          </button>
+
+                          {isOpen ? (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                paddingTop: 10,
+                                borderTop: `1px dashed ${BRAND.border}`,
+                                color: BRAND.text,
+                                fontWeight: 700,
+                                fontSize: 13,
+                                lineHeight: 1.55,
+                                display: "grid",
+                                gap: 8,
+                              }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>Meaning: </span>
+                                {brief.meaning}
+                              </div>
+                              <div>
+                                <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>Recommended focus: </span>
+                                {brief.focus}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
-              )}
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: BRAND.dark, letterSpacing: "-0.02em" }}>
+                Perception & alignment signals
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700, color: BRAND.greyBlue, lineHeight: 1.45 }}>
+                Pattern checks on responses (not doctrine rules). Framed as opportunities for validation and broader
+                alignment—especially helpful before scaling AI.
+              </div>
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                {perceptionSignalsDisplay.length === 0 ? (
+                  <div style={{ color: BRAND.muted, fontWeight: 700 }}>No perception & alignment signals to display.</div>
+                ) : (
+                  perceptionSignalsDisplay.map((sig: any, idx: number) => {
+                    const st = severityStyle(sig?.severity);
+                    const brief = briefForPerceptionSignal(sig);
+                    const key = String(sig?.key ?? `perception-${idx}`);
+                    const cardId = `perception:${key}`;
+                    const isOpen = !!openEvidence[cardId];
+                    const detailsLine = formatPerceptionDetails(sig?.details);
+
+                    return (
+                      <div
+                        key={cardId}
+                        style={{
+                          border: `1px solid ${st.border}`,
+                          background: "#FFFFFF",
+                          borderRadius: 14,
+                          padding: 14,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: 999,
+                                background: st.dot,
+                                display: "inline-block",
+                              }}
+                            />
+                            <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 14 }}>{brief.signal}</div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              border: `1px solid ${st.border}`,
+                              background: st.bg,
+                              fontWeight: 800,
+                              color: st.text,
+                              fontSize: 12,
+                            }}
+                          >
+                            {st.label}
+                          </div>
+                        </div>
+
+                        {detailsLine ? (
+                          <div
+                            style={{ marginTop: 8, color: BRAND.greyBlue, fontWeight: 700, fontSize: 12, lineHeight: 1.4 }}
+                          >
+                            {detailsLine}
+                          </div>
+                        ) : null}
+
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            type="button"
+                            onClick={() => setOpenEvidence((prev) => ({ ...prev, [cardId]: !prev[cardId] }))}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: 0,
+                              color: BRAND.greyBlue,
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              fontSize: 12,
+                            }}
+                          >
+                            {isOpen ? "Hide details" : "Show details"}
+                          </button>
+
+                          {isOpen ? (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                paddingTop: 10,
+                                borderTop: `1px dashed ${BRAND.border}`,
+                                color: BRAND.text,
+                                fontWeight: 700,
+                                fontSize: 13,
+                                lineHeight: 1.55,
+                                display: "grid",
+                                gap: 8,
+                              }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>What this suggests: </span>
+                                {brief.meaning}
+                              </div>
+                              <div>
+                                <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>Suggested next step: </span>
+                                {brief.focus}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </section>
 

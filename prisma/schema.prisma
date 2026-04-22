@@ -160,6 +160,11 @@ model Question {
   /// Industry segmentation for question banks.
   industry Industry @default(ALL_INDUSTRIES)
 
+  /// Optional paired question for inverse-consistency checks (both averaging high suggests validation opportunity).
+  inverse_question_id String? @db.Uuid
+  inverse_question    Question?  @relation("QuestionInversePair", fields: [inverse_question_id], references: [id], onDelete: SetNull)
+  inverse_of          Question[] @relation("QuestionInversePair")
+
   Response      Response[]
 
   @@unique([pillar, display_order, version, audience, industry])
