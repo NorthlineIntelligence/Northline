@@ -16,8 +16,12 @@ export const metadata: Metadata = {
   title: "Northline Intelligence",
   description: "Northline Diagnostic Tool",
   icons: {
-    icon: [{ url: "/favicon.ico?v=3", sizes: "any" }],
-    shortcut: ["/favicon.ico?v=3"],
+    icon: [
+      { url: "/favicon.ico?v=4", sizes: "any" },
+      { url: "/icon.png?v=4", type: "image/png", sizes: "512x512" },
+    ],
+    shortcut: ["/favicon.ico?v=4"],
+    apple: [{ url: "/icon.png?v=4", type: "image/png" }],
   },
 };
 
