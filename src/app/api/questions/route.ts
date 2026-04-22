@@ -106,6 +106,9 @@ export async function GET(req: NextRequest) {
   // Deduplicate to one question per pillar+display_order.
   // Prefer exact industry and exact locked department when available.
   function rankQuestion(q: (typeof renderedQuestions)[number]) {
+    // Prefer the new canonical model rows (question_core/context render capable)
+    // over legacy hardcoded question_text-only rows.
+    const modelRank = q.question_core && q.question_core.trim().length > 0 ? 100 : 0;
     const industryRank =
       q.industry === resolvedAssessmentIndustry ? 2 : q.industry === "ALL_INDUSTRIES" ? 1 : 0;
     const audienceRank = resolvedLockedDepartment
@@ -117,7 +120,7 @@ export async function GET(req: NextRequest) {
       : q.audience === Department.ALL
         ? 2
         : 0;
-    return industryRank * 10 + audienceRank;
+    return modelRank + industryRank * 10 + audienceRank;
   }
 
   const dedupedQuestionsMap = new Map<string, (typeof renderedQuestions)[number]>();
