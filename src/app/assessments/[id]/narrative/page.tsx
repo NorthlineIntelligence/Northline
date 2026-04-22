@@ -68,14 +68,36 @@ const PILLAR_RISK_INTERPRETATION_ORDER = [
   { jsonKey: "sustainabilityPractice", pillarKey: "SUSTAINABILITY_PRACTICE" },
 ] as const;
 
-function parsePillarRiskInterpretation(raw: unknown): Record<string, string> | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
+function isWeakRiskInterpretationText(s: string): boolean {
+  const t = (s ?? "").trim();
+  if (t.length < 120) return true;
+  if (
+    /TBD|insufficient context|Full pillar interpretation was not returned|Validation failed for this narrative/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function clientPillarRiskFallbackBody(pillarKey: string, score: number | null): string {
+  const s = typeof score === "number" ? score.toFixed(2) : "n/a";
+  return [
+    `${prettyPillarLabel(pillarKey)} is at ${s} on a 1–5 scale. Even when no doctrine risk flags fire, this score is a leadership discussion guide: it signals where AI adoption could still create rework, ambiguity, or uneven execution if sequencing is too aggressive.`,
+    "Use the executive narrative themes (for example data flows, workflow ownership, trust, and governance) as anchors. Prioritize one accountable owner, narrow pilot scope, and explicit review checkpoints before widening autonomy.",
+  ].join(" ");
+}
+
+/** Always returns four pillar bodies — merges model text with local fallbacks when the model output is thin. */
+function buildPillarRiskInterpretationDisplay(
+  raw: unknown,
+  diagnosticData: any
+): Record<string, string> {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: Record<string, string> = {};
-  for (const { jsonKey } of PILLAR_RISK_INTERPRETATION_ORDER) {
+  for (const { jsonKey, pillarKey } of PILLAR_RISK_INTERPRETATION_ORDER) {
     const t = typeof o[jsonKey] === "string" ? (o[jsonKey] as string).trim() : "";
-    if (t.length < 20) return null;
-    out[jsonKey] = t;
+    const score = extractPillarScore(diagnosticData, pillarKey);
+    out[jsonKey] = !isWeakRiskInterpretationText(t) ? t : clientPillarRiskFallbackBody(pillarKey, score);
   }
   return out;
 }
@@ -401,6 +423,9 @@ function parseMemoSections(raw: string): Array<{ title: string; body: string[] }
     const h = line.toLowerCase();
     return (
       h === "executive narrative" ||
+      h === "key dynamics" ||
+      h === "strategic implications" ||
+      h === "executive takeaway" ||
       h === "structured pillar breakdown" ||
       h === "risk interpretation" ||
       h === "northline high-value entry points" ||
@@ -477,6 +502,96 @@ function entryPointsFromMemoBody(body: string[]): Array<{ name: string; outcome:
       outcome: (p.outcome ?? "").trim() || "—",
       firstMove: (p.firstMove ?? "").trim() || "—",
     }));
+}
+
+function ExecutiveRecommendationsMemoBlock({ narrativeJson }: { narrativeJson: any }) {
+  const er = narrativeJson?.executiveRecommendations;
+  if (!er || typeof er !== "object") return null;
+  const framing = typeof er.framing === "string" ? er.framing.trim() : "";
+  if (!framing) return null;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${BRAND.border}`,
+        borderRadius: 16,
+        background: "linear-gradient(165deg, #f8fafc 0%, #ffffff 55%)",
+        padding: 18,
+        position: "relative",
+        overflow: "hidden",
+        boxShadow: "0 8px 28px rgba(23, 52, 100, 0.06)",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          background: BRAND.dark,
+          opacity: 0.88,
+        }}
+      />
+      <div style={{ paddingLeft: 10 }}>
+        <div style={{ color: BRAND.dark, fontSize: 15, fontWeight: 900, letterSpacing: "-0.02em" }}>
+          Northline Executive recommendations
+        </div>
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            color: BRAND.greyBlue,
+            lineHeight: 1.45,
+          }}
+        >
+          Cross-pillar actions for executives to strengthen how AI performs in the business—separate from the three
+          high-value entry points below.
+        </div>
+        <div style={{ marginTop: 14, color: BRAND.text, fontWeight: 700, lineHeight: 1.7, fontSize: 14 }}>{framing}</div>
+        <div
+          style={{
+            marginTop: 16,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+            gap: 12,
+          }}
+        >
+          {PILLAR_RISK_INTERPRETATION_ORDER.map(({ jsonKey, pillarKey }) => {
+            const txt = typeof (er as Record<string, unknown>)[jsonKey] === "string"
+              ? String((er as Record<string, unknown>)[jsonKey]).trim()
+              : "";
+            if (!txt) return null;
+            return (
+              <div
+                key={`er-${jsonKey}`}
+                style={{
+                  background: "#FFFFFF",
+                  borderRadius: 14,
+                  border: `1px solid ${BRAND.border}`,
+                  padding: 14,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 900, color: BRAND.dark }}>{prettyPillarLabel(pillarKey)}</div>
+                <div
+                  style={{
+                    marginTop: 10,
+                    fontSize: 13,
+                    fontWeight: 650,
+                    lineHeight: 1.7,
+                    color: BRAND.text,
+                  }}
+                >
+                  {txt}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function EntryPointProjectCards({
@@ -961,9 +1076,31 @@ const showProjectScopeLink = Boolean(
   }, [diagnosticData]);
 
   const pillarRiskInterpretationMap = useMemo(
-    () => parsePillarRiskInterpretation(narrativeJson?.risks?.pillarRiskInterpretation),
-    [narrativeJson]
+    () => buildPillarRiskInterpretationDisplay(narrativeJson?.risks?.pillarRiskInterpretation, diagnosticData),
+    [narrativeJson, diagnosticData]
   );
+
+  const riskBriefParagraph = useMemo(() => {
+    const imp =
+      typeof narrativeJson?.risks?.implications === "string" ? narrativeJson.risks.implications.trim() : "";
+    if (imp.length >= 120 && !isWeakRiskInterpretationText(imp)) return imp;
+
+    const memo =
+      typeof narrativeJson?.maturityInterpretation?.explanation === "string"
+        ? narrativeJson.maturityInterpretation.explanation.trim()
+        : "";
+    const excerpt = memo.replace(/\s+/g, " ").slice(0, 420).trim();
+
+    if (excerpt.length > 90) {
+      return `No structural doctrine flags fired on this snapshot—use that headroom to invest deliberately, not casually. From the executive narrative: ${excerpt}${
+        memo.length > 420 ? "…" : ""
+      } The pillar notes below still highlight where AI adoption can strain the organization without careful sequencing—improvement opportunities even when formal signals are quiet.`;
+    }
+
+    return riskFlags.length > 0
+      ? "Structural risk signals are active—use the pillar notes below to align scope, ownership, and guardrails."
+      : "No structural doctrine flags fired on this snapshot; the pillar notes below still explain where AI adoption could create strain without careful sequencing.";
+  }, [narrativeJson, riskFlags.length]);
 
   const missingInputs: string[] = useMemo(() => {
     const arr = narrativeJson?.missingInputs;
@@ -1623,6 +1760,7 @@ const participantsTotal =
                       Executive narrative text will appear here once generated. Pilot recommendations below are taken from
                       the structured narrative output.
                     </div>
+                    <ExecutiveRecommendationsMemoBlock narrativeJson={narrativeJson} />
                     <EntryPointsMemoSection projects={pilotsFromJson} accentOpacity={0.65} />
                   </div>
                 );
@@ -1646,6 +1784,7 @@ const participantsTotal =
                     >
                       {memoText}
                     </div>
+                    <ExecutiveRecommendationsMemoBlock narrativeJson={narrativeJson} />
                     {useJsonEntryPoints ? (
                       <EntryPointsMemoSection projects={pilotsFromJson} accentOpacity={0.65} />
                     ) : null}
@@ -1732,6 +1871,7 @@ const participantsTotal =
                       </div>
                     </div>
                   ))}
+                  <ExecutiveRecommendationsMemoBlock narrativeJson={narrativeJson} />
                   {useJsonEntryPoints ? (
                     <EntryPointsMemoSection projects={pilotsFromJson} accentOpacity={0.55} />
                   ) : null}
@@ -1848,179 +1988,165 @@ const participantsTotal =
                 can act on. Regenerate Executive Insights to refresh this section after new results.
               </div>
 
-              {pillarRiskInterpretationMap ? (
-                <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
+              <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
+                <div
+                  style={{
+                    background: "#FFFFFF",
+                    borderRadius: 14,
+                    border: `1px solid ${BRAND.border}`,
+                    padding: "14px 16px",
+                    boxShadow: "0 4px 18px rgba(15, 23, 42, 0.04)",
+                  }}
+                >
                   <div
                     style={{
-                      background: "#FFFFFF",
-                      borderRadius: 14,
-                      border: `1px solid ${BRAND.border}`,
-                      padding: "14px 16px",
-                      boxShadow: "0 4px 18px rgba(15, 23, 42, 0.04)",
+                      fontSize: 11,
+                      fontWeight: 900,
+                      letterSpacing: "0.08em",
+                      color: BRAND.greyBlue,
+                      textTransform: "uppercase",
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 900,
-                        letterSpacing: "0.08em",
-                        color: BRAND.greyBlue,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      In brief
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 10,
-                        color: BRAND.text,
-                        fontWeight: 700,
-                        lineHeight: 1.65,
-                        fontSize: 14,
-                      }}
-                    >
-                      {typeof narrativeJson?.risks?.implications === "string" && narrativeJson.risks.implications.trim()
-                        ? narrativeJson.risks.implications
-                        : riskFlags.length > 0
-                          ? "Structural risk signals are active—use the pillar notes below to align scope, ownership, and guardrails."
-                          : "No structural doctrine flags fired on this snapshot; the pillar notes still explain where AI adoption could strain the organization."}
-                    </div>
+                    In brief
                   </div>
-
-                  <div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 900,
-                        letterSpacing: "0.08em",
-                        color: BRAND.greyBlue,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      By readiness pillar
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 6,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: BRAND.greyBlue,
-                        lineHeight: 1.45,
-                      }}
-                    >
-                      How each area affects AI adoption risk and what to prioritize next.
-                    </div>
-                  </div>
-
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(272px, 1fr))",
-                      gap: 14,
+                      marginTop: 10,
+                      color: BRAND.text,
+                      fontWeight: 700,
+                      lineHeight: 1.65,
+                      fontSize: 14,
                     }}
                   >
-                    {PILLAR_RISK_INTERPRETATION_ORDER.map(({ jsonKey, pillarKey }) => {
-                      const body = pillarRiskInterpretationMap[jsonKey];
-                      const score = extractPillarScore(diagnosticData, pillarKey);
-                      return (
+                    {riskBriefParagraph}
+                  </div>
+                </div>
+
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 900,
+                      letterSpacing: "0.08em",
+                      color: BRAND.greyBlue,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    By readiness pillar
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: BRAND.greyBlue,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    How each area affects AI adoption risk and what to prioritize next.
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(272px, 1fr))",
+                    gap: 14,
+                  }}
+                >
+                  {PILLAR_RISK_INTERPRETATION_ORDER.map(({ jsonKey, pillarKey }) => {
+                    const body = pillarRiskInterpretationMap[jsonKey];
+                    const score = extractPillarScore(diagnosticData, pillarKey);
+                    return (
+                      <div
+                        key={jsonKey}
+                        style={{
+                          background: "#FFFFFF",
+                          borderRadius: 16,
+                          border: `1px solid ${BRAND.border}`,
+                          padding: "16px 16px 16px 14px",
+                          boxShadow: "0 6px 22px rgba(15, 23, 42, 0.05)",
+                          position: "relative",
+                          overflow: "hidden",
+                        }}
+                      >
                         <div
-                          key={jsonKey}
+                          aria-hidden
                           style={{
-                            background: "#FFFFFF",
-                            borderRadius: 16,
-                            border: `1px solid ${BRAND.border}`,
-                            padding: "16px 16px 16px 14px",
-                            boxShadow: "0 6px 22px rgba(15, 23, 42, 0.05)",
-                            position: "relative",
-                            overflow: "hidden",
+                            position: "absolute",
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 4,
+                            background: `linear-gradient(180deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                            opacity: 0.95,
+                            borderRadius: "16px 0 0 16px",
                           }}
-                        >
-                          <div
-                            aria-hidden
-                            style={{
-                              position: "absolute",
-                              left: 0,
-                              top: 0,
-                              bottom: 0,
-                              width: 4,
-                              background: `linear-gradient(180deg, ${BRAND.cyan}, ${BRAND.dark})`,
-                              opacity: 0.95,
-                              borderRadius: "16px 0 0 16px",
-                            }}
-                          />
-                          <div style={{ paddingLeft: 8 }}>
-                            <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 15, lineHeight: 1.3 }}>
-                              {prettyPillarLabel(pillarKey)}
+                        />
+                        <div style={{ paddingLeft: 8 }}>
+                          <div style={{ fontWeight: 900, color: BRAND.dark, fontSize: 15, lineHeight: 1.3 }}>
+                            {prettyPillarLabel(pillarKey)}
+                          </div>
+                          {typeof score === "number" ? (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 12,
+                                fontWeight: 900,
+                                color: BRAND.dark,
+                                background: "rgba(52, 176, 180, 0.18)",
+                                padding: "4px 10px",
+                                borderRadius: 999,
+                              }}
+                            >
+                              Pillar score {score.toFixed(2)}
+                              <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>/ 5</span>
                             </div>
-                            {typeof score === "number" ? (
-                              <div
-                                style={{
-                                  marginTop: 6,
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 6,
-                                  fontSize: 12,
-                                  fontWeight: 900,
-                                  color: BRAND.dark,
-                                  background: "rgba(52, 176, 180, 0.18)",
-                                  padding: "4px 10px",
-                                  borderRadius: 999,
-                                }}
-                              >
-                                Pillar score {score.toFixed(2)}
-                                <span style={{ fontWeight: 800, color: BRAND.greyBlue }}>/ 5</span>
-                              </div>
-                            ) : null}
-                            <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
-                              {body
-                                .split(/\n\s*\n+/)
-                                .map((c) => c.trim())
-                                .filter(Boolean)
-                                .map((chunk, i) => (
-                                  <div
-                                    key={i}
-                                    style={{ display: "flex", gap: 14, alignItems: "flex-start" }}
+                          ) : null}
+                          <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+                            {body
+                              .split(/\n\s*\n+/)
+                              .map((c) => c.trim())
+                              .filter(Boolean)
+                              .map((chunk, i) => (
+                                <div
+                                  key={i}
+                                  style={{ display: "flex", gap: 14, alignItems: "flex-start" }}
+                                >
+                                  <span
+                                    aria-hidden
+                                    style={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: "50%",
+                                      background: BRAND.cyan,
+                                      marginTop: 8,
+                                      flexShrink: 0,
+                                      boxShadow: "0 0 0 3px rgba(52, 176, 180, 0.2)",
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      fontSize: 14,
+                                      fontWeight: 600,
+                                      lineHeight: 1.75,
+                                      color: BRAND.text,
+                                    }}
                                   >
-                                    <span
-                                      aria-hidden
-                                      style={{
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: "50%",
-                                        background: BRAND.cyan,
-                                        marginTop: 8,
-                                        flexShrink: 0,
-                                        boxShadow: "0 0 0 3px rgba(52, 176, 180, 0.2)",
-                                      }}
-                                    />
-                                    <span
-                                      style={{
-                                        fontSize: 14,
-                                        fontWeight: 600,
-                                        lineHeight: 1.75,
-                                        color: BRAND.text,
-                                      }}
-                                    >
-                                      {chunk}
-                                    </span>
-                                  </div>
-                                ))}
-                            </div>
+                                    {chunk}
+                                  </span>
+                                </div>
+                              ))}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ) : (
-                <div style={{ marginTop: 12, color: BRAND.text, fontWeight: 700, lineHeight: 1.7, fontSize: 14 }}>
-                  {typeof narrativeJson?.risks?.implications === "string" && narrativeJson.risks.implications.trim()
-                    ? narrativeJson.risks.implications
-                    : riskFlags.length > 0
-                      ? "Risk signals were detected, but pillar-by-pillar interpretation is not in this memo version. Generate or refresh Executive Insights to include it."
-                      : "No structural triggers were detected under current rules. Continue monitoring for divergence or uneven adoption patterns. Generate or refresh Executive Insights to add pillar-by-pillar guidance."}
-                </div>
-              )}
+              </div>
             </div>
 
             <div style={{ marginTop: 14, display: "grid", gap: 10 }}>

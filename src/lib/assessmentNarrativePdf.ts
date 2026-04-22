@@ -77,6 +77,25 @@ export async function renderAssessmentNarrativePdfBuffer(args: {
   asLines(currentState.blockers).forEach((s) => doc.text(`• ${s}`));
 
   doc.moveDown(0.8);
+  const execRec =
+    n.executiveRecommendations && typeof n.executiveRecommendations === "object"
+      ? (n.executiveRecommendations as Record<string, unknown>)
+      : null;
+  if (execRec && typeof execRec.framing === "string" && execRec.framing.trim()) {
+    doc.fontSize(13).text("Northline Executive recommendations");
+    doc.moveDown(0.2);
+    doc.fontSize(10).text(val(execRec.framing));
+    doc.moveDown(0.4);
+    doc.fontSize(10).text(`System Integrity: ${val(execRec.systemIntegrity)}`);
+    doc.moveDown(0.15);
+    doc.text(`Human Alignment: ${val(execRec.humanAlignment)}`);
+    doc.moveDown(0.15);
+    doc.text(`Strategic Coherence: ${val(execRec.strategicCoherence)}`);
+    doc.moveDown(0.15);
+    doc.text(`Sustainability Practice: ${val(execRec.sustainabilityPractice)}`);
+    doc.moveDown(0.8);
+  }
+
   doc.fontSize(13).text("Risks");
   doc.moveDown(0.2);
   const risks = n.risks && typeof n.risks === "object" ? (n.risks as Record<string, unknown>) : {};

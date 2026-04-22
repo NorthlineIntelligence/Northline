@@ -73,6 +73,12 @@ const TrimmedText = z.preprocess(
   z.string().min(1).max(8000)
 );
 
+/** Executive narrative body (maturityInterpretation.explanation) — allow up to ~1500 words. */
+const MemoExplanationText = z.preprocess(
+  (v) => (typeof v === "string" ? v.trim() : v),
+  z.string().min(1).max(12000)
+);
+
 const ShortBullet = z.preprocess(
   (v) => (typeof v === "string" ? v.trim() : v),
   z.string().min(1).max(600)
@@ -123,9 +129,21 @@ const NarrativeSchema = z
             protectedScore: z.union([z.number(), z.null()]).optional(),
           })
           .strip(),
-        explanation: TrimmedText,
+        explanation: MemoExplanationText,
       })
       .strip(),
+
+    /** Executive-level AI recommendations by pillar; separate from pilotProjects entry points. */
+    executiveRecommendations: z
+      .object({
+        framing: TrimmedText,
+        systemIntegrity: TrimmedText,
+        humanAlignment: TrimmedText,
+        strategicCoherence: TrimmedText,
+        sustainabilityPractice: TrimmedText,
+      })
+      .strip()
+      .optional(),
 
     currentState: z
       .object({
@@ -283,19 +301,116 @@ function cleanBulletArray(arr: unknown, maxItems: number, maxLen: number): strin
     .slice(0, maxItems);
 }
 
+type NarrativeSanitizeCtx = {
+  assessmentId: string;
+  companyReference: string;
+  industry?: string | null;
+  size?: string | null;
+  aggregatePillars?: Record<string, { weightedAverage?: number | null } | undefined> | null;
+};
+
+const PILLAR_JSON_TO_AGG: Record<string, string> = {
+  systemIntegrity: "SYSTEM_INTEGRITY",
+  humanAlignment: "HUMAN_ALIGNMENT",
+  strategicCoherence: "STRATEGIC_COHERENCE",
+  sustainabilityPractice: "SUSTAINABILITY_PRACTICE",
+};
+
+function isWeakRiskNarrativeText(s: unknown): boolean {
+  const t = typeof s === "string" ? s.trim() : "";
+  if (t.length < 120) return true;
+  if (
+    /TBD|insufficient context|Full pillar interpretation was not returned|Validation failed for this narrative/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function pillarScoreFromCtx(ctx: NarrativeSanitizeCtx, jsonKey: string): number | null {
+  const aggKey = PILLAR_JSON_TO_AGG[jsonKey];
+  if (!aggKey) return null;
+  const v = ctx.aggregatePillars?.[aggKey]?.weightedAverage;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function pillarRiskInterpretationFallback(jsonKey: string, ctx: NarrativeSanitizeCtx): string {
+  const score = pillarScoreFromCtx(ctx, jsonKey);
+  const s = score != null ? score.toFixed(2) : "n/a";
+  const org = ctx.companyReference || "the company";
+  const band =
+    score == null ? "unknown" : score >= 3.5 ? "stronger" : score >= 2.75 ? "mixed" : "constrained";
+
+  const byKey: Record<string, string> = {
+    systemIntegrity: [
+      `${org} scores System Integrity at ${s} on a 1–5 scale. Even when no doctrine risk flags fire, this pillar is your practical gate for automation breadth: data lineage, workflow ownership, and change control determine whether models amplify clarity or chaos.`,
+      band === "constrained"
+        ? "Executive action: fund a narrow data-and-workflow map for the highest-volume customer or operations path, assign a single accountable owner, and defer autonomous agents until review checkpoints are boringly reliable."
+        : band === "mixed"
+          ? "Executive action: standardize a few critical interfaces (definitions, approvals, logging) before scaling copilots; pick one executive sponsor to remove cross-team ambiguity weekly."
+          : "Executive action: keep the advantage—institutionalize architecture reviews for new AI features so speed does not quietly reintroduce fragility.",
+    ].join(" "),
+    humanAlignment: [
+      `Human Alignment reads ${s}. It reflects training intensity, trust, review habits, and how work actually changes when tools shift.`,
+      "No flags does not mean no friction: mid scores often predict uneven adoption, shadow workflows, and change fatigue.",
+      band === "constrained"
+        ? "Executive action: pair each AI pilot with explicit competency targets, manager checklists, and a simple ‘stop doing’ list so teams are not asked to absorb infinite new habits."
+        : "Executive action: publish a plain-language ‘human in the loop’ standard for decisions that touch customers, cash, or safety; measure adoption with spot audits, not surveys alone.",
+    ].join(" "),
+    strategicCoherence: [
+      `Strategic Coherence is ${s}. It signals whether AI work will reinforce priorities—or become a side hobby.`,
+      "When this pillar lags, keep AI initiatives tethered to one or two measurable executive outcomes (margin, cycle time, risk reduction) with quarterly kill criteria.",
+      "Executive action: require every funded AI experiment to name the business metric it moves and the executive who will defend the tradeoffs in the next planning cycle.",
+    ].join(" "),
+    sustainabilityPractice: [
+      `Sustainability Practice scores ${s}. It covers governance rhythms, monitoring, and whether improvements stick after the workshop.`,
+      "Treat maintenance as a first-class budget line: retraining, policy updates, incident playbooks, and vendor/model change control.",
+      "Executive action: assign operational ownership for model monitoring and drift—not just IT security—and tie vendor commitments to measurable service levels for retraining and support.",
+    ].join(" "),
+  };
+
+  return byKey[jsonKey] ?? byKey.systemIntegrity;
+}
+
+function implicationsFallback(flagCount: number, ctx: NarrativeSanitizeCtx): string {
+  const org = ctx.companyReference || "the company";
+  if (flagCount > 0) {
+    return `${org} has structural risk signals in this snapshot. Treat that as sequencing guidance: narrow scope, tighten ownership, and align guardrails before expanding autonomy. The pillar notes below translate each readiness area into practical leadership moves—not alarmism, but where AI could amplify existing strain if ignored.`;
+  }
+  return `${org} shows no structural doctrine flags in this snapshot—disciplined inputs and scoring are within an acceptable band. That is an opportunity, not an all-clear: use the pillar notes to highlight where AI adoption could still create rework, uneven skills, or unclear accountability if rolled out faster than the foundation allows.`;
+}
+
+function defaultExecutiveRecommendations(ctx: NarrativeSanitizeCtx) {
+  const org = ctx.companyReference || "the company";
+  return {
+    framing: [
+      `Northline Executive recommendations for ${org}: treat AI as a portfolio of sequenced business bets, not a single platform purchase.`,
+      "These are general executive actions—separate from the three high-value entry-point pilots—that strengthen how AI performs in the business across the four readiness pillars.",
+    ].join(" "),
+    systemIntegrity: [
+      "System Integrity — executive moves: (1) Name a single accountable executive for authoritative data definitions in the top two customer or revenue workflows. (2) Require architecture review for any AI feature that writes to systems of record. (3) Fund incremental hardening (logging, rollback, access boundaries) before widening model autonomy.",
+      `Ground these moves in the System Integrity score (${pillarScoreFromCtx(ctx, "systemIntegrity")?.toFixed(2) ?? "see radar"}/5) and the themes raised in your narrative (for example data flows, integrations, and operational discipline).`,
+    ].join(" "),
+    humanAlignment: [
+      "Human Alignment — executive moves: (1) Pair each pilot with explicit training time and success metrics tied to behavior change, not tool logins. (2) Publish a simple decision-rights chart for when a human must approve model output. (3) Incentivize managers to remove low-value work—not add AI busywork on top of existing load.",
+      `Use the Human Alignment score (${pillarScoreFromCtx(ctx, "humanAlignment")?.toFixed(2) ?? "see radar"}/5) to calibrate how aggressive adoption communications can be without creating cynicism.`,
+    ].join(" "),
+    strategicCoherence: [
+      "Strategic Coherence — executive moves: (1) Tie every funded AI initiative to one executive-owned outcome with a quarterly review. (2) Kill or merge overlapping experiments that compete for the same workflow. (3) Align vendor and internal roadmaps to customer promises and operational KPIs, not novelty.",
+      `The Strategic Coherence score (${pillarScoreFromCtx(ctx, "strategicCoherence")?.toFixed(2) ?? "see radar"}/5) should set how many concurrent AI bets the organization can credibly govern.`,
+    ].join(" "),
+    sustainabilityPractice: [
+      "Sustainability Practice — executive moves: (1) Budget for monitoring, retraining, and policy updates as ongoing run-cost, not project tail. (2) Assign operational ownership for model performance and incident response—not delegated only to IT security. (3) Build a lightweight executive dashboard for drift, cost, and user-reported failures.",
+      `The Sustainability Practice score (${pillarScoreFromCtx(ctx, "sustainabilityPractice")?.toFixed(2) ?? "see radar"}/5) indicates how resilient gains are likely to be after the initial launch energy fades.`,
+    ].join(" "),
+  };
+}
+
 /**
  * Normalizes model output so Zod validation matches what the Anthropic tool schema allows
  * (empty strings, casing on enums, short pilot lists, assessmentId quirks).
  */
-function coerceNarrativeForSchema(
-  raw: Record<string, any>,
-  ctx: {
-    assessmentId: string;
-    companyReference: string;
-    industry?: string | null;
-    size?: string | null;
-  }
-): Record<string, any> {
+function coerceNarrativeForSchema(raw: Record<string, any>, ctx: NarrativeSanitizeCtx): Record<string, any> {
   const out = { ...raw };
 
   out.assessmentId = ctx.assessmentId;
@@ -336,7 +451,11 @@ function coerceNarrativeForSchema(
         "Maturity represents structural capability, while readiness indicates how safely the company can move into practical AI execution.",
         8000
       ),
-      explanation: nonEmptyStr(mi.explanation, "Assessment interpretation from structured results and evidence.", 8000),
+      explanation: nonEmptyStr(
+        mi.explanation,
+        "Assessment interpretation from structured results and evidence.",
+        12000
+      ),
     };
   }
 
@@ -419,25 +538,45 @@ function coerceNarrativeForSchema(
       r.pillarRiskInterpretation && typeof r.pillarRiskInterpretation === "object"
         ? r.pillarRiskInterpretation
         : {};
-    const pillarFb =
-      "Full pillar interpretation was not returned for this section. Review the pillar score on the diagnostic radar and the detailed risk flags below.";
-    const pillar = (v: unknown) => {
+    const flagCount = Array.isArray(r.flags) ? r.flags.length : 0;
+    const implicationsRaw = typeof r.implications === "string" ? r.implications.trim() : "";
+    const implicationsFinal =
+      !implicationsRaw.length || isWeakRiskNarrativeText(implicationsRaw)
+        ? implicationsFallback(flagCount, ctx)
+        : clipStr(implicationsRaw, 8000);
+
+    const pillar = (v: unknown, jsonKey: string) => {
       const t = typeof v === "string" ? v.trim() : "";
-      return t.length >= 50 ? clipStr(t, 4500) : pillarFb;
+      if (!isWeakRiskNarrativeText(t)) return clipStr(t, 4500);
+      return pillarRiskInterpretationFallback(jsonKey, ctx);
     };
     out.risks = {
       flags: Array.isArray(r.flags) ? r.flags.slice(0, 25) : [],
-      implications: nonEmptyStr(
-        r.implications,
-        "Consider sequencing, ownership, and guardrails as you scale AI use.",
+      implications: implicationsFinal,
+      pillarRiskInterpretation: {
+        systemIntegrity: pillar((priRaw as any).systemIntegrity, "systemIntegrity"),
+        humanAlignment: pillar((priRaw as any).humanAlignment, "humanAlignment"),
+        strategicCoherence: pillar((priRaw as any).strategicCoherence, "strategicCoherence"),
+        sustainabilityPractice: pillar((priRaw as any).sustainabilityPractice, "sustainabilityPractice"),
+      },
+    };
+  }
+
+  const execRecDefaults = defaultExecutiveRecommendations(ctx);
+  if (!out.executiveRecommendations || typeof out.executiveRecommendations !== "object") {
+    out.executiveRecommendations = execRecDefaults;
+  } else {
+    const er = out.executiveRecommendations as Record<string, unknown>;
+    out.executiveRecommendations = {
+      framing: nonEmptyStr(er.framing, execRecDefaults.framing, 8000),
+      systemIntegrity: nonEmptyStr(er.systemIntegrity, execRecDefaults.systemIntegrity, 8000),
+      humanAlignment: nonEmptyStr(er.humanAlignment, execRecDefaults.humanAlignment, 8000),
+      strategicCoherence: nonEmptyStr(er.strategicCoherence, execRecDefaults.strategicCoherence, 8000),
+      sustainabilityPractice: nonEmptyStr(
+        er.sustainabilityPractice,
+        execRecDefaults.sustainabilityPractice,
         8000
       ),
-      pillarRiskInterpretation: {
-        systemIntegrity: pillar((priRaw as any).systemIntegrity),
-        humanAlignment: pillar((priRaw as any).humanAlignment),
-        strategicCoherence: pillar((priRaw as any).strategicCoherence),
-        sustainabilityPractice: pillar((priRaw as any).sustainabilityPractice),
-      },
     };
   }
 
@@ -454,15 +593,7 @@ function coerceNarrativeForSchema(
   return out;
 }
 
-function sanitizeNarrativeJson(
-  input: any,
-  ctx: {
-    assessmentId: string;
-    companyReference: string;
-    industry?: string | null;
-    size?: string | null;
-  }
-) {
+function sanitizeNarrativeJson(input: any, ctx: NarrativeSanitizeCtx) {
   const normalized =
     input && typeof input === "object"
       ? {
@@ -548,6 +679,11 @@ function sanitizeNarrativeJson(
                   whatToPrioritize: [],
                   suggestedInvestmentLevel: "low",
                 },
+
+          executiveRecommendations:
+            input.executiveRecommendations && typeof input.executiveRecommendations === "object"
+              ? input.executiveRecommendations
+              : undefined,
 
           risks:
             input.risks && typeof input.risks === "object"
@@ -655,6 +791,7 @@ function sanitizeNarrativeJson(
       whatToPrioritize: [],
       suggestedInvestmentLevel: "low",
     },
+    executiveRecommendations: defaultExecutiveRecommendations(ctx),
     risks: {
       flags: [],
       implications:
@@ -805,7 +942,7 @@ async function generateNarrativeJsonWithAI(args: {
       excerpts: Array.isArray(docsEvidence) ? docsEvidence : [],
     },
     schema:
-      "Return ONLY valid JSON for the required schema: schemaVersion, assessmentId, organization, executiveSummaryBullets, maturityInterpretation, currentState, opportunities, pilotProjects, guardrails, actionPlan90Days, leadershipAlignment, risks, evidenceUsed, missingInputs.",
+      "Return ONLY valid JSON for the required schema: schemaVersion, assessmentId, organization, executiveSummaryBullets, maturityInterpretation, currentState, opportunities, pilotProjects, guardrails, actionPlan90Days, leadershipAlignment, executiveRecommendations, risks, evidenceUsed, missingInputs.",
   };
 
   const model = process.env.NARRATIVE_AI_MODEL || DEFAULT_NARRATIVE_MODEL;
@@ -882,9 +1019,14 @@ async function generateNarrativeJsonWithAI(args: {
     "",
     "SECTION REQUIREMENTS:",
     "",
-    "1. Executive Memo",
-    "- up to 1000 words.",
-    "- Summarize readiness, practical direction, and the main leadership takeaway in a clear, easy to understand, concise and engaging manner.",
+    "1. Executive Memo (stored in maturityInterpretation.explanation)",
+    "- Target up to 1500 words of memo-grade narrative (rich, scannable, suitable for an executive workshop printout).",
+    "- PREMIUM STRUCTURE: The explanation string MUST use the following headings each on its own line (Title Case), each followed by a blank line, then paragraphs (you may use bullet lines starting with '- ' where helpful):",
+    "  Executive Narrative",
+    "  Key dynamics",
+    "  Strategic implications",
+    "  Executive takeaway",
+    "- The opening section after 'Executive Narrative' should lead with a strong thesis sentence; keep language concrete and tied to INPUT evidence (e.g., data flows, workflow ownership, governance).",
     "- Use all information available to you to create a comprehensive and accurate summary of the assessment results.",
     "2. maturityInterpretation",
     "- anchorTruth should explain that maturity is structural capability and readiness is how safely the company can move into practical AI action.",
@@ -909,6 +1051,13 @@ async function generateNarrativeJsonWithAI(args: {
     "- Do not recommend vendor tools.",
     "- The pilotProjects array is what the product shows as Northline High-Value Entry Points (outcome = expectedOutcome, first move = whyThisIsAGoodStart); make those fields specific and workshop-ready.",
     "",
+    "5b. executiveRecommendations (Northline Executive recommendations — separate from pilotProjects)",
+    "- This is NOT the three entry-point pilots. It is a structured executive action layer grounded in the same evidence as the memo.",
+    "- framing: 2–4 sentences that orient the leadership team on how to use these recommendations in planning and governance forums.",
+    "- For each pillar key (systemIntegrity, humanAlignment, strategicCoherence, sustainabilityPractice): write 3–5 sentences of C-suite actionable guidance for improving how AI performs in the business (ownership, sequencing, funding, metrics, policy).",
+    "- Each pillar paragraph must reference that pillar's score from INPUT.results.pillars and echo themes from your Executive Memo (e.g., data flows, trust, alignment, sustainment) without contradicting protected scores.",
+    "- Tone: decisive, practical, calm; no vendor names; no invented facts.",
+    "",
     "6. guardrails",
     "- Include practical bullets for dataProtection, humanOversight, toolGovernance, and adoptionRisks.",
     "",
@@ -924,9 +1073,12 @@ async function generateNarrativeJsonWithAI(args: {
     "",
     "9. risks",
     "- Use provided risk flags when present.",
-    "- implications should be a short paragraph (not the long pillar write-up) on what failure or delay looks like if sequencing is ignored.",
+    "- implications (shown as 'In brief' in the product) must be a substantive paragraph (at least 4 sentences).",
+    "- When INPUT.results.riskFlags is empty, this is a value moment: explain where the organization can still improve AI outcomes even without doctrine flags—summarize themes from your Executive Memo (e.g., data flows, ownership, governance) and connect them to disciplined sequencing.",
+    "- When risk flags exist, implications should connect those flags to leadership sequencing and ownership.",
     "- pillarRiskInterpretation is REQUIRED: four camelCase keys: systemIntegrity, humanAlignment, strategicCoherence, sustainabilityPractice.",
-    "- Each pillar field: plain-language, executive audience—what this score means for AI risk, why it matters, and concrete actions leadership can take (priorities, guardrails, sequencing). Avoid jargon.",
+    "- Each pillar field: at least 3 substantial sentences; plain-language, executive audience—what this score means for AI adoption risk OR upside, why it matters, and concrete actions leadership can take (priorities, guardrails, sequencing). Avoid jargon.",
+    "- NEVER return placeholder phrases like 'TBD', 'insufficient context', or generic one-liners. If evidence is thin, still write a careful, conservative interpretation grounded in scores and memo themes.",
     "- Each paragraph must tie to that pillar's score from INPUT.results.pillars and reference risk flags that touch that pillar when relevant.",
     "- Explain adoption risk (scope, governance, sequencing) with practical implications—not generic advice.",
     "",
@@ -967,6 +1119,7 @@ async function generateNarrativeJsonWithAI(args: {
       "guardrails",
       "actionPlan90Days",
       "leadershipAlignment",
+      "executiveRecommendations",
       "risks",
       "evidenceUsed",
       "missingInputs",
@@ -1004,7 +1157,25 @@ async function generateNarrativeJsonWithAI(args: {
               protectedScore: { anyOf: [{ type: "number" }, { type: "null" }] },
             },
           },
-          explanation: { type: "string", maxLength: 8000 },
+          explanation: { type: "string", maxLength: 12000 },
+        },
+      },
+      executiveRecommendations: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "framing",
+          "systemIntegrity",
+          "humanAlignment",
+          "strategicCoherence",
+          "sustainabilityPractice",
+        ],
+        properties: {
+          framing: { type: "string", maxLength: 8000 },
+          systemIntegrity: { type: "string", maxLength: 8000 },
+          humanAlignment: { type: "string", maxLength: 8000 },
+          strategicCoherence: { type: "string", maxLength: 8000 },
+          sustainabilityPractice: { type: "string", maxLength: 8000 },
         },
       },
       currentState: {
@@ -1116,7 +1287,7 @@ async function generateNarrativeJsonWithAI(args: {
         required: ["flags", "implications", "pillarRiskInterpretation"],
         properties: {
           flags: { type: "array", items: {} },
-          implications: { type: "string" },
+          implications: { type: "string", maxLength: 8000 },
           pillarRiskInterpretation: {
             type: "object",
             additionalProperties: false,
@@ -1154,7 +1325,7 @@ async function generateNarrativeJsonWithAI(args: {
 
   const response = await client.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: 8192,
     system: systemText,
     messages: [{ role: "user", content: userText }],
     tools: [
@@ -1347,6 +1518,13 @@ function buildPlaceholderNarrative(args: {
       whatToPrioritize: [],
       suggestedInvestmentLevel: "low",
     },
+    executiveRecommendations: defaultExecutiveRecommendations({
+      assessmentId,
+      companyReference: reference,
+      industry: org.industry ?? null,
+      size: org.size ?? null,
+      aggregatePillars: results?.aggregate?.pillars ?? null,
+    }),
     risks: {
       flags: riskFlags,
       implications:
@@ -1955,6 +2133,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         results.body?.narrativeContext?.reference?.companyDescriptor ?? "the company",
       industry: org.industry ?? null,
       size: org.size ?? null,
+      aggregatePillars: results.body?.aggregate?.pillars ?? null,
     });
 
     const created = await prisma.assessmentNarrative.create({
@@ -1965,7 +2144,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         input_hash,
         engine_version: "v2.0",
         schema_version: "2.0",
-        prompt_version: usedAI ? "northline-workshop-v2.2" : "placeholder-v2",
+        prompt_version: usedAI ? "northline-workshop-v2.3" : "placeholder-v2",
         model_provider: usedAI ? "anthropic" : null,
         model_name: usedAI ? (process.env.NARRATIVE_AI_MODEL || DEFAULT_NARRATIVE_MODEL) : null,
         narrative_json,
