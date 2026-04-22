@@ -267,27 +267,14 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      select: {
-        id: true,
-        Participant: { select: { id: true, completed_at: true } },
-      },
+      select: { id: true },
     });
     if (!assessment) {
       return NextResponse.json({ ok: false, error: "Assessment not found" }, { status: 404 });
     }
 
-    const participantsTotal = assessment.Participant.length;
-    const participantsCompleted = assessment.Participant.filter(
-      (p) => p.completed_at !== null
-    ).length;
-    const isLocked =
-      participantsTotal > 0 && participantsCompleted === participantsTotal;
-    if (isLocked) {
-      return NextResponse.json(
-        { ok: false, error: "Assessment is locked. Participants are read-only." },
-        { status: 423 }
-      );
-    }
+    // Executive insights visibility is admin-controlled and may be changed after
+    // all participants complete (e.g. to run or expose insights post-assessment).
 
     const existing = await prisma.participant.findFirst({
       where: { id: participantId, assessment_id: assessmentId },

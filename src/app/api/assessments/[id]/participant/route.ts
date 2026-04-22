@@ -85,6 +85,7 @@ type ParticipantRow = {
   ai_opportunities_notes: string | null;
   created_at: Date;
   invite_accepted_at: Date | null;
+  completed_at: Date | null;
 };
 
 async function getAssessment(assessmentId: string): Promise<AssessmentRow | null> {
@@ -123,7 +124,8 @@ async function getParticipantByAssessmentAndUser(args: {
       seniority_level,
       ai_opportunities_notes,
       created_at,
-      invite_accepted_at
+      invite_accepted_at,
+      completed_at
     FROM "Participant"
     WHERE assessment_id = ${args.assessmentId}::uuid
       AND user_id = ${args.userId}::uuid
@@ -151,7 +153,8 @@ async function createParticipantForUser(args: {
       seniority_level,
       ai_opportunities_notes,
       created_at,
-      invite_accepted_at;
+      invite_accepted_at,
+      completed_at;
   `;
   const row = rows?.[0];
   if (!row) throw new Error("Failed to create participant.");
@@ -232,7 +235,8 @@ async function getParticipantByInvite(args: {
       seniority_level,
       ai_opportunities_notes,
       created_at,
-      invite_accepted_at
+      invite_accepted_at,
+      completed_at
     FROM "Participant"
     WHERE assessment_id = ${args.assessmentId}::uuid
       AND lower(email) = ${email}
@@ -249,6 +253,19 @@ async function markInviteAcceptedIfMissing(participantId: string) {
     SET invite_accepted_at = COALESCE(invite_accepted_at, NOW())
     WHERE id = ${participantId}::uuid;
   `;
+}
+
+function alreadyCompletedParticipantResponse() {
+  return NextResponse.json(
+    {
+      ok: false,
+      code: "already_completed" as const,
+      error: "Assessment already completed",
+      message:
+        "You have already finished this assessment. You cannot retake it or change your answers from this link. If you were invited to other assessments, each one uses its own invite link.",
+    },
+    { status: 409 }
+  );
 }
 
 async function updateParticipantFields(args: {
@@ -277,7 +294,8 @@ async function updateParticipantFields(args: {
       seniority_level,
       ai_opportunities_notes,
       created_at,
-      invite_accepted_at;
+      invite_accepted_at,
+      completed_at;
   `;
   const row = rows?.[0];
   if (!row) throw new Error("Failed to update participant.");
@@ -380,6 +398,10 @@ export async function POST(
 
       let participant = ensured.participant;
 
+      if (participant.completed_at != null) {
+        return alreadyCompletedParticipantResponse();
+      }
+
       const wantsAnyUpdate =
         desiredDepartment !== undefined ||
         seniorityFromBody !== undefined ||
@@ -424,6 +446,10 @@ export async function POST(
         { ok: false, error: "Unauthorized", message: "Invalid or expired invite link." },
         { status: 401 }
       );
+    }
+
+    if (participant.completed_at != null) {
+      return alreadyCompletedParticipantResponse();
     }
 
     // Enforce locked_department if present (invite flow too)

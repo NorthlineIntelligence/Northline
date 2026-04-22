@@ -117,6 +117,7 @@ export default function AssessmentStartPage() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [alreadyCompleted, setAlreadyCompleted] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [assessment, setAssessment] = useState<AssessmentMeta | null>(null);
@@ -132,6 +133,7 @@ export default function AssessmentStartPage() {
     async function load() {
       setLoading(true);
       setLoadError(null);
+      setAlreadyCompleted(false);
 
       if (!assessmentId) {
         setLoadError("Missing assessment id in route.");
@@ -162,11 +164,20 @@ export default function AssessmentStartPage() {
           });
 
         if (!ensureRes.ok) {
-          const detail = await safeReadError(ensureRes);
-          setLoadError(
-            detail ||
-              `Failed to initialize participant (${ensureRes.status}).`
-          );
+          const ensureJsonEarly = await ensureRes.json().catch(() => null);
+          if (ensureRes.status === 409 && ensureJsonEarly?.code === "already_completed") {
+            if (!cancelled) {
+              setAlreadyCompleted(true);
+              setLoading(false);
+            }
+            return;
+          }
+          const detail =
+            (ensureJsonEarly?.message as string) ||
+            (ensureJsonEarly?.error as string) ||
+            JSON.stringify(ensureJsonEarly ?? {}).slice(0, 400) ||
+            `Failed to initialize participant (${ensureRes.status}).`;
+          setLoadError(detail);
           setLoading(false);
           return;
         }
@@ -292,8 +303,17 @@ export default function AssessmentStartPage() {
     });
 
     if (!res.ok) {
-      const detail = await safeReadError(res);
-      setLoadError(detail || `Failed to save intake (${res.status}).`);
+      const j = await res.json().catch(() => null);
+      if (res.status === 409 && j?.code === "already_completed") {
+        setAlreadyCompleted(true);
+        setSaving(false);
+        return;
+      }
+      const detail =
+        (j?.message as string) ||
+        (j?.error as string) ||
+        `Failed to save intake (${res.status}).`;
+      setLoadError(detail);
       setSaving(false);
       return;
     }
@@ -349,6 +369,51 @@ export default function AssessmentStartPage() {
             AI Readiness Diagnostic
           </div>
           <div style={{ color: BRAND.greyBlue, marginTop: 8, fontWeight: 500 }}>Loading…</div>
+        </div>
+      </main>
+    );
+  }
+
+  if (alreadyCompleted) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
+          color: BRAND.text,
+        }}
+      >
+        <div style={shellCard}>
+          <BrandWordmark />
+          <div
+            style={{
+              marginTop: 14,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 20,
+              fontWeight: 800,
+              color: BRAND.dark,
+            }}
+          >
+            You already completed this assessment
+          </div>
+          <div
+            style={{
+              marginTop: 14,
+              padding: 16,
+              borderRadius: 14,
+              background: "#EFF6FF",
+              border: "1px solid #BFDBFE",
+              color: "#1E3A5F",
+              fontWeight: 600,
+              lineHeight: 1.55,
+            }}
+          >
+            This link is for a diagnostic you have already finished. You cannot go back in or change your answers from
+            here. Each assessment can only be completed once. If you were assigned to another assessment, use the invite
+            link for that one.
+          </div>
         </div>
       </main>
     );

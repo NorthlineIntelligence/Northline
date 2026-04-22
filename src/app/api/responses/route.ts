@@ -136,6 +136,25 @@ export async function POST(req: NextRequest) {
     }
     // ---------- END AUTH ----------
 
+    const participantProgress = await prisma.participant.findFirst({
+      where: { id: participant_id, assessment_id },
+      select: { completed_at: true },
+    });
+    if (!participantProgress) {
+      return NextResponse.json({ error: "Participant not found" }, { status: 404 });
+    }
+    if (participantProgress.completed_at != null) {
+      return NextResponse.json(
+        {
+          error: "already_completed",
+          code: "already_completed",
+          message:
+            "This assessment is already marked complete for your account. You cannot submit again.",
+        },
+        { status: 409 }
+      );
+    }
+
     // ---------- Duplicate protection in payload ----------
     const seen = new Set<string>();
     const duplicateQuestionIds: string[] = [];

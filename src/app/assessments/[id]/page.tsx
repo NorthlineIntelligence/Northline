@@ -234,6 +234,7 @@ export default function AssessmentTakePage() {
     typeof params?.id === "string" && params.id.length > 0 ? params.id : null;
 
   const [loading, setLoading] = useState(true);
+  const [alreadyCompleted, setAlreadyCompleted] = useState(false);
   const [participantId, setParticipantId] = useState<string | null>(null);
   const [participantDept, setParticipantDept] = useState<Department | null>(null);
   const [assessmentMeta, setAssessmentMeta] = useState<AssessmentMeta | null>(null);
@@ -337,6 +338,7 @@ export default function AssessmentTakePage() {
       setLoading(true);
       setLoadError(null);
       setSubmitResult(null);
+      setAlreadyCompleted(false);
 
       if (!assessmentId) {
         setLoadError("Missing assessment id in route. Ensure URL is /assessments/<UUID>.");
@@ -356,6 +358,16 @@ export default function AssessmentTakePage() {
           }),
         });
 
+        const ensureJson = await ensureRes.json().catch(() => null);
+
+        if (ensureRes.status === 409 && ensureJson?.code === "already_completed") {
+          if (!cancelled) {
+            setAlreadyCompleted(true);
+            setLoading(false);
+          }
+          return;
+        }
+
         if (ensureRes.status === 401) {
           if (inviteEmail && inviteToken) {
             setLoadError(
@@ -370,7 +382,6 @@ export default function AssessmentTakePage() {
           return;
         }
 
-        const ensureJson = await ensureRes.json().catch(() => null);
         if (ensureRes.ok && ensureJson?.ok) {
           if (!cancelled) {
             setParticipantId(ensureJson.participant.id);
@@ -578,6 +589,59 @@ export default function AssessmentTakePage() {
           </div>
         </main>
       </>
+    );
+  }
+
+  if (alreadyCompleted) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: shellBackground,
+          padding: "clamp(20px, 4vw, 40px)",
+          fontFamily: openSans.style.fontFamily,
+          color: BRAND.text,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 980,
+            margin: "0 auto",
+            borderRadius: 20,
+            padding: 28,
+            ...glassCard,
+          }}
+        >
+          <BrandWordmark logoUrl={logoUrl} />
+          <div
+            style={{
+              marginTop: 14,
+              fontFamily: montserrat.style.fontFamily,
+              fontSize: 20,
+              fontWeight: 800,
+              color: BRAND.dark,
+            }}
+          >
+            Assessment already completed
+          </div>
+          <div
+            style={{
+              marginTop: 16,
+              padding: 16,
+              borderRadius: 14,
+              background: "#EFF6FF",
+              border: "1px solid #BFDBFE",
+              color: "#1E3A5F",
+              fontWeight: 600,
+              lineHeight: 1.55,
+            }}
+          >
+            You have already finished this assessment. You cannot go back in to change answers or retake it from this
+            link. Each assessment can only be completed once. If you were invited to other diagnostics, open the invite
+            link for that specific assessment.
+          </div>
+        </div>
+      </main>
     );
   }
 

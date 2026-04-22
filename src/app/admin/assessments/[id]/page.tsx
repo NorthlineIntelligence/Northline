@@ -1431,7 +1431,12 @@ async function setParticipantExecutiveInsightsVisibility(
                 <tr style={{ background: "#F6F8FC" }}>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Email</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Department</th>
-                    <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Exec Insights</th>
+                    <th
+                      style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}
+                      title="Admins can change this anytime, including after the assessment is complete, to allow running or exposing Executive Insights."
+                    >
+                      Exec Insights
+                    </th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Invite</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Completed</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Created</th>
@@ -1458,11 +1463,14 @@ async function setParticipantExecutiveInsightsVisibility(
                           {p.department ?? "—"}
                         </td>
                         <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
-                          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
+                          <label
+                            style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 800 }}
+                            title="Works even when the assessment is locked. Turn on to let this participant open Executive Insights."
+                          >
                             <input
                               type="checkbox"
                               checked={Boolean(p.can_view_executive_insights)}
-                              disabled={isLocked || updatingVisibilityId === p.id}
+                              disabled={updatingVisibilityId === p.id}
                               onChange={(e) =>
                                 setParticipantExecutiveInsightsVisibility(
                                   p.id,
