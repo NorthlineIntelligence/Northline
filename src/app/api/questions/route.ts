@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   let assessmentType: string | null = null;
   let industryFilter: Industry[] | null = null;
   let resolvedAssessmentIndustry: Industry = "ALL_INDUSTRIES";
+  let resolvedLockedDepartment: Department | null = null;
 
   if (assessmentId) {
     const assessment = await prisma.assessment.findUnique({
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
     }
 
     assessmentType = assessment.type;
+    resolvedLockedDepartment = assessment.locked_department ?? null;
     resolvedAssessmentIndustry =
       assessment.industry ??
       normalizeIndustryText(assessment.organization?.industry) ??
@@ -101,6 +103,41 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Deduplicate to one question per pillar+display_order.
+  // Prefer exact industry and exact locked department when available.
+  function rankQuestion(q: (typeof renderedQuestions)[number]) {
+    const industryRank =
+      q.industry === resolvedAssessmentIndustry ? 2 : q.industry === "ALL_INDUSTRIES" ? 1 : 0;
+    const audienceRank = resolvedLockedDepartment
+      ? q.audience === resolvedLockedDepartment
+        ? 2
+        : q.audience === Department.ALL
+          ? 1
+          : 0
+      : q.audience === Department.ALL
+        ? 2
+        : 0;
+    return industryRank * 10 + audienceRank;
+  }
+
+  const dedupedQuestionsMap = new Map<string, (typeof renderedQuestions)[number]>();
+  for (const q of renderedQuestions) {
+    const key = `${q.pillar}::${q.display_order}`;
+    const current = dedupedQuestionsMap.get(key);
+    if (!current) {
+      dedupedQuestionsMap.set(key, q);
+      continue;
+    }
+    if (rankQuestion(q) > rankQuestion(current)) {
+      dedupedQuestionsMap.set(key, q);
+    }
+  }
+
+  const dedupedQuestions = Array.from(dedupedQuestionsMap.values()).sort((a, b) => {
+    if (a.pillar !== b.pillar) return a.pillar.localeCompare(b.pillar);
+    return a.display_order - b.display_order;
+  });
+
   const grouped: Record<Pillar, typeof questions> = {
     SYSTEM_INTEGRITY: [],
     HUMAN_ALIGNMENT: [],
@@ -108,7 +145,7 @@ export async function GET(req: NextRequest) {
     SUSTAINABILITY_PRACTICE: [],
   };
 
-  for (const q of renderedQuestions) grouped[q.pillar].push(q);
+  for (const q of dedupedQuestions) grouped[q.pillar].push(q);
 
   return NextResponse.json({
     version,
