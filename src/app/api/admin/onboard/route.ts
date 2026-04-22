@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
-import { createHash } from "crypto";
 import { Industry } from "@prisma/client";
 import { industryLabel, normalizeIndustryText } from "@/lib/assessmentIndustry";
 import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
@@ -81,94 +80,6 @@ async function extractTextFromFile(file: File, mime: string | null): Promise<str
   }
   return null;
 }
-
-function buildInviteEmailHtml(args: { orgName: string; startUrl: string }) {
-  const { orgName, startUrl } = args;
-
-  return `
-  <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; color:#0B1220; line-height:1.45">
-    <div style="max-width: 640px; margin: 0 auto; padding: 24px;">
-      <div style="font-size: 18px; font-weight: 800; color:#173464;">
-        Northline AI Readiness
-      </div>
-
-      <div style="margin-top: 14px; font-size: 14px;">
-        You’ve been invited to participate in the <b>${orgName}</b> AI Readiness Diagnostic.
-      </div>
-
-      <div style="margin-top: 16px;">
-        <a href="${startUrl}"
-           style="display:inline-block; background:#173464; color:#ffffff; text-decoration:none; font-weight:800; padding:12px 16px; border-radius:12px;">
-          Start Assessment
-        </a>
-      </div>
-
-      <div style="margin-top: 14px; font-size: 12px; color:#4B5565;">
-        If the button doesn’t work, copy/paste this link:
-        <div style="margin-top: 8px; padding: 10px; background:#F6F8FC; border:1px solid #E6EAF2; border-radius: 10px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
-          ${startUrl}
-        </div>
-      </div>
-
-      <div style="margin-top: 18px; font-size: 12px; color:#4B5565;">
-        This diagnostic is designed for executive clarity — not busywork. Thanks for contributing.
-      </div>
-    </div>
-  </div>
-  `;
-}
-
-async function sendInviteEmail(args: {
-    to: string;
-    subject: string;
-    html: string;
-  }) {
-    const apiKey = process.env.RESEND_API_KEY ?? "";
-    const from = process.env.RESEND_FROM_EMAIL ?? "";
-  
-    console.log("[invite] about to send email", {
-      to: args.to,
-      assessmentId: "(not available in this function)",
-      from,
-      hasKey: Boolean(apiKey),
-    });
-  
-    if (!apiKey || !from) {
-      console.error("[invite] missing env vars", {
-        hasKey: Boolean(apiKey),
-        hasFrom: Boolean(from),
-      });
-  
-      throw new Error("Missing RESEND_API_KEY or RESEND_FROM_EMAIL in environment variables.");
-    }
-  
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: args.to,
-        subject: args.subject,
-        html: args.html,
-      }),
-    });
-  
-    const detail = await res.text().catch(() => "");
-  
-    if (!res.ok) {
-      console.error("[invite] resend error", {
-        status: res.status,
-        statusText: res.statusText,
-        detail,
-      });
-      throw new Error(`Resend error (${res.status}): ${detail}`);
-    }
-  
-    console.log("[invite] resend success", { to: args.to, status: res.status });
-  }
 
 export async function POST(req: NextRequest) {
   try {
@@ -358,83 +269,13 @@ export async function POST(req: NextRequest) {
       return { orgId: org.id, orgName: org.name, assessmentId: assessment.id };
     });
 
-          // --- SEND EMAILS (after commit) ---
-          const origin =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  process.env.NEXT_PUBLIC_APP_URL ??
-  new URL(req.url).origin;
-
-          function startUrlFor(to: string) {
-            return `${origin}/assessments/${result.assessmentId}/start?email=${encodeURIComponent(
-              to
-            )}&token=${encodeURIComponent((toToken.get(to) ?? ""))}`;
-          }
-    
-          const toToken = new Map<string, string>();
-    
-          // Create a unique token per invitee and store its hash/expiry on their Participant row
-          if (invitees.length > 0) {
-            await Promise.all(
-        invitees.map(async (entry) => {
-          const to = entry.email;
-                const rawToken =
-                  crypto.randomUUID().replaceAll("-", "") +
-                  crypto.randomUUID().replaceAll("-", "");
-                const tokenHash = createHash("sha256").update(rawToken).digest("hex");
-    
-                toToken.set(to, rawToken);
-    
-                const inviteSentAt = new Date();
-                const inviteExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7); // 7 days
-    
-                await prisma.$executeRaw`
-                  UPDATE "Participant"
-                  SET
-                    invite_token_hash = ${tokenHash},
-                    invite_token_expires_at = ${inviteExpiresAt},
-                    invite_sent_at = ${inviteSentAt}
-                  WHERE
-                    assessment_id = ${result.assessmentId}::uuid
-                    AND email = ${to};
-                `; 
-              })
-            );
-          }
-    
-          let sentCount = 0;
-          let failCount = 0;
-    
-    if (invitees.length > 0) {
-      const subject = `Northline AI Readiness Diagnostic — ${result.orgName}`;
-      await Promise.all(
-        invitees.map(async (entry) => {
-            const to = entry.email;
-            const startUrl = startUrlFor(to);
-            console.log("[invite] startUrl", { to, startUrl });
-            const html = buildInviteEmailHtml({
-              orgName: result.orgName,
-              startUrl,
-            });
-      
-          try {
-            await sendInviteEmail({ to, subject, html });
-            sentCount += 1;
-          } catch (e: any) {
-            failCount += 1;
-            console.error("Invite email failure:", to, e?.message ?? String(e));
-          }
-        })
-      );
-    }
-
-    // Redirect to admin dashboard with send stats
-    const dashUrl = new URL(`/admin/dashboard`, req.url);
-    dashUrl.searchParams.set("created", "1");
-    dashUrl.searchParams.set("invited", String(invitees.length));
-    dashUrl.searchParams.set("sent", String(sentCount));
-    dashUrl.searchParams.set("failed", String(failCount));
-
-    return NextResponse.redirect(dashUrl, { status: 303 });
+    // Do not auto-send invites on intake create. Save participants only.
+    const orgUrl = new URL(`/admin/organizations/${result.orgId}`, req.url);
+    orgUrl.searchParams.set("created", "1");
+    orgUrl.searchParams.set("invited", String(invitees.length));
+    orgUrl.searchParams.set("sent", "0");
+    orgUrl.searchParams.set("failed", "0");
+    return NextResponse.redirect(orgUrl, { status: 303 });
   } catch (err: any) {
     return NextResponse.json(
       { error: "Internal Server Error", message: err?.message ?? String(err) },

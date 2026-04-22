@@ -1,17 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 
 type IngestResult =
   | {
       ok: true;
       version: string;
-      created: number;
-      updated: number;
-      receivedPillarKeys?: string[];
-      invalidPillars?: any[];
-      skippedQuestions?: any[];
+      normalizedQuestionCount: number;
+      upsertedCount: number;
+      deactivatedCount?: number;
     }
   | {
       ok: false;
@@ -24,11 +22,13 @@ type IngestResult =
 const TEMPLATE_HEADERS = [
   "pillar",
   "display_order",
+  "question_core",
+  "context_mode",
+  "industry_context_json",
   "question_text",
   "weight",
   "active",
   "audience",
-  "industry",
 ] as const;
 
 function normalizeKey(k: string) {
@@ -107,6 +107,10 @@ function parseCSV(text: string) {
   return { headers, rows, error: null as string | null };
 }
 
+function isEffectivelyEmptyRow(row: Record<string, string>) {
+  return Object.values(row).every((v) => String(v ?? "").trim().length === 0);
+}
+
 function validateTemplateHeaders(headers: string[]) {
   const normalized = headers.map(normalizeKey);
   const expected = [...TEMPLATE_HEADERS];
@@ -127,6 +131,8 @@ export default function QuestionIngestPage() {
 
   const [version, setVersion] = useState<string>("1");
   const [importing, setImporting] = useState(false);
+  const [importStartedAt, setImportStartedAt] = useState<number | null>(null);
+  const [importElapsedSec, setImportElapsedSec] = useState(0);
   const [importResult, setImportResult] = useState<IngestResult | null>(null);
 
   const columns = useMemo(() => {
@@ -134,13 +140,17 @@ export default function QuestionIngestPage() {
     return Object.keys(rawRows[0] ?? {});
   }, [rawRows]);
 
+  const importingLabel = importing
+    ? `Import in progress... ${importElapsedSec}s elapsed`
+    : "Ready to import";
+
   function downloadTemplateCsv() {
     const csv =
       [
         TEMPLATE_HEADERS.join(","),
-        'STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL,ALL_INDUSTRIES',
-        'STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES,LOGISTICS_TRANSPORTATION',
-        'SYSTEM_INTEGRITY,3,"Change-management process exists for AI rollouts.",1,true,ALL,Healthcare & Life Sciences',
+        'SYSTEM_INTEGRITY,6,"Do your systems work well together, or do they feel disconnected?",INLINE,"{""LOGISTICS"":""dispatch, tracking, customer updates"",""SAAS"":""CRM, product data, customer success tools""}",,1,true,ALL',
+        'HUMAN_ALIGNMENT,3,"Do people trust the decisions leadership makes?",NONE,"{}",,1,true,ALL',
+        'SYSTEM_INTEGRITY,1,"Do your core workflows feel clearly defined, or do people still figure them out as they go?",APPEND,"{""LOGISTICS"":""In areas like dispatch, shipment handling, and customer updates.""}",,1,true,ALL',
       ].join("\n") + "\n";
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -189,7 +199,8 @@ export default function QuestionIngestPage() {
         return obj;
       });
 
-      setRawRows(objs);
+      const nonEmptyRows = objs.filter((row) => !isEffectivelyEmptyRow(row));
+      setRawRows(nonEmptyRows);
       setError(null);
     };
     reader.readAsText(file);
@@ -197,17 +208,20 @@ export default function QuestionIngestPage() {
 
   function buildPayload() {
     // Keep ingest format strictly aligned to template headers.
-    const required = ["pillar", "question_text"];
+    const required = ["pillar"];
     const normalizedRows = rawRows.map((r) => {
       const out: Record<string, string> = {};
       for (const [k, v] of Object.entries(r)) out[normalizeKey(k)] = v;
       return out;
-    });
+    }).filter((row) => !isEffectivelyEmptyRow(row));
 
     for (const req of required) {
       if (!normalizedRows.every((r) => (r[req] ?? "").toString().trim().length > 0)) {
         throw new Error(`Missing required column/values: "${req}"`);
       }
+    }
+    if (!normalizedRows.every((r) => ((r["question_core"] ?? "").toString().trim() || (r["question_text"] ?? "").toString().trim()))) {
+      throw new Error('Each row must include "question_core" (or fallback "question_text").');
     }
 
     // Build { pillars: { PILLAR: [ ...questions ] } }
@@ -216,21 +230,24 @@ export default function QuestionIngestPage() {
     normalizedRows.forEach((r, idx) => {
       const pillar = normalizeEnumLike(r["pillar"]);
       const question_text = (r["question_text"] ?? "").toString().trim();
+      const question_core = (r["question_core"] ?? "").toString().trim();
+      const context_mode = normalizeEnumLike(r["context_mode"]) || "NONE";
+      const industry_context_json = (r["industry_context_json"] ?? "").toString().trim();
       const display_order = toNum(r["display_order"], idx + 1);
       const weight = toNum(r["weight"], 1);
       const active = toBool(r["active"], true);
       const audience = normalizeEnumLike(r["audience"]) || "ALL";
-      const industryRaw = (r["industry"] ?? "").toString().trim();
-      const industry = industryRaw || "ALL_INDUSTRIES";
 
       if (!pillars[pillar]) pillars[pillar] = [];
       pillars[pillar].push({
+        question_core,
+        context_mode,
+        industry_context_json,
         question_text,
         display_order,
         weight,
         active,
         audience,
-        industry,
       });
     });
 
@@ -258,6 +275,8 @@ export default function QuestionIngestPage() {
     }
 
     setImporting(true);
+    setImportStartedAt(Date.now());
+    setImportElapsedSec(0);
     try {
       const res = await fetch("/api/questions/ingest", {
         method: "POST",
@@ -283,12 +302,29 @@ export default function QuestionIngestPage() {
       setImportResult({ ok: false, error: "Network error", message: e?.message ?? String(e) });
     } finally {
       setImporting(false);
+      setImportStartedAt(null);
+      setImportElapsedSec(0);
     }
   }
+
+  useEffect(() => {
+    if (!importing || importStartedAt === null) return;
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      setImportElapsedSec(Math.max(0, Math.floor((now - importStartedAt) / 1000)));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [importing, importStartedAt]);
 
   return (
     <div className="min-h-screen" style={{ background: shellBackground, color: BRAND.dark }}>
       <div className="mx-auto max-w-5xl px-6 py-10">
+        <style>{`
+          @keyframes question-import-progress {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(240%); }
+          }
+        `}</style>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Question Ingestion</h1>
@@ -355,6 +391,38 @@ export default function QuestionIngestPage() {
             </div>
           </div>
 
+          <div className="mt-3">
+            <div className="mb-1 text-xs font-semibold" style={{ color: importing ? BRAND.dark : BRAND.greyBlue }}>
+              {importingLabel}
+            </div>
+            <div
+              className="relative h-2 overflow-hidden rounded-full border"
+              style={{ borderColor: BRAND.border, background: "#eef3f8" }}
+              aria-live="polite"
+            >
+              {importing ? (
+                <div
+                  className="absolute inset-y-0 w-1/3 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${BRAND.cyan}, ${BRAND.dark})`,
+                    animation: "question-import-progress 1.25s linear infinite",
+                  }}
+                />
+              ) : (
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full"
+                  style={{
+                    width: importResult?.ok ? "100%" : "0%",
+                    background: importResult?.ok
+                      ? `linear-gradient(90deg, ${BRAND.cyan}, ${BRAND.dark})`
+                      : "transparent",
+                    transition: "width 220ms ease",
+                  }}
+                />
+              )}
+            </div>
+          </div>
+
           {error && (
             <div className="mt-4 rounded-lg border p-3 text-sm font-medium text-red-700" style={{ borderColor: BRAND.border }}>
               {error}
@@ -373,18 +441,15 @@ export default function QuestionIngestPage() {
                     Version: <b>{importResult.version}</b>
                   </div>
                   <div>
-                    Created: <b>{importResult.created}</b> • Updated: <b>{importResult.updated}</b>
+                    Normalized rows: <b>{importResult.normalizedQuestionCount}</b> • Upserted:{" "}
+                    <b>{importResult.upsertedCount}</b>
+                    {typeof importResult.deactivatedCount === "number" ? (
+                      <>
+                        {" "}
+                        • Deactivated: <b>{importResult.deactivatedCount}</b>
+                      </>
+                    ) : null}
                   </div>
-                  {(importResult.invalidPillars?.length ?? 0) > 0 && (
-                    <div className="text-xs" style={{ color: BRAND.greyBlue }}>
-                      Invalid pillars: {JSON.stringify(importResult.invalidPillars)}
-                    </div>
-                  )}
-                  {(importResult.skippedQuestions?.length ?? 0) > 0 && (
-                    <div className="text-xs" style={{ color: BRAND.greyBlue }}>
-                      Skipped questions: {JSON.stringify(importResult.skippedQuestions)}
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="grid gap-2">
@@ -455,10 +520,10 @@ export default function QuestionIngestPage() {
             className="mt-2 overflow-auto rounded-lg border p-3 text-xs"
             style={{ borderColor: BRAND.border, background: "#f9fafb" }}
           >
-pillar,display_order,question_text,weight,active,audience,industry
-STRATEGIC_COHERENCE,1,"AI strategy exists.",1,true,ALL,ALL_INDUSTRIES
-STRATEGIC_COHERENCE,1,"Sales AI strategy is documented and adopted.",1,true,SALES,LOGISTICS_TRANSPORTATION
-SYSTEM_INTEGRITY,3,"Change-management process exists for AI rollouts.",1,true,ALL,Healthcare & Life Sciences
+            {`pillar,display_order,question_core,context_mode,industry_context_json,question_text,weight,active,audience
+SYSTEM_INTEGRITY,6,"Do your systems work well together, or do they feel disconnected?",INLINE,"{""LOGISTICS"":""dispatch, tracking, customer updates"",""SAAS"":""CRM, product data, customer success tools""}",,1,TRUE,ALL
+HUMAN_ALIGNMENT,3,"Do people trust the decisions leadership makes?",NONE,"{}",,1,TRUE,ALL
+SYSTEM_INTEGRITY,1,"Do your core workflows feel clearly defined, or do people still figure them out as they go?",APPEND,"{""LOGISTICS"":""In areas like dispatch, shipment handling, and customer updates.""}",,1,TRUE,ALL`}
           </pre>
           <div className="mt-2 text-xs" style={{ color: BRAND.greyBlue }}>
             Note: if your question text contains commas, wrap it in quotes like the examples above.

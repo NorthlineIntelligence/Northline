@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Department, Industry, Pillar } from "@prisma/client";
 import { normalizeIndustryText } from "@/lib/assessmentIndustry";
+import { renderQuestionText } from "@/lib/questionContextRenderer";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -75,13 +76,29 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       pillar: true,
+      question_core: true,
       question_text: true,
+      context_mode: true,
+      industry_context_json: true,
       display_order: true,
       weight: true,
       version: true,
       audience: true, // helpful for debugging/verification
       industry: true,
     },
+  });
+
+  const renderedQuestions = questions.map((q) => {
+    const renderedText = renderQuestionText({
+      questionCore: q.question_core || q.question_text,
+      contextMode: q.context_mode,
+      selectedIndustry: resolvedAssessmentIndustry,
+      industryContextJson: q.industry_context_json,
+    });
+    return {
+      ...q,
+      question_text: renderedText || q.question_text,
+    };
   });
 
   const grouped: Record<Pillar, typeof questions> = {
@@ -91,7 +108,7 @@ export async function GET(req: NextRequest) {
     SUSTAINABILITY_PRACTICE: [],
   };
 
-  for (const q of questions) grouped[q.pillar].push(q);
+  for (const q of renderedQuestions) grouped[q.pillar].push(q);
 
   return NextResponse.json({
     version,

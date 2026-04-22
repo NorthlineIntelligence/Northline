@@ -15,6 +15,11 @@ export async function GET() {
     ok: true,
     logo_data_url: row?.logo_data_url ?? null,
     logo_mime_type: row?.logo_mime_type ?? null,
+    quote_from_name: row?.quote_from_name ?? null,
+    quote_from_address: row?.quote_from_address ?? null,
+    quote_from_phone: row?.quote_from_phone ?? null,
+    quote_from_email: row?.quote_from_email ?? null,
+    quote_prepared_by_name: row?.quote_prepared_by_name ?? null,
   });
 }
 
@@ -27,6 +32,58 @@ export async function DELETE() {
     update: { logo_data_url: null, logo_mime_type: null },
   });
   return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: NextRequest) {
+  const auth = await getAdminApiUser();
+  if (!auth.ok) return auth.response;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+  const row = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const quote_from_name =
+    typeof row.quote_from_name === "string" ? row.quote_from_name.trim().slice(0, 200) : null;
+  const quote_from_address =
+    typeof row.quote_from_address === "string" ? row.quote_from_address.trim().slice(0, 2000) : null;
+  const quote_from_phone =
+    typeof row.quote_from_phone === "string" ? row.quote_from_phone.trim().slice(0, 120) : null;
+  const quote_from_email =
+    typeof row.quote_from_email === "string" ? row.quote_from_email.trim().slice(0, 200) : null;
+  const quote_prepared_by_name =
+    typeof row.quote_prepared_by_name === "string"
+      ? row.quote_prepared_by_name.trim().slice(0, 200)
+      : null;
+
+  const updated = await prisma.appBranding.upsert({
+    where: { id: "default" },
+    create: {
+      id: "default",
+      quote_from_name,
+      quote_from_address,
+      quote_from_phone,
+      quote_from_email,
+      quote_prepared_by_name,
+    },
+    update: {
+      quote_from_name,
+      quote_from_address,
+      quote_from_phone,
+      quote_from_email,
+      quote_prepared_by_name,
+    },
+  });
+  return NextResponse.json({
+    ok: true,
+    quote_from_name: updated.quote_from_name,
+    quote_from_address: updated.quote_from_address,
+    quote_from_phone: updated.quote_from_phone,
+    quote_from_email: updated.quote_from_email,
+    quote_prepared_by_name: updated.quote_prepared_by_name,
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/admin";
 import AdminControlsToggleButton from "../../AdminControlsToggleButton";
 import ProjectScopeToggleButton from "../../ProjectScopeToggleButton";
 import DeleteOrganizationButton from "../../DeleteOrganizationButton";
+import SendAssessmentButton from "../SendAssessmentButton";
 
 interface PageProps {
   params: Promise<{
@@ -45,6 +46,12 @@ export default async function OrganizationSettingsPage({ params }: PageProps) {
   if (!org) {
     notFound();
   }
+
+  const latestAssessment = org.assessments[0] ?? null;
+  const latestAssessmentEmails = (latestAssessment?.Participant ?? [])
+    .map((p) => p.email ?? "")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
 
   return (
     <div className="min-h-screen bg-[#fcfcfe] text-[#173464]">
@@ -108,7 +115,21 @@ export default async function OrganizationSettingsPage({ params }: PageProps) {
               organizationId={org.id}
               initialEnabled={Boolean(org.show_project_scope_review)}
             />
+            {latestAssessment ? (
+              <SendAssessmentButton
+                assessmentId={latestAssessment.id}
+                assessmentLocked={Boolean(latestAssessment.locked_at) || latestAssessment.status === "CLOSED"}
+                participantEmails={latestAssessmentEmails}
+              />
+            ) : null}
           </div>
+          {latestAssessment ? (
+            <p className="mt-3 text-xs text-[#66819e]">
+              Send Assessment uses the latest assessment and sends invite emails to saved participant email rows.
+            </p>
+          ) : (
+            <p className="mt-3 text-xs text-[#66819e]">No assessment exists yet for this organization.</p>
+          )}
         </div>
 
         <div className="mt-8">

@@ -173,7 +173,7 @@ export default async function NewOrganizationPage() {
             type="submit"
             className="rounded-lg border border-[#cdd8df] bg-white px-5 py-3 text-sm font-medium shadow-sm hover:shadow-md"
           >
-            Create Organization & Start Assessment
+            Create Organization
           </button>
         </form>
       </div>

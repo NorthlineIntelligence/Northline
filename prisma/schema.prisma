@@ -143,11 +143,14 @@ model Participant {
 model Question {
   id            String     @id @default(uuid()) @db.Uuid
   pillar        Pillar
+  question_core String?
   question_text String
   display_order Int
   weight        Int        @default(1)
   active        Boolean    @default(true)
   version       String     @default("1.0")
+  context_mode  QuestionContextMode @default(NONE)
+  industry_context_json Json?
   created_at    DateTime   @default(now())
 
   /// Which department this question is targeted for.
@@ -162,6 +165,12 @@ model Question {
   @@unique([pillar, display_order, version, audience, industry])
   @@index([pillar, active])
   @@index([version, audience, industry, active])
+}
+
+enum QuestionContextMode {
+  APPEND
+  INLINE
+  NONE
 }
 
 model Response {
@@ -578,5 +587,10 @@ model AppBranding {
   id             String   @id @default("default")
   logo_data_url  String?  @db.Text
   logo_mime_type String?
+  quote_from_name    String?
+  quote_from_address String?
+  quote_from_phone   String?
+  quote_from_email   String?
+  quote_prepared_by_name String?
   updated_at     DateTime @updatedAt
 }

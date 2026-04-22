@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { z } from "zod";
+import type { ReactNode } from "react";
 import { requireAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBg } from "@/lib/northlineBrand";
@@ -10,6 +11,110 @@ const ParamsSchema = z.object({ id: z.string().uuid() });
 function fmtMoney(cents: number | null | undefined) {
   if (cents == null || Number.isNaN(cents)) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
+function fmtDateUS(value: Date | string | null | undefined) {
+  if (!value) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
+function fmtDateTimeUS(value: Date | string | null | undefined) {
+  if (!value) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
+
+function renderInlineFormatting(text: string): Array<string | ReactNode> {
+  const out: Array<string | ReactNode> = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > cursor) out.push(text.slice(cursor, match.index));
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      out.push(<strong key={`b-${key++}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      out.push(<em key={`i-${key++}`}>{token.slice(1, -1)}</em>);
+    } else {
+      out.push(token);
+    }
+    cursor = regex.lastIndex;
+  }
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return out;
+}
+
+function renderRichText(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const nodes: ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  while (i < lines.length) {
+    const line = lines[i].trimEnd();
+    if (!line.trim()) {
+      i += 1;
+      continue;
+    }
+    const bullet = /^[-*]\s+/.test(line);
+    const numbered = /^\d+\.\s+/.test(line);
+    if (bullet || numbered) {
+      const listItems: ReactNode[] = [];
+      const isOrdered = numbered;
+      while (i < lines.length) {
+        const current = lines[i].trimEnd();
+        if (isOrdered ? /^\d+\.\s+/.test(current) : /^[-*]\s+/.test(current)) {
+          const content = current.replace(isOrdered ? /^\d+\.\s+/ : /^[-*]\s+/, "");
+          listItems.push(<li key={`li-${key++}`}>{renderInlineFormatting(content)}</li>);
+          i += 1;
+        } else if (!current.trim()) {
+          i += 1;
+          break;
+        } else {
+          break;
+        }
+      }
+      nodes.push(
+        isOrdered ? (
+          <ol key={`ol-${key++}`} className="list-decimal pl-5 space-y-1">
+            {listItems}
+          </ol>
+        ) : (
+          <ul key={`ul-${key++}`} className="list-disc pl-5 space-y-1">
+            {listItems}
+          </ul>
+        )
+      );
+      continue;
+    }
+    const paragraphLines = [line];
+    i += 1;
+    while (i < lines.length && lines[i].trim()) {
+      if (/^[-*]\s+/.test(lines[i]) || /^\d+\.\s+/.test(lines[i])) break;
+      paragraphLines.push(lines[i].trimEnd());
+      i += 1;
+    }
+    nodes.push(
+      <p key={`p-${key++}`} className="whitespace-pre-wrap">
+        {renderInlineFormatting(paragraphLines.join("\n"))}
+      </p>
+    );
+  }
+  return <div className="space-y-2">{nodes}</div>;
 }
 
 function normalizeLookupText(value: unknown) {
@@ -65,7 +170,26 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
     : [];
   const workItems = parseScopeWorkItemsFromPayload(payload);
   const customLines = Array.isArray(payload.customLines) ? payload.customLines : [];
-  const pricedItems = workItems.filter((w) => Boolean(w.engagementName));
+  const pricedItems = workItems.filter((w) => Boolean(w.engagementName) && (w.quantity ?? 0) > 0);
+  const pricingRows = customLines
+    .map((line, i) => {
+      if (!line || typeof line !== "object") return null;
+      const r = line as Record<string, unknown>;
+      const source = pricedItems[i];
+      const qty = typeof r.quantity === "number" && Number.isFinite(r.quantity) ? Math.max(0, r.quantity) : 0;
+      const unit =
+        typeof r.unit_price_cents === "number" && Number.isFinite(r.unit_price_cents)
+          ? r.unit_price_cents
+          : 0;
+      return {
+        id: source?.id ?? `line-${i}`,
+        description: source?.engagementName || source?.title || String(r.description ?? "Project line"),
+        qty,
+        discountPct: source?.discountPct ?? 0,
+        amountCents: Math.round(qty * unit),
+      };
+    })
+    .filter((row): row is { id: string; description: string; qty: number; discountPct: number; amountCents: number } => row !== null);
   const hasAssessmentInScope = pricedItems.some((w) => {
     const t = normalizeLookupText(w.title);
     const e = normalizeLookupText(w.engagementName);
@@ -81,7 +205,7 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
     typeof payload.quoteDiscountPct === "number" && Number.isFinite(payload.quoteDiscountPct)
       ? Math.max(0, Math.min(100, payload.quoteDiscountPct))
       : 0;
-  const hasLineDiscounts = workItems.some((w) => (w.discountPct ?? 0) > 0);
+  const hasLineDiscounts = pricingRows.some((w) => (w.discountPct ?? 0) > 0);
   const preOverallTotalCents = customLines.reduce((sum, row) => {
     if (!row || typeof row !== "object") return sum;
     const r = row as Record<string, unknown>;
@@ -118,7 +242,7 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
               Back to quote workspace
             </Link>
             <a
-              href={`/api/admin/crm/quotes/${quote.id}/pdf`}
+              href={`/admin/crm/quotes/${quote.id}/client`}
               target="_blank"
               rel="noreferrer"
               className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
@@ -128,7 +252,10 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
             </a>
           </div>
           <p className="mt-2 text-sm font-semibold" style={{ color: BRAND.muted }}>
-            {quote.organization.name} • {quote.status} • Updated {new Date(quote.updated_at).toLocaleString()}
+            {quote.organization.name} • {quote.status} • Updated {fmtDateTimeUS(quote.updated_at)}
+          </p>
+          <p className="mt-1 text-xs font-semibold" style={{ color: BRAND.muted }}>
+            Valid until: {quote.valid_until ? fmtDateUS(quote.valid_until) : "Not set"}
           </p>
         </header>
 
@@ -206,32 +333,28 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
                 <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
                   <th className="pb-2 pr-3">Description</th>
                   <th className="pb-2 pr-3">Qty</th>
-                  <th className="pb-2 pr-3">Discount</th>
+                  {hasLineDiscounts ? <th className="pb-2 pr-3">Discount</th> : null}
                   <th className="pb-2">Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {pricedItems.map((w, i) => {
-                  const line = customLines[i];
-                  const lineObj = line && typeof line === "object" ? (line as Record<string, unknown>) : {};
-                  const amountCents =
-                    typeof lineObj.unit_price_cents === "number" && Number.isFinite(lineObj.unit_price_cents)
-                      ? lineObj.unit_price_cents
-                      : 0;
+                {pricingRows.map((row) => {
                   return (
-                    <tr key={w.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
-                      <td className="py-2 pr-3">{w.engagementName || w.title}</td>
-                      <td className="py-2 pr-3">{w.quantity}</td>
-                      <td className="py-2 pr-3">
-                        {w.discountPct > 0 ? `${w.discountPct.toFixed(1).replace(/\.0$/, "")}%` : ""}
-                      </td>
-                      <td className="py-2">{fmtMoney(amountCents)}</td>
+                    <tr key={row.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
+                      <td className="py-2 pr-3">{row.description}</td>
+                      <td className="py-2 pr-3">{row.qty}</td>
+                      {hasLineDiscounts ? (
+                        <td className="py-2 pr-3">
+                          {row.discountPct > 0 ? `${row.discountPct.toFixed(1).replace(/\.0$/, "")}%` : ""}
+                        </td>
+                      ) : null}
+                      <td className="py-2">{fmtMoney(row.amountCents)}</td>
                     </tr>
                   );
                 })}
-                {pricedItems.length === 0 ? (
+                {pricingRows.length === 0 ? (
                   <tr>
-                    <td className="py-2" colSpan={4} style={{ color: BRAND.muted }}>
+                    <td className="py-2" colSpan={hasLineDiscounts ? 4 : 3} style={{ color: BRAND.muted }}>
                       No pricing lines yet.
                     </td>
                   </tr>
@@ -278,7 +401,7 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
             <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
               Terms
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed">{terms}</p>
+            <div className="mt-2 text-sm font-semibold leading-relaxed">{renderRichText(terms)}</div>
           </section>
         ) : null}
         {paymentTerms ? (
@@ -286,7 +409,7 @@ export default async function QuotePreviewPage(context: { params: Promise<{ id: 
             <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
               Payment Terms
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed">{paymentTerms}</p>
+            <div className="mt-2 text-sm font-semibold leading-relaxed">{renderRichText(paymentTerms)}</div>
           </section>
         ) : null}
       </div>

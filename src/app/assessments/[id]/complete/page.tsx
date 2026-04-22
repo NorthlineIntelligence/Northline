@@ -108,6 +108,31 @@ export default function AssessmentCompletePage() {
     return s ? `?${s}` : "";
   }, [inviteEmail, inviteToken]);
 
+  const [insightsAccess, setInsightsAccess] = React.useState<"unknown" | "allowed" | "restricted">("unknown");
+
+  useEffect(() => {
+    if (!assessmentId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/assessments/${assessmentId}/narrative${authQs}`, {
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (res.status === 401 || res.status === 403) {
+          setInsightsAccess("restricted");
+          return;
+        }
+        setInsightsAccess("allowed");
+      } catch {
+        if (!cancelled) setInsightsAccess("allowed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [assessmentId, authQs]);
+
   return (
     <main
       style={{
@@ -154,8 +179,34 @@ export default function AssessmentCompletePage() {
             fontSize: 15,
           }}
         >
-          Your responses have been recorded. Next, open your executive narrative when it is available.
+          {insightsAccess === "restricted"
+            ? "Your responses have been recorded. Results are under review by Northline Intelligence and your executive team."
+            : "Your responses have been recorded. Next, open your executive narrative when it is available."}
         </div>
+        {insightsAccess === "restricted" ? (
+          <div
+            style={{
+              marginTop: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              border: `1px solid ${BRAND.lightAzure}`,
+              background: "rgba(23, 52, 100, 0.05)",
+              color: BRAND.dark,
+              borderRadius: 999,
+              padding: "7px 12px",
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: "0.03em",
+              textTransform: "uppercase",
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>
+              🔒
+            </span>
+            Review in progress
+          </div>
+        ) : null}
 
         {!inviteEmail || !inviteToken ? (
           <div style={{ marginTop: 14, color: "#b42318", fontWeight: 700, fontSize: 13, lineHeight: 1.45 }}>
@@ -165,50 +216,82 @@ export default function AssessmentCompletePage() {
         ) : null}
 
         <div style={{ marginTop: 24, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => {
-              if (!assessmentId) return;
-              router.push(`/assessments/${assessmentId}/narrative${authQs}`);
-            }}
-            disabled={!assessmentId}
-            style={{
-              background: BRAND.cyan,
-              color: BRAND.dark,
-              border: "none",
-              padding: "14px 22px",
-              borderRadius: 14,
-              fontWeight: 800,
-              fontSize: 14,
-              letterSpacing: "0.02em",
-              cursor: assessmentId ? "pointer" : "not-allowed",
-              opacity: assessmentId ? 1 : 0.55,
-              boxShadow: assessmentId ? "0 6px 22px rgba(52, 176, 180, 0.35)" : "none",
-            }}
-          >
-            Executive narrative →
-          </button>
+          {insightsAccess === "restricted" ? (
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  window.close();
+                } catch {}
+                setTimeout(() => {
+                  try {
+                    window.location.replace("about:blank");
+                  } catch {}
+                }, 120);
+              }}
+              style={{
+                background: BRAND.cyan,
+                color: BRAND.dark,
+                border: "none",
+                padding: "14px 22px",
+                borderRadius: 14,
+                fontWeight: 800,
+                fontSize: 14,
+                letterSpacing: "0.02em",
+                cursor: "pointer",
+                boxShadow: "0 6px 22px rgba(52, 176, 180, 0.35)",
+              }}
+            >
+              Close this session
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!assessmentId) return;
+                  router.push(`/assessments/${assessmentId}/narrative${authQs}`);
+                }}
+                disabled={!assessmentId}
+                style={{
+                  background: BRAND.cyan,
+                  color: BRAND.dark,
+                  border: "none",
+                  padding: "14px 22px",
+                  borderRadius: 14,
+                  fontWeight: 800,
+                  fontSize: 14,
+                  letterSpacing: "0.02em",
+                  cursor: assessmentId ? "pointer" : "not-allowed",
+                  opacity: assessmentId ? 1 : 0.55,
+                  boxShadow: assessmentId ? "0 6px 22px rgba(52, 176, 180, 0.35)" : "none",
+                }}
+              >
+                Executive narrative →
+              </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (!assessmentId) return;
-              router.push(`/assessments/${assessmentId}${authQs}`);
-            }}
-            disabled={!assessmentId}
-            style={{
-              background: "#fff",
-              color: BRAND.dark,
-              border: `1px solid ${BRAND.lightAzure}`,
-              padding: "14px 22px",
-              borderRadius: 14,
-              fontWeight: 700,
-              cursor: assessmentId ? "pointer" : "not-allowed",
-              opacity: assessmentId ? 1 : 0.55,
-            }}
-          >
-            Back to assessment
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!assessmentId) return;
+                  router.push(`/assessments/${assessmentId}${authQs}`);
+                }}
+                disabled={!assessmentId}
+                style={{
+                  background: "#fff",
+                  color: BRAND.dark,
+                  border: `1px solid ${BRAND.lightAzure}`,
+                  padding: "14px 22px",
+                  borderRadius: 14,
+                  fontWeight: 700,
+                  cursor: assessmentId ? "pointer" : "not-allowed",
+                  opacity: assessmentId ? 1 : 0.55,
+                }}
+              >
+                Back to assessment
+              </button>
+            </>
+          )}
         </div>
 
         <div
