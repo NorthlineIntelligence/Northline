@@ -716,7 +716,36 @@ function sanitizeNarrativeJson(input: any, ctx: NarrativeSanitizeCtx) {
       ? coerceNarrativeForSchema(normalized as Record<string, any>, ctx)
       : normalized;
 
-  const parsed = NarrativeSchema.safeParse(candidate);
+  const scrubRoleAndBlameLanguage = (text: string): string => {
+    let out = text;
+    out = out.replace(
+      /\bwhether leadership is willing to do the pre[- ]work\b/gi,
+      "whether the organization is prepared to complete the foundational pre-work"
+    );
+    out = out.replace(
+      /\b(COO|CEO|CFO|CTO|CIO|CHRO|VP of Operations|Vice President of Operations|Sales Manager|Operations Manager)\b/gi,
+      "a respondent"
+    );
+    out = out.replace(/\ba respondent's\b/gi, "one respondent's");
+    return out;
+  };
+
+  const scrubDeepStrings = (value: unknown): unknown => {
+    if (typeof value === "string") return scrubRoleAndBlameLanguage(value);
+    if (Array.isArray(value)) return value.map((v) => scrubDeepStrings(v));
+    if (value && typeof value === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        out[k] = scrubDeepStrings(v);
+      }
+      return out;
+    }
+    return value;
+  };
+
+  const scrubbedCandidate = scrubDeepStrings(candidate);
+
+  const parsed = NarrativeSchema.safeParse(scrubbedCandidate);
   if (parsed.success) return parsed.data;
 
   console.warn("NarrativeSchema validation failed (Zod):", {
@@ -1101,6 +1130,9 @@ async function generateNarrativeJsonWithAI(args: {
     "",
     "PERCEPTION & ALIGNMENT LAYER (INPUT.results.perceptionAlignmentSignals):",
     "- These are pattern-based discrepancy checks. They are NOT accusations, NOT score overrides, and NOT claims that respondents were wrong.",
+    "- Never identify or infer specific participants, roles, titles, departments, or hierarchy levels in narrative prose.",
+    "- Use generic references only (for example: 'one respondent', 'another respondent', 'responses varied across participants').",
+    "- Avoid blame-oriented or finger-pointing language. Do not frame recommendations as willingness/failure by a person or leadership group.",
     "- When INPUT.results.perceptionAlignmentSignals is non-empty:",
     "  - Add INPUT.results.perceptionAlignmentExecutiveNote verbatim as its own item in executiveSummaryBullets (one bullet).",
     "  - Reflect the same themes once in maturityInterpretation.explanation (within the Executive narrative / takeaway sections) using neutral, insight-oriented language about validation and cross-functional alignment.",

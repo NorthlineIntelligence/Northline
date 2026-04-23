@@ -201,6 +201,20 @@ function formatRiskDetails(details: any): string {
 
 function formatPerceptionDetails(details: unknown): string {
   if (!details || typeof details !== "object") return "";
+  const d = details as Record<string, unknown>;
+  const spread = typeof d.spread === "number" ? d.spread.toFixed(2) : null;
+  const roleAverages =
+    d.roleAverages && typeof d.roleAverages === "object"
+      ? (d.roleAverages as Record<string, unknown>)
+      : null;
+  if (roleAverages) {
+    const values = Object.values(roleAverages).filter((v): v is number => typeof v === "number");
+    if (values.length >= 2) {
+      const max = Math.max(...values).toFixed(2);
+      const min = Math.min(...values).toFixed(2);
+      return `Participant spread on this pillar: ${spread ?? "n/a"} points (highest ${max}, lowest ${min}).`;
+    }
+  }
   try {
     return JSON.stringify(details, null, 0).slice(0, 520);
   } catch {
