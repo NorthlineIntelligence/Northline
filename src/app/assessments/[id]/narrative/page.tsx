@@ -7,6 +7,7 @@ import { briefForPerceptionSignal } from "@/lib/perceptionAlignmentBriefs";
 import { pickPerceptionSignalsForDisplay } from "@/lib/perceptionAlignmentSignals";
 import { Open_Sans } from "next/font/google";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
+import { ASSESSMENTS_IN_PROGRESS_MESSAGE } from "@/lib/assessmentParticipantMessages";
 
 const openSans = Open_Sans({
   subsets: ["latin"],
@@ -21,7 +22,8 @@ type NarrativeApiResponse =
 type RadarPoint = {
   key: string;
   label: string;
-  value: number; // 0..5
+  value: number;
+  missing?: boolean;
   color: string;
   bandKey: string;
   band: string | null;
@@ -136,6 +138,10 @@ function extractPillarScore(payload: any, pillarKey: string): number | null {
 }
 
 function buildRadarData(payload: any): RadarPoint[] {
+  if (!payload || typeof payload !== "object" || payload.ok === false) {
+    return [];
+  }
+
   const legend = getAt(payload, ["bands", "legend"]) ?? {};
   const unknownColor = typeof legend?.unknown?.color === "string" ? legend.unknown.color : "#cdd8df";
 
@@ -164,19 +170,22 @@ function buildRadarData(payload: any): RadarPoint[] {
     const valueFromRadar = typeof rawRadar === "number" ? rawRadar : null;
     const valueFromAggregate = extractPillarScore(payload, k);
 
-    const value =
+    const missing = valueFromRadar === null && valueFromAggregate === null;
+    const numeric =
       typeof valueFromRadar === "number"
         ? valueFromRadar
         : typeof valueFromAggregate === "number"
           ? valueFromAggregate
-          : 0;
+          : null;
+    const value = numeric === null ? 0 : clamp(numeric, 0, 5);
 
     const b = bandInfo(r?.bandKey);
 
     return {
       key: k,
       label: prettyPillarLabel(k),
-      value: clamp(value, 0, 5),
+      value,
+      missing,
       color: typeof r?.color === "string" ? r.color : b.color,
       bandKey: b.bandKey,
       band: typeof r?.band === "string" ? r.band : b.band,
@@ -253,6 +262,15 @@ function RadarChart({
 
   if (n < 3) {
     return <div style={{ color: BRAND.muted, fontWeight: 750 }}>Not enough data to render radar.</div>;
+  }
+
+  if (points.some((p) => p.missing)) {
+    return (
+      <div style={{ color: BRAND.muted, fontWeight: 750, maxWidth: 420, lineHeight: 1.45 }}>
+        Scores are not available for this view yet. If you just finished your assessment, wait a moment and refresh—combined
+        results can take a few seconds to appear.
+      </div>
+    );
   }
 
   const cx = size / 2;
@@ -935,23 +953,21 @@ export default function AssessmentNarrativePage() {
 
     setShowAdminControls(Boolean(flag));
   }, [diagnosticData]);
-// Completion stats (from /api/assessments/[id]/results)
 
+  // Completion stats (from /api/assessments/[id]/results)
+  const allParticipantsCompleted =
+    typeof diagnosticData?.all_participants_completed === "boolean"
+      ? diagnosticData.all_participants_completed
+      : null;
 
+  // Only lock non-admin viewers until every invited participant has submitted
+  const participantLocked = !showAdminControls && allParticipantsCompleted === false;
+  const hasInviteAuth = Boolean(inviteEmail && inviteToken);
+  const canAttemptGenerate = Boolean(assessmentId) && (showAdminControls || hasInviteAuth);
 
-const allParticipantsCompleted =
-  typeof diagnosticData?.all_participants_completed === "boolean"
-    ? diagnosticData.all_participants_completed
-    : null;
-
-// Only lock non-admin viewers
-const participantLocked = !showAdminControls && allParticipantsCompleted === false;
-const hasInviteAuth = Boolean(inviteEmail && inviteToken);
-const canAttemptGenerate = Boolean(assessmentId) && (showAdminControls || hasInviteAuth);
-
-const showProjectScopeLink = Boolean(
-  diagnosticData?.assessment?.organization?.show_project_scope_review
-);
+  const showProjectScopeLink = Boolean(
+    diagnosticData?.assessment?.organization?.show_project_scope_review
+  );
 
   // Results loader (retry once on 404)
   useEffect(() => {
@@ -978,16 +994,27 @@ const showProjectScopeLink = Boolean(
         }
 
         if (!res.ok) {
-          if (alive) setDiagnosticErr(`Results fetch failed (${res.status}).`);
+          if (alive) {
+            setDiagnosticData(null);
+            setDiagnosticErr(`Results fetch failed (${res.status}).`);
+          }
           return;
         }
 
         const json = await res.json();
         if (!alive) return;
+
+        if (json && json.ok === false) {
+          setDiagnosticData(null);
+          setDiagnosticErr(typeof json.error === "string" ? json.error : "Could not load results.");
+          return;
+        }
+
         setDiagnosticData(json);
       } catch (e: any) {
         if (!alive) return;
         if (e?.name === "AbortError") return;
+        setDiagnosticData(null);
         setDiagnosticErr(e?.message ?? "Results fetch failed.");
       } finally {
         if (alive) setDiagnosticLoading(false);
@@ -1019,16 +1046,17 @@ const showProjectScopeLink = Boolean(
           }
         );
 
-        // If no narrative exists yet, we still consider "loaded" so UI can show the empty state.
-        if (res.status === 404) return;
-
         const json = await res.json().catch(() => null);
         if (!alive) return;
         if (!res.ok) return;
 
-        if (json && json.ok === true && json.narrative) {
-          setNarrative(json.narrative);
-          setCached(true);
+        if (json && json.ok === true) {
+          if (json.narrative) {
+            setNarrative(json.narrative);
+            setCached(json.cached === true);
+          } else {
+            setNarrative(null);
+          }
         }
       } catch (e: any) {
         if (!alive) return;
@@ -1100,6 +1128,14 @@ const showProjectScopeLink = Boolean(
 
   const totalSignalCount = riskFlags.length + perceptionAlignmentSignals.length;
 
+  const participantProgress = useMemo(() => {
+    const c = diagnosticData?.participants_completed;
+    const t = diagnosticData?.participants_total;
+    const all = diagnosticData?.all_participants_completed;
+    if (typeof c !== "number" || typeof t !== "number") return null;
+    return { completed: c, total: t, allDone: Boolean(all) };
+  }, [diagnosticData]);
+
   const pillarRiskInterpretationMap = useMemo(
     () => buildPillarRiskInterpretationDisplay(narrativeJson?.risks?.pillarRiskInterpretation, diagnosticData),
     [narrativeJson, diagnosticData]
@@ -1146,11 +1182,11 @@ const showProjectScopeLink = Boolean(
       return;
     }
     if (participantLocked) {
-        setErr(
-          "All participants have not completed the assessment.\n\nPlease check back once the administrator confirms completion."
-        );
-        return;
-      }
+      setErr(
+        `${ASSESSMENTS_IN_PROGRESS_MESSAGE}\n\nThe narrative memo unlocks after every invited participant has submitted. You can still review the live radar and signals on this page.`
+      );
+      return;
+    }
     setSubmitting(true);
     setErr(null);
 
@@ -1180,9 +1216,12 @@ const showProjectScopeLink = Boolean(
       const msg = String((json as any)?.error ?? (json as any)?.message ?? "");
 
       // Completion gate: show friendly message
-      if (!res.ok && msg.includes("All participants have not completed the assessment")) {
+      if (
+        !res.ok &&
+        (msg.includes("There are other assessments still in progress") || msg.includes("All participants have not completed"))
+      ) {
         setErr(
-          "All participants have not completed the assessment.\n\nPlease check back once the administrator confirms completion."
+          `${ASSESSMENTS_IN_PROGRESS_MESSAGE}\n\nThe narrative memo unlocks after every invited participant has submitted. You can still review the live radar and signals on this page.`
         );
         return;
       }
@@ -1232,19 +1271,6 @@ const showProjectScopeLink = Boolean(
       ? diagnosticData.organizationName.trim()
       : null) ??
     "No org name present";
-  const participantsCompleted =
-  typeof diagnosticData?.participantsCompleted === "number"
-    ? diagnosticData.participantsCompleted
-    : typeof diagnosticData?.meta?.participantsCompleted === "number"
-      ? diagnosticData.meta.participantsCompleted
-      : null;
-
-const participantsTotal =
-  typeof diagnosticData?.participantsTotal === "number"
-    ? diagnosticData.participantsTotal
-    : typeof diagnosticData?.meta?.participantsTotal === "number"
-      ? diagnosticData.meta.participantsTotal
-      : null;
   return (
     <main
       style={{
@@ -1324,6 +1350,11 @@ const participantsTotal =
               <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: BRAND.greyBlue }}>
                 Generated: {narrative ? isoToPretty(narrative.created_at) : "—"}
               </div>
+              {participantProgress && participantProgress.total > 1 ? (
+                <div style={{ marginTop: 10, fontSize: 12, fontWeight: 900, color: BRAND.dark }}>
+                  Assessments completed: {participantProgress.completed}/{participantProgress.total}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1421,6 +1452,25 @@ const participantsTotal =
         flexWrap: "wrap",
       }}
     >
+      {participantProgress && participantProgress.total > 1 ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 2,
+            marginRight: 4,
+          }}
+          title="Invited participants who have submitted their assessment"
+        >
+          <div style={{ fontSize: 11, fontWeight: 900, color: BRAND.greyBlue, textTransform: "uppercase" }}>
+            Assessments
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 950, color: BRAND.dark }}>
+            {participantProgress.completed}/{participantProgress.total} done
+          </div>
+        </div>
+      ) : null}
       {/* Export PDF */}
       <a
         href={
@@ -1456,8 +1506,8 @@ const participantsTotal =
           !canAttemptGenerate
             ? "Requires an invite link (?email=...&token=...) or an admin session."
             : participantLocked
-            ? "Waiting for completion."
-            : "Generate / Refresh the memo"
+              ? ASSESSMENTS_IN_PROGRESS_MESSAGE
+              : "Generate / Refresh the memo"
         }
         style={{
           background: BRAND.cyan,
@@ -1499,7 +1549,7 @@ const participantsTotal =
           }}
           title={
             participantLocked
-              ? "Available once all participants have completed the assessment."
+              ? "Available once every invited participant has submitted."
               : "Northline Intelligence project scope overview"
           }
         >
@@ -1530,31 +1580,29 @@ const participantsTotal =
     </div>
   </div>
 </div>
-{participantLocked ? (
-  <div
-    style={{
-      marginTop: 12,
-      border: "1px solid #FED7D7",
-      background: "#FFF5F5",
-      borderRadius: 12,
-      padding: 12,
-      color: BRAND.danger,
-      fontWeight: 850,
-      lineHeight: 1.35,
-      whiteSpace: "pre-line",
-    }}
-  >
-    All participants have not completed the assessment.
-    {"\n\n"}
-    Please check back once the administrator confirms completion.
-    {typeof participantsCompleted === "number" && typeof participantsTotal === "number" ? (
-      <>
-        {"\n\n"}
-        Progress: {participantsCompleted}/{participantsTotal} completed
-      </>
-    ) : null}
-  </div>
-) : null}
+
+        {participantProgress && participantProgress.total > 1 && !participantProgress.allDone ? (
+          <div
+            data-no-print="true"
+            style={{
+              marginTop: 14,
+              padding: "14px 16px",
+              borderRadius: 14,
+              background: "#F3F7FF",
+              border: `1px solid ${BRAND.border}`,
+              color: BRAND.dark,
+              fontWeight: 750,
+              lineHeight: 1.45,
+            }}
+          >
+            <div style={{ fontWeight: 950 }}>{ASSESSMENTS_IN_PROGRESS_MESSAGE}</div>
+            <div style={{ marginTop: 8, fontSize: 13, color: BRAND.muted, fontWeight: 700 }}>
+              {participantProgress.completed <= 1
+                ? "The radar and scores below reflect the first completed submission for now. A consolidated view will refresh automatically once every invited participant has submitted."
+                : `The radar and scores below combine ${participantProgress.completed} of ${participantProgress.total} completed submissions so far. They will refresh automatically when the remainder have submitted.`}
+            </div>
+          </div>
+        ) : null}
 
         {err ? (
           <div

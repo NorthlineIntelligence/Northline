@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { isAdminEmail } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
+import { getReportingParticipantCompletionStats } from "@/lib/assessmentParticipantCompletion";
 import { buildAssessmentResultsPayload } from "@/lib/assessmentResultsEngine";
 import { narrativeCacheGet, narrativeCacheSet, narrativeInflight } from "@/lib/narrativeCache";
 
@@ -141,36 +142,14 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       // Build the full results payload (existing behavior)
       const results = await buildAssessmentResultsPayload({ assessmentId });
 
-           // Add participant completion stats (so UI can lock without guessing)
-      // IMPORTANT: exclude the admin “owner” participant row so single-participant assessments work.
-      const participantsRaw = await prisma.participant.findMany({
-        where: { assessment_id: assessmentId },
-        select: {
-          user_id: true,
-          email: true,
-          completed_at: true,
-        },
-      });
-
-      const reportingParticipants = participantsRaw.filter((p) => {
-        const email = (p.email ?? "").trim().toLowerCase();
-        const isOwnerAdmin = Boolean(p.user_id) && isAdminEmail(email);
-        return !isOwnerAdmin;
-      });
-
-      const participantsTotal = reportingParticipants.length;
-      const participantsCompleted = reportingParticipants.filter((p) => p.completed_at != null).length;
-
-      const allParticipantsCompleted =
-        participantsTotal > 0 && participantsCompleted >= participantsTotal;
+      const completion = await getReportingParticipantCompletionStats(assessmentId);
       return {
         ok: results.ok,
         ...results.body,
 
-        // NEW: completion fields for UI enforcement
-        participants_total: participantsTotal,
-        participants_completed: participantsCompleted,
-        all_participants_completed: allParticipantsCompleted,
+        participants_total: completion.participants_total,
+        participants_completed: completion.participants_completed,
+        all_participants_completed: completion.all_participants_completed,
       };
     })();
 

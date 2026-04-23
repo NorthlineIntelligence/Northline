@@ -13,6 +13,8 @@ import { createServerClient } from "@supabase/ssr";
 import { prisma } from "@/lib/prisma";
 import { buildAssessmentResultsPayload } from "@/lib/assessmentResultsEngine";
 import { isAdminEmail } from "@/lib/admin";
+import { ASSESSMENTS_IN_PROGRESS_MESSAGE } from "@/lib/assessmentParticipantMessages";
+import { getReportingParticipantCompletionStats } from "@/lib/assessmentParticipantCompletion";
 import {
   fetchPublicWebsiteExcerpt,
   isWebEnrichmentEnabled,
@@ -1617,26 +1619,6 @@ async function markInviteAccepted(participantId: string) {
   `;
 }
 
-async function allParticipantsCompleted(assessmentId: string) {
-  const rows = await prisma.$queryRaw<
-    Array<{ email: string | null; completed_at: Date | null }>
-  >`
-    SELECT email, completed_at
-    FROM "Participant"
-    WHERE assessment_id = ${assessmentId}::uuid
-      AND email IS NOT NULL;
-  `;
-
-  const total = rows.length;
-  const completed = rows.filter((p) => p.completed_at != null).length;
-
-  return {
-    total,
-    completed,
-    ok: total > 0 && completed >= total,
-  };
-}
-
 async function lockAssessmentIfUnlocked(assessmentId: string) {
   await prisma.$executeRaw`
     UPDATE "Assessment"
@@ -1698,19 +1680,6 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       cacheKeyOwner = `admin:${user.id}`;
     }
 
-    const completion = await allParticipantsCompleted(assessmentId);
-    if (!completion.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "All participants have not completed the assessment. Please check back once the administrator confirms completion.",
-          meta: { total: completion.total, completed: completion.completed },
-        },
-        { status: 409 }
-      );
-    }
-
     const cacheKey = `assessment-narrative:${assessmentId}:${cacheKeyOwner}`;
 
     const cached = narrativeCacheGet(cacheKey);
@@ -1723,14 +1692,22 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }
 
     const p = (async () => {
+      const completion = await getReportingParticipantCompletionStats(assessmentId);
       const latest = await prisma.assessmentNarrative.findFirst({
         where: { assessment_id: assessmentId },
         orderBy: [{ version: "desc" }],
       });
 
-      if (!latest) return { ok: false, error: "Narrative not found" };
-
-      return { ok: true, narrative: latest };
+      return {
+        ok: true,
+        narrative: latest,
+        participants_total: completion.participants_total,
+        participants_completed: completion.participants_completed,
+        all_participants_completed: completion.all_participants_completed,
+        progress_message: completion.all_participants_completed
+          ? null
+          : ASSESSMENTS_IN_PROGRESS_MESSAGE,
+      };
     })();
 
     narrativeInflight.set(cacheKey, p);
@@ -1743,7 +1720,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }
 
     narrativeCacheSet(cacheKey, payload);
-    return NextResponse.json(payload, { status: payload.ok ? 200 : 404 });
+    return NextResponse.json(payload, { status: 200 });
   } catch (err: any) {
     console.error("GET narrative error:", err);
     return NextResponse.json(
@@ -1876,14 +1853,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       );
     }
 
-    const completion = await allParticipantsCompleted(assessmentId);
-    if (!completion.ok) {
+    const completion = await getReportingParticipantCompletionStats(assessmentId);
+    if (!completion.all_participants_completed) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            "All participants have not completed the assessment. Please check back once the administrator confirms completion.",
-          meta: { total: completion.total, completed: completion.completed },
+          error: `${ASSESSMENTS_IN_PROGRESS_MESSAGE} The narrative memo unlocks after every invited participant has submitted.`,
+          meta: {
+            total: completion.participants_total,
+            completed: completion.participants_completed,
+          },
         },
         { status: 409 }
       );

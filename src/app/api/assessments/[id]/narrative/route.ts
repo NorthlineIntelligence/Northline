@@ -7,6 +7,8 @@ import { createServerClient } from "@supabase/ssr";
 
 import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
+import { ASSESSMENTS_IN_PROGRESS_MESSAGE } from "@/lib/assessmentParticipantMessages";
+import { getReportingParticipantCompletionStats } from "@/lib/assessmentParticipantCompletion";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
@@ -107,30 +109,6 @@ async function authorizeForAssessment(req: NextRequest, assessmentId: string) {
   return { ok: true as const };
 }
 
-async function enforceAllParticipantsCompleted(assessmentId: string) {
-  const participants = await prisma.participant.findMany({
-    where: { assessment_id: assessmentId },
-    select: { completed_at: true },
-  });
-
-  const total = participants.length;
-  const completed = participants.filter((p) => p.completed_at !== null).length;
-
-  if (total === 0 || completed < total) {
-    return {
-      ok: false as const,
-      status: 409 as const,
-      body: {
-        ok: false,
-        error:
-          "All participants have not completed the assessment. Please check back once the administrator confirms completion.",
-      },
-    };
-  }
-
-  return { ok: true as const };
-}
-
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const params = await context.params;
@@ -143,20 +121,26 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const auth = await authorizeForAssessment(req, assessmentId);
     if (!auth.ok) return unauthorized();
 
-    // ✅ Feature: don't allow narrative until all participants completed
-    const gate = await enforceAllParticipantsCompleted(assessmentId);
-    if (!gate.ok) return NextResponse.json(gate.body, { status: gate.status });
+    const completion = await getReportingParticipantCompletionStats(assessmentId);
 
     const latest = await prisma.assessmentNarrative.findFirst({
       where: { assessment_id: assessmentId },
       orderBy: [{ version: "desc" }],
     });
 
-    if (!latest) {
-      return NextResponse.json({ ok: false, error: "Narrative not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ ok: true, narrative: latest }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        narrative: latest,
+        participants_total: completion.participants_total,
+        participants_completed: completion.participants_completed,
+        all_participants_completed: completion.all_participants_completed,
+        progress_message: completion.all_participants_completed
+          ? null
+          : ASSESSMENTS_IN_PROGRESS_MESSAGE,
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("GET /api/assessments/[id]/narrative error:", err);
     return NextResponse.json(

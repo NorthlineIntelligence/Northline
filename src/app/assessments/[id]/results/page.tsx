@@ -6,6 +6,7 @@ import { Open_Sans } from "next/font/google";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 import { briefForPerceptionSignal } from "@/lib/perceptionAlignmentBriefs";
 import { pickPerceptionSignalsForDisplay, PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE } from "@/lib/perceptionAlignmentSignals";
+import { ASSESSMENTS_IN_PROGRESS_MESSAGE } from "@/lib/assessmentParticipantMessages";
 
 const openSans = Open_Sans({
   subsets: ["latin"],
@@ -20,7 +21,8 @@ type NarrativeApiResponse =
 type RadarPoint = {
   key: string;
   label: string;
-  value: number; // 0..5
+  value: number; // 0..5 (meaningful only when missing is false)
+  missing?: boolean;
   color: string;
   bandKey: string;
   band: string | null;
@@ -93,6 +95,10 @@ function extractPillarScore(payload: any, pillarKey: string): number | null {
 }
 
 function buildRadarData(payload: any): RadarPoint[] {
+  if (!payload || typeof payload !== "object" || payload.ok === false) {
+    return [];
+  }
+
   const legend = getAt(payload, ["bands", "legend"]) ?? {};
   const unknownColor = typeof legend?.unknown?.color === "string" ? legend.unknown.color : "#cdd8df";
 
@@ -122,19 +128,22 @@ function buildRadarData(payload: any): RadarPoint[] {
     const valueFromRadar = typeof rawRadar === "number" ? rawRadar : null;
     const valueFromAggregate = extractPillarScore(payload, k);
 
-    const value =
+    const missing = valueFromRadar === null && valueFromAggregate === null;
+    const numeric =
       typeof valueFromRadar === "number"
         ? valueFromRadar
         : typeof valueFromAggregate === "number"
           ? valueFromAggregate
-          : 0;
+          : null;
+    const value = numeric === null ? 0 : clamp(numeric, 0, 5);
 
     const b = bandInfo(r?.bandKey);
 
     return {
       key: k,
       label: prettyPillarLabel(k),
-      value: clamp(value, 0, 5),
+      value,
+      missing,
       color: typeof r?.color === "string" ? r.color : b.color,
       bandKey: b.bandKey,
       band: typeof r?.band === "string" ? r.band : b.band,
@@ -250,6 +259,15 @@ function RadarChart({ data, size = 340, maxValue = 5 }: { data: RadarPoint[]; si
 
   if (n < 3) {
     return <div style={{ color: BRAND.muted, fontWeight: 750 }}>Not enough data to render radar.</div>;
+  }
+
+  if (points.some((p) => p.missing)) {
+    return (
+      <div style={{ color: BRAND.muted, fontWeight: 750, maxWidth: 420, lineHeight: 1.45 }}>
+        Scores are not available for this view yet. If you just finished your assessment, wait a moment and refresh—combined
+        results can take a few seconds to appear.
+      </div>
+    );
   }
 
   const pad = 120;
@@ -462,17 +480,27 @@ export default function AssessmentResultsPage() {
         const res = await fetch(url, { credentials: "include", signal: ctrl.signal });
 
         if (!res.ok) {
-          if (alive) setDiagnosticErr(`Results fetch failed (${res.status}).`);
+          if (alive) {
+            setDiagnosticData(null);
+            setDiagnosticErr(`Results fetch failed (${res.status}).`);
+          }
           return;
         }
 
         const json = await res.json();
         if (!alive) return;
 
+        if (json && json.ok === false) {
+          setDiagnosticData(null);
+          setDiagnosticErr(typeof json.error === "string" ? json.error : "Could not load results.");
+          return;
+        }
+
         setDiagnosticData(json);
       } catch (e: any) {
         if (!alive) return;
         if (e?.name === "AbortError") return;
+        setDiagnosticData(null);
         setDiagnosticErr(e?.message ?? "Results fetch failed.");
       } finally {
         if (!alive) return;
@@ -507,15 +535,17 @@ export default function AssessmentResultsPage() {
           signal: ctrl.signal,
         });
 
-        if (res.status === 404) return;
-
         const json = await res.json().catch(() => null);
         if (!alive) return;
         if (!res.ok) return;
 
-        if (json && json.ok === true && json.narrative) {
-          setNarrative(json.narrative);
-          setCached(true);
+        if (json && json.ok === true) {
+          if (json.narrative) {
+            setNarrative(json.narrative);
+            setCached(json.cached === true);
+          } else {
+            setNarrative(null);
+          }
         }
       } catch (e: any) {
         if (!alive) return;
@@ -589,6 +619,14 @@ export default function AssessmentResultsPage() {
 
   const totalSignalCount = riskFlags.length + perceptionAlignmentSignals.length;
 
+  const participantProgress = useMemo(() => {
+    const c = diagnosticData?.participants_completed;
+    const t = diagnosticData?.participants_total;
+    const all = diagnosticData?.all_participants_completed;
+    if (typeof c !== "number" || typeof t !== "number") return null;
+    return { completed: c, total: t, allDone: Boolean(all) };
+  }, [diagnosticData]);
+
   const executiveBullets: string[] = useMemo(() => {
     const arr = narrativeJson?.executiveSummaryBullets;
     return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
@@ -636,7 +674,7 @@ export default function AssessmentResultsPage() {
       bullets.push(PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE);
     }
 
-    const lowest = [...radarData].sort((a, b) => a.value - b.value)[0];
+    const lowest = [...radarData].filter((p) => !p.missing).sort((a, b) => a.value - b.value)[0];
     if (lowest?.label) {
       bullets.push(`Primary focus area: strengthen ${lowest.label} first to reduce constraint and improve balance.`);
     }
@@ -661,7 +699,7 @@ export default function AssessmentResultsPage() {
     // Fallback actions derived from results
     const actions: string[] = [];
 
-    const lowest = [...radarData].sort((a, b) => a.value - b.value)[0];
+    const lowest = [...radarData].filter((p) => !p.missing).sort((a, b) => a.value - b.value)[0];
     if (lowest?.label) {
       actions.push(`Stabilize ${lowest.label}: assign a single owner, set a weekly cadence, and define “done” for the next 14 days.`);
     }
@@ -694,7 +732,18 @@ export default function AssessmentResultsPage() {
     setErr(null);
 
     try {
-      const url = `/api/assessments/${assessmentId}/narrative${authQs ? `?${authQs}` : ""}`;
+      const qs = new URLSearchParams();
+      if (inviteEmail) qs.set("email", inviteEmail);
+      if (inviteToken) qs.set("token", inviteToken);
+      const showAdmin =
+        Boolean(diagnosticData?.show_admin_controls) ||
+        Boolean(diagnosticData?.assessment?.organization?.show_admin_controls);
+      if (showAdmin) {
+        qs.set("force", "1");
+        qs.set("draft", "1");
+      }
+      const genQs = qs.toString();
+      const url = `/api/assessments/${assessmentId}/narrative/generate${genQs ? `?${genQs}` : ""}`;
 
       const res = await fetch(url, {
         method: "POST",
@@ -714,9 +763,9 @@ export default function AssessmentResultsPage() {
 
       // Completion gate: show friendly message
       const msg = String((json as any)?.error ?? (json as any)?.message ?? "");
-      if (!res.ok && msg.includes("All participants have not completed the assessment")) {
+      if (!res.ok && (msg.includes("There are other assessments still in progress") || msg.includes("All participants have not completed"))) {
         setErr(
-          "All participants have not completed the assessment.\n\nPlease check back once the administrator confirms completion."
+          "There are other assessments still in progress.\n\nThe narrative memo unlocks after every invited participant has submitted. You can still review the live radar and signals below."
         );
         return;
       }
@@ -819,6 +868,11 @@ export default function AssessmentResultsPage() {
                 <div style={{ marginTop: 4, fontSize: 12, fontWeight: 850, color: BRAND.greyBlue }}>
                   Generated: {narrative ? isoToPretty(narrative.created_at) : "—"}
                 </div>
+                {participantProgress && participantProgress.total > 1 ? (
+                  <div style={{ marginTop: 10, fontSize: 12, fontWeight: 900, color: BRAND.dark }}>
+                    Assessments completed: {participantProgress.completed}/{participantProgress.total}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -851,6 +905,25 @@ export default function AssessmentResultsPage() {
               </div>
 
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {participantProgress && participantProgress.total > 1 ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      gap: 2,
+                      marginRight: 6,
+                    }}
+                    title="Invited participants who have submitted their assessment"
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 900, color: BRAND.greyBlue, textTransform: "uppercase" }}>
+                      Assessments
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 950, color: BRAND.dark }}>
+                      {participantProgress.completed}/{participantProgress.total} done
+                    </div>
+                  </div>
+                ) : null}
                 <a
                   href={assessmentId ? `/assessments/${assessmentId}/narrative${authQs ? `?${authQs}` : ""}` : "#"}
                   style={{
@@ -923,6 +996,29 @@ export default function AssessmentResultsPage() {
               </div>
             </div>
           </div>
+
+          {participantProgress && participantProgress.total > 1 && !participantProgress.allDone ? (
+            <div
+              data-no-print="true"
+              style={{
+                marginTop: 14,
+                padding: "14px 16px",
+                borderRadius: 14,
+                background: "#F3F7FF",
+                border: `1px solid ${BRAND.border}`,
+                color: BRAND.dark,
+                fontWeight: 750,
+                lineHeight: 1.45,
+              }}
+            >
+              <div style={{ fontWeight: 950 }}>{ASSESSMENTS_IN_PROGRESS_MESSAGE}</div>
+              <div style={{ marginTop: 8, fontSize: 13, color: BRAND.muted, fontWeight: 700 }}>
+                {participantProgress.completed <= 1
+                  ? "The radar and scores below reflect the first completed submission for now. A consolidated view will refresh automatically once every invited participant has submitted."
+                  : `The radar and scores below combine ${participantProgress.completed} of ${participantProgress.total} completed submissions so far. They will refresh automatically when the remainder have submitted.`}
+              </div>
+            </div>
+          ) : null}
 
           {err ? (
             <div
