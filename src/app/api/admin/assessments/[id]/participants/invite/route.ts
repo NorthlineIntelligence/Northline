@@ -81,6 +81,9 @@ function getOrigin(req: NextRequest) {
         <div style="margin-top: 14px; font-size: 14px; font-weight: 700; color:#173464;">
           Assessment Instructions
         </div>
+        <div style="margin-top: 8px; font-size: 14px; color:#0B1220; line-height:1.55;">
+          This assessment is anonymous and diagnostic — not performative. Please answer as honestly as possible; your input helps create an accurate snapshot of AI readiness and informs the most effective path forward.
+        </div>
         <ul style="margin-top: 8px; margin-bottom: 0; padding-left: 20px; font-size: 14px; color:#0B1220; line-height:1.55;">
           <li>Select your department and seniority level to provide context for your responses.</li>
           <li>
