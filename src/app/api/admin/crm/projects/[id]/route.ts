@@ -9,6 +9,8 @@ const PatchSchema = z.object({
   status: z.enum(["PLANNED", "ACTIVE", "AT_RISK", "DELAYED", "OVERDUE", "COMPLETED"]).optional(),
   internal_notes: z.union([z.string().max(20000), z.null()]).optional(),
   customer_summary: z.union([z.string().max(12000), z.null()]).optional(),
+  target_start_at: z.union([z.string().datetime(), z.null()]).optional(),
+  target_end_at: z.union([z.string().datetime(), z.null()]).optional(),
 });
 
 export async function GET(
@@ -54,7 +56,15 @@ export async function PATCH(
 
   const updated = await prisma.pmProject.update({
     where: { id: parsed.data.id },
-    data: patch.data,
+    data: {
+      ...patch.data,
+      ...(patch.data.target_start_at !== undefined
+        ? { target_start_at: patch.data.target_start_at ? new Date(patch.data.target_start_at) : null }
+        : {}),
+      ...(patch.data.target_end_at !== undefined
+        ? { target_end_at: patch.data.target_end_at ? new Date(patch.data.target_end_at) : null }
+        : {}),
+    },
   });
   return NextResponse.json({ ok: true, project: updated });
 }

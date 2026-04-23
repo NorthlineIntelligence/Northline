@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 import { prisma } from "@/lib/prisma";
+import { ADMIN_PREMIUM_BUTTON_STYLE } from "@/lib/adminButtonStyles";
 import AdminControlsToggleButton from "../AdminControlsToggleButton";
 import ProjectScopeToggleButton from "../ProjectScopeToggleButton";
 import DeleteOrganizationButton from "../DeleteOrganizationButton";
@@ -63,7 +64,8 @@ export default async function AdminDashboardPage() {
             <form action="/admin/logout" method="post">
               <button
                 type="submit"
-                className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+                className="rounded-2xl px-3 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                style={ADMIN_PREMIUM_BUTTON_STYLE}
               >
                 Log out
               </button>
@@ -134,13 +136,14 @@ export default async function AdminDashboardPage() {
             <div>
               <div className="text-lg font-semibold">Recent Organizations</div>
               <div className="text-sm text-[#66819e]">
-                Newest first • Click to open Org Settings
+                Newest first • Click to open Organization Account
               </div>
             </div>
 
             <a
               href="/admin/organizations/new"
-              className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+              className="rounded-2xl px-3 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
             >
               + New Organization
             </a>
@@ -159,7 +162,7 @@ export default async function AdminDashboardPage() {
                     className="flex flex-col gap-3 p-5 transition hover:bg-[#f6f8fc] sm:flex-row sm:items-stretch"
                   >
                     <a
-                      href={`/admin/organizations/${org.id}`}
+                      href={`/admin/crm/organizations/${org.id}`}
                       className="min-w-0 flex-1 rounded-lg outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#34b0b4]"
                     >
                       <div className="text-base font-semibold">{org.name}</div>

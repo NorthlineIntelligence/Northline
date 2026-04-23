@@ -12,6 +12,7 @@ export type ScopeSummaryProject = {
   costBand: string | null;
   objectivesBrief: string;
   phaseHighlights: string[];
+  projectedTools?: string[];
   priority?: number | null;
 };
 

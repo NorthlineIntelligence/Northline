@@ -4,8 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NORTHLINE_BRAND as BRAND,
-  NORTHLINE_SHELL_BG as shellBg,
 } from "@/lib/northlineBrand";
+import { ADMIN_PREMIUM_BUTTON_STYLE } from "@/lib/adminButtonStyles";
+import { ActionRail, AdminShell, MetricChip, SectionCard, StatusBadge, adminPremiumActionStyle } from "@/lib/adminUiPrimitives";
+import AdminControlsToggleButton from "@/app/admin/AdminControlsToggleButton";
+import ProjectScopeToggleButton from "@/app/admin/ProjectScopeToggleButton";
+import SendAssessmentButton from "@/app/admin/organizations/SendAssessmentButton";
 import {
   CRM_PIPELINE_ORDER,
   CRM_STAGE_LABEL,
@@ -31,7 +35,14 @@ import { QUOTE_STANDARD_TERMS_TEXT, QUOTE_STANDARD_TERMS_VERSION } from "@/lib/q
 type OrgResponse = {
   organization: Organization & {
     org_contacts: OrgContact[];
-    assessments: Array<{ id: string; name: string; status: string; created_at: Date; locked_at: Date | null }>;
+    assessments: Array<{
+      id: string;
+      name: string;
+      status: string;
+      created_at: Date;
+      locked_at: Date | null;
+      Participant: Array<{ email: string | null }>;
+    }>;
     crm_quotes: Array<Pick<CrmQuote, "id" | "status" | "total_cents" | "updated_at" | "assessment_id">>;
     crm_contracts: CrmContract[];
     crm_invoices: CrmInvoice[];
@@ -42,6 +53,25 @@ type OrgResponse = {
     projectScope: { assessmentId: string; version: number } | null;
   };
   alerts: { followUpOverdue: boolean; overdueInvoices: number };
+  dashboard: {
+    kpis: {
+      activeProjects: number;
+      projectsAtRisk: number;
+      projectsDueSoon: number;
+      avgCompletionPct: number;
+      overdueInvoices: number;
+    };
+    deliveryUpdates: Array<{
+      id: string;
+      status_label: string;
+      why_text: string | null;
+      created_at: string;
+      author_email: string | null;
+      is_customer_visible: boolean;
+      sprint_title: string;
+      sprint_status: string;
+    }>;
+  };
 };
 
 function fmtMoney(cents: number | null | undefined) {
@@ -92,6 +122,9 @@ type PriceBookRow = {
   hourly_rate_base_cents: number;
   hourly_rate_min_cents: number;
   hourly_rate_max_cents: number;
+  adhoc_hourly_rate_cents: number;
+  estimated_hours: number;
+  timeline: string;
 };
 
 type ExpandedProjectDraft = {
@@ -101,6 +134,7 @@ type ExpandedProjectDraft = {
   priority: number;
   deliverablesText: string;
   summary: string;
+  projectedToolsText: string;
 };
 
 function toPriceBookRow(raw: unknown): PriceBookRow | null {
@@ -120,6 +154,14 @@ function toPriceBookRow(raw: unknown): PriceBookRow | null {
     hourly_rate_base_cents: typeof r.hourly_rate_base_cents === "number" ? r.hourly_rate_base_cents : 0,
     hourly_rate_min_cents: typeof r.hourly_rate_min_cents === "number" ? r.hourly_rate_min_cents : 0,
     hourly_rate_max_cents: typeof r.hourly_rate_max_cents === "number" ? r.hourly_rate_max_cents : 0,
+    adhoc_hourly_rate_cents:
+      typeof r.adhoc_hourly_rate_cents === "number"
+        ? r.adhoc_hourly_rate_cents
+        : typeof r.hourly_rate_adhoc_cents === "number"
+          ? r.hourly_rate_adhoc_cents
+          : 0,
+    estimated_hours: typeof r.estimated_hours === "number" && Number.isFinite(r.estimated_hours) ? r.estimated_hours : 0,
+    timeline: String(r.timeline ?? ""),
   };
 }
 
@@ -276,7 +318,14 @@ export default function CrmOrganizationClient({
     };
   }, [selectedQuoteId]);
 
-  const latestAssessmentId = data?.organization.assessments[0]?.id ?? null;
+  const latestAssessment = data?.organization.assessments[0] ?? null;
+  const latestAssessmentId = latestAssessment?.id ?? null;
+  const latestAssessmentEmails = (latestAssessment?.Participant ?? [])
+    .map((p) => p.email ?? "")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  const latestAssessmentLocked =
+    !latestAssessment || Boolean(latestAssessment.locked_at) || latestAssessment.status === "CLOSED";
 
   const payload = useMemo(() => {
     const raw = quote?.quote_payload;
@@ -487,6 +536,7 @@ export default function CrmOrganizationClient({
             name?: string;
             summary?: string;
             deliverables?: string[];
+            projectedTools?: string[];
             timelineLabel?: string;
             costBand?: string | null;
             objectivesBrief?: string;
@@ -585,10 +635,30 @@ export default function CrmOrganizationClient({
     const selection = item.pricingSelection;
     if (selection === "MIN_PRICE") return row.min_price_cents || row.base_price_cents || 0;
     if (selection === "MAX_PRICE") return row.max_price_cents || row.base_price_cents || 0;
-    if (selection === "HOURLY_RATE_BASE") return row.hourly_rate_base_cents || 0;
+    if (selection === "HOURLY_RATE_BASE")
+      return row.hourly_rate_base_cents || row.adhoc_hourly_rate_cents || 0;
     if (selection === "HOURLY_RATE_MIN") return row.hourly_rate_min_cents || 0;
     if (selection === "HOURLY_RATE_MAX") return row.hourly_rate_max_cents || 0;
     return row.base_price_cents || 0;
+  }
+
+  function getBuildDefaultsForEngagement(engagementName: string | null | undefined, tierOverride?: string | null) {
+    if (!engagementName) return { buildHours: null as number | null, buildTime: null as string | null };
+    const target = normalizeLookupText(engagementName);
+    const tier = (tierOverride || topCompanyTier || "").toLowerCase();
+    const row =
+      priceBookRows.find(
+        (r) =>
+          normalizeLookupText(r.engagement_name) === target &&
+          (!tier || r.company_tier.toLowerCase() === tier)
+      ) ??
+      priceBookRows.find((r) => normalizeLookupText(r.engagement_name) === target) ??
+      null;
+    if (!row) return { buildHours: null, buildTime: null };
+    return {
+      buildHours: row.estimated_hours > 0 ? row.estimated_hours : null,
+      buildTime: row.timeline.trim() || null,
+    };
   }
 
   function getLineFinalCents(item: ReturnType<typeof parseScopeWorkItemsFromPayload>[number]) {
@@ -643,12 +713,24 @@ export default function CrmOrganizationClient({
         const modelLabel = item.pricingModel === "HOURLY" ? "Hourly" : "Project";
         const perUnitFinal = Math.max(0, Math.round(finalCents / qty));
         return {
-          description: `${item.engagementName} — ${modelLabel}`,
+          description: `${item.engagementName} — ${modelLabel}${item.buildHours ? ` • Build ${item.buildHours}h` : ""}${item.buildTime ? ` • ${item.buildTime}` : ""}`,
           quantity: qty,
           unit_price_cents: perUnitFinal,
+          build_hours: item.buildHours,
+          build_time: item.buildTime,
         };
       })
-      .filter((x): x is { description: string; quantity: number; unit_price_cents: number } => x !== null);
+      .filter(
+        (
+          x
+        ): x is {
+          description: string;
+          quantity: number;
+          unit_price_cents: number;
+          build_hours: number | null;
+          build_time: string | null;
+        } => x !== null
+      );
   }
 
   async function saveScopePricingItems(items: ReturnType<typeof parseScopeWorkItemsFromPayload>) {
@@ -763,6 +845,7 @@ export default function CrmOrganizationClient({
       name?: string;
       summary?: string;
       deliverables?: string[];
+      projectedTools?: string[];
       timelineLabel?: string;
       costBand?: string | null;
       objectivesBrief?: string;
@@ -784,6 +867,7 @@ export default function CrmOrganizationClient({
         name: "New project",
         summary: "",
         deliverables: [],
+        projectedTools: [],
         timelineLabel: "TBD",
         costBand: "TBD",
         objectivesBrief: "",
@@ -805,6 +889,7 @@ export default function CrmOrganizationClient({
       name?: string;
       summary?: string;
       deliverables?: string[];
+      projectedTools?: string[];
       timelineLabel?: string;
       costBand?: string | null;
       objectivesBrief?: string;
@@ -833,6 +918,7 @@ export default function CrmOrganizationClient({
       priority: current.priority ?? index + 1,
       deliverablesText: Array.isArray(current.deliverables) ? current.deliverables.join("\n") : "",
       summary: current.summary ?? "",
+      projectedToolsText: Array.isArray(current.projectedTools) ? current.projectedTools.join("\n") : "",
     });
     setExpandedProjectDirty(false);
   }
@@ -858,6 +944,10 @@ export default function CrmOrganizationClient({
         .map((v) => v.trim())
         .filter(Boolean),
       summary: expandedProjectDraft.summary,
+      projectedTools: expandedProjectDraft.projectedToolsText
+        .split("\n")
+        .map((v) => v.trim())
+        .filter(Boolean),
     });
     closeExpandedProjectEditor();
   }
@@ -983,10 +1073,10 @@ export default function CrmOrganizationClient({
   const stepIdx = CRM_PIPELINE_ORDER.indexOf(stage);
 
   const contacts = org.org_contacts.filter((c) => !c.is_archived);
+  const topActionButtonStyle = adminPremiumActionStyle;
 
   return (
-    <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: shellBg, color: BRAND.text }}>
-      <div className="mx-auto max-w-6xl space-y-6">
+    <AdminShell>
         <header className="flex flex-col gap-3 border-b pb-6 sm:flex-row sm:items-start sm:justify-between" style={{ borderColor: BRAND.border }}>
           <div>
             <Link href="/admin/crm" className="text-xs font-black uppercase tracking-wider hover:underline" style={{ color: BRAND.cyan }}>
@@ -999,58 +1089,153 @@ export default function CrmOrganizationClient({
               Client profile • {org._count.assessments} assessment(s) • {contacts.length} contact(s)
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <ActionRail>
             {view === "quotes" ? (
               <Link
                 href={`/admin/crm/organizations/${org.id}`}
-                className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-                style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                style={topActionButtonStyle}
               >
-                ← Back to customer
+                ← Back to Organization Account
               </Link>
-            ) : (
-              <>
-                <Link
-                  href={`/admin/crm/organizations/${org.id}/quotes`}
-                  className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                >
-                  Open quote workspace
-                </Link>
-                <Link
-                  href={`/admin/crm/organizations/${org.id}/projects`}
-                  className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                >
-                  Open PM workspace
-                </Link>
-                <Link
-                  href={`/admin/crm/organizations/${org.id}/msa`}
-                  className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-                  style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                >
-                  Open MSA workspace
-                </Link>
-              </>
-            )}
-            <Link
-              href={`/admin/organizations/${org.id}`}
-              className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-              style={{ borderColor: BRAND.border, color: BRAND.dark }}
-            >
-              Edit organization
-            </Link>
+            ) : null}
             {latestAssessmentId ? (
               <Link
                 href={`/admin/assessments/${latestAssessmentId}`}
-                className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-                style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                style={topActionButtonStyle}
               >
-                Participants & invites
+                Manage Assessment
               </Link>
             ) : null}
-          </div>
+            {latestAssessmentId ? (
+              <Link
+                href={`/admin/assessments/${latestAssessmentId}/dashboard`}
+                className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                style={topActionButtonStyle}
+              >
+                Reporting Dashboard
+              </Link>
+            ) : null}
+            {latestAssessmentId ? (
+              <Link
+                href={`/customer/dashboard?assessmentId=${latestAssessmentId}&preview=1`}
+                className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                style={topActionButtonStyle}
+              >
+                Customer User Admin
+              </Link>
+            ) : null}
+            {latestAssessmentId ? (
+              <SendAssessmentButton
+                assessmentId={latestAssessmentId}
+                assessmentLocked={latestAssessmentLocked}
+                participantEmails={latestAssessmentEmails}
+              />
+            ) : null}
+            <Link
+              href={`/admin/crm/organizations/${org.id}/quotes`}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={topActionButtonStyle}
+            >
+              Open Quote Workspace
+            </Link>
+            <Link
+              href={`/admin/crm/organizations/${org.id}/projects`}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={topActionButtonStyle}
+            >
+              Open PM Workspace
+            </Link>
+            <Link
+              href={`/admin/crm/organizations/${org.id}/msa`}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={topActionButtonStyle}
+            >
+              Open MSA Workspace
+            </Link>
+          </ActionRail>
         </header>
+
+        <SectionCard
+          title="Organization Command Center"
+          subtitle="Actionable delivery and commercial health in one place."
+        >
+          <div className="flex flex-wrap gap-2">
+            <MetricChip label="Active projects" value={String(data.dashboard.kpis.activeProjects)} />
+            <MetricChip label="At risk" value={String(data.dashboard.kpis.projectsAtRisk)} />
+            <MetricChip label="Due this week" value={String(data.dashboard.kpis.projectsDueSoon)} />
+            <MetricChip label="Avg completion" value={`${data.dashboard.kpis.avgCompletionPct}%`} />
+            <MetricChip label="Overdue invoices" value={String(data.dashboard.kpis.overdueInvoices)} />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border bg-white p-3" style={{ borderColor: BRAND.border }}>
+              <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                Next best actions
+              </div>
+              <ul className="mt-2 space-y-1 text-sm font-semibold" style={{ color: BRAND.dark }}>
+                {data.dashboard.kpis.projectsAtRisk > 0 ? (
+                  <li>Review at-risk project statuses and update mitigation plans.</li>
+                ) : null}
+                {data.dashboard.kpis.projectsDueSoon > 0 ? (
+                  <li>Confirm delivery timelines for projects due in the next 7 days.</li>
+                ) : null}
+                {data.alerts.overdueInvoices > 0 ? <li>Follow up on past-due invoices from this account.</li> : null}
+                {data.dashboard.kpis.projectsAtRisk === 0 &&
+                data.dashboard.kpis.projectsDueSoon === 0 &&
+                data.alerts.overdueInvoices === 0 ? (
+                  <li>All core account workflows are currently healthy.</li>
+                ) : null}
+              </ul>
+            </div>
+            <div className="rounded-xl border bg-white p-3" style={{ borderColor: BRAND.border }}>
+              <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                Delivery timeline
+              </div>
+              <div className="mt-2 max-h-40 space-y-2 overflow-auto">
+                {data.dashboard.deliveryUpdates.slice(0, 6).map((u) => (
+                  <div key={u.id} className="rounded-lg border p-2 text-xs" style={{ borderColor: BRAND.border }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-black" style={{ color: BRAND.dark }}>
+                        {u.status_label}
+                      </div>
+                      <StatusBadge label={u.sprint_status.replaceAll("_", " ")} />
+                    </div>
+                    <div className="mt-1 font-semibold" style={{ color: BRAND.muted }}>
+                      {u.sprint_title} • {new Date(u.created_at).toLocaleString()}
+                    </div>
+                    {u.why_text ? (
+                      <div className="mt-1 font-semibold" style={{ color: BRAND.dark }}>
+                        {u.why_text}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+                {data.dashboard.deliveryUpdates.length === 0 ? (
+                  <div className="text-sm font-semibold" style={{ color: BRAND.muted }}>
+                    No delivery updates yet.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+          <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+            Executive Insights Controls
+          </div>
+          <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+            Configure participant-facing insights tools from the organization account.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <AdminControlsToggleButton organizationId={org.id} initialEnabled={Boolean(org.show_admin_controls)} />
+            <ProjectScopeToggleButton
+              organizationId={org.id}
+              initialEnabled={Boolean(org.show_project_scope_review)}
+            />
+          </div>
+        </section>
 
         {(overdueFollow || data.alerts.overdueInvoices > 0) && (
           <div
@@ -1670,6 +1855,21 @@ export default function CrmOrganizationClient({
                       }
                       placeholder="One deliverable per line"
                     />
+                    <textarea
+                      className="mt-2 min-h-[64px] w-full rounded border px-2 py-1 text-xs font-semibold outline-none"
+                      style={{ borderColor: BRAND.border }}
+                      value={Array.isArray(p.projectedTools) ? p.projectedTools.join("\n") : ""}
+                      disabled={projectsLocked}
+                      onChange={(e) =>
+                        updateScopeProjectCard(i, {
+                          projectedTools: e.target.value
+                            .split("\n")
+                            .map((v) => v.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      placeholder="Recommended tools (one per line)"
+                    />
                     <div className="mt-2 flex flex-wrap gap-1">
                       <button
                         type="button"
@@ -1870,6 +2070,19 @@ export default function CrmOrganizationClient({
                       }}
                       placeholder="Deliverables / outcomes (one per line)"
                     />
+                    <textarea
+                      className="mt-3 min-h-[120px] w-full rounded border px-2 py-2 text-sm font-semibold outline-none"
+                      style={{ borderColor: BRAND.border }}
+                      value={expandedProjectDraft.projectedToolsText}
+                      disabled={projectsLocked}
+                      onChange={(e) => {
+                        setExpandedProjectDraft((prev) =>
+                          prev ? { ...prev, projectedToolsText: e.target.value } : prev
+                        );
+                        setExpandedProjectDirty(true);
+                      }}
+                      placeholder="Recommended tools (one per line)"
+                    />
                     <div className="mt-2 flex flex-wrap gap-1">
                       {(["bold", "italic", "bullet", "number"] as const).map((mode) => (
                         <button
@@ -2061,6 +2274,8 @@ export default function CrmOrganizationClient({
                             <th className="px-2 py-2">Hourly / project</th>
                             <th className="px-2 py-2">Price mode</th>
                             <th className="px-2 py-2">Qty</th>
+                            <th className="px-2 py-2">Build hrs</th>
+                            <th className="px-2 py-2">Build time</th>
                             <th className="px-2 py-2">Discount %</th>
                             <th className="px-2 py-2">Final</th>
                             <th className="px-2 py-2">Notes</th>
@@ -2091,12 +2306,16 @@ export default function CrmOrganizationClient({
                                   className="w-[190px] rounded border px-1 py-1 text-xs outline-none"
                                   style={{ borderColor: BRAND.border }}
                                   value={w.engagementName ?? ""}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
+                                    const engagementName = e.target.value || null;
+                                    const defaults = getBuildDefaultsForEngagement(engagementName, w.companyTierOverride);
                                     updateWorkItem(idx, {
-                                      engagementName: e.target.value || null,
+                                      engagementName,
                                       linkedSku: null,
-                                    })
-                                  }
+                                      buildHours: defaults.buildHours,
+                                      buildTime: defaults.buildTime,
+                                    });
+                                  }}
                                 >
                                   <option value="">Select engagement</option>
                                   {engagementOptions.map((name) => (
@@ -2111,9 +2330,15 @@ export default function CrmOrganizationClient({
                                   className="w-[130px] rounded border px-1 py-1 text-xs outline-none"
                                   style={{ borderColor: BRAND.border }}
                                   value={w.companyTierOverride ?? ""}
-                                  onChange={(e) =>
-                                    updateWorkItem(idx, { companyTierOverride: e.target.value || null })
-                                  }
+                                  onChange={(e) => {
+                                    const companyTierOverride = e.target.value || null;
+                                    const defaults = getBuildDefaultsForEngagement(w.engagementName, companyTierOverride);
+                                    updateWorkItem(idx, {
+                                      companyTierOverride,
+                                      buildHours: w.buildHours ?? defaults.buildHours,
+                                      buildTime: w.buildTime ?? defaults.buildTime,
+                                    });
+                                  }}
                                 >
                                   <option value="">Use default</option>
                                   {tierOptions.map((tier) => (
@@ -2177,6 +2402,31 @@ export default function CrmOrganizationClient({
                                       quantity: Number.isFinite(parsed) ? Math.max(0, parsed) : 0,
                                     });
                                   }}
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.25}
+                                  className="w-20 rounded border px-1 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.buildHours ?? ""}
+                                  onChange={(e) => {
+                                    const parsed = Number.parseFloat(e.target.value);
+                                    updateWorkItem(idx, {
+                                      buildHours: Number.isFinite(parsed) && parsed >= 0 ? parsed : null,
+                                    });
+                                  }}
+                                />
+                              </td>
+                              <td className="px-2 py-2 align-top">
+                                <input
+                                  className="w-[120px] rounded border px-2 py-1 text-xs outline-none"
+                                  style={{ borderColor: BRAND.border }}
+                                  value={w.buildTime ?? ""}
+                                  placeholder="e.g. 3 weeks"
+                                  onChange={(e) => updateWorkItem(idx, { buildTime: e.target.value || null })}
                                 />
                               </td>
                               <td className="px-2 py-2 align-top">
@@ -2489,10 +2739,19 @@ export default function CrmOrganizationClient({
           )}
         </section>
 
+        <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
+          <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+            Customer Document Library
+          </div>
+          <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+            Centralized contracts, invoices, and assessment archives for this organization.
+          </p>
+        </section>
+
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
             <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
-              Contracts (records)
+              Contracts
             </div>
             <ul className="mt-3 space-y-2 text-sm font-semibold">
               {org.crm_contracts.map((c) => (
@@ -2628,7 +2887,7 @@ export default function CrmOrganizationClient({
 
         <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
           <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
-            Assessment archives
+            Assessment Archives
           </div>
           <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
             One locked readout per assessment. Use these links to review prior assessments and export a dated PDF.
@@ -2691,7 +2950,6 @@ export default function CrmOrganizationClient({
             </table>
           </div>
         </section>
-      </div>
-    </div>
+    </AdminShell>
   );
 }

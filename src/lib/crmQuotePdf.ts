@@ -1,4 +1,4 @@
-import PDFDocument from "pdfkit";
+import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
 import type { CrmQuote, Organization, OrgContact } from "@prisma/client";
 import { quoteTotalCentsFromPayload } from "@/lib/crmQuoteTotals";
 import { parseScopeWorkItemsFromPayload } from "@/lib/crmQuoteScopeWorkItems";

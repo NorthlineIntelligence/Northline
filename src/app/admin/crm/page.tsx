@@ -5,6 +5,7 @@ import {
   NORTHLINE_BRAND as BRAND,
   NORTHLINE_SHELL_BG as shellBg,
 } from "@/lib/northlineBrand";
+import { ADMIN_PREMIUM_BUTTON_STYLE, ADMIN_PREMIUM_PRIMARY_BUTTON_STYLE } from "@/lib/adminButtonStyles";
 import { CRM_STAGE_LABEL, isCrmFollowUpOverdue } from "@/lib/crmPipeline";
 import { CrmPriceBookPanel } from "./CrmPriceBookPanel";
 
@@ -68,15 +69,15 @@ export default async function AdminCrmHubPage() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin/dashboard"
-              className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm transition hover:shadow"
-              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
             >
               Admin home
             </Link>
             <Link
               href="/admin/organizations"
-              className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm transition hover:shadow"
-              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
             >
               All organizations
             </Link>
@@ -137,7 +138,7 @@ export default async function AdminCrmHubPage() {
             Client accounts
           </h2>
           <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
-            Open a profile for pipeline, Executive Insights, project scope, quotes, and documents.
+            Open an organization account for pipeline, assessments, quotes, projects, and documents.
           </p>
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -181,38 +182,38 @@ export default async function AdminCrmHubPage() {
                         <div className="flex flex-wrap gap-2">
                           <Link
                             href={`/admin/crm/organizations/${o.id}`}
-                            className="inline-flex rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white"
-                            style={{ background: BRAND.dark }}
+                            className="inline-flex rounded-2xl px-3 py-1.5 text-xs font-black uppercase tracking-wide transition hover:-translate-y-[1px]"
+                            style={ADMIN_PREMIUM_PRIMARY_BUTTON_STYLE}
                           >
-                            Open
+                            Open Organization Account
                           </Link>
                           {o.assessments[0]?.id ? (
                             <Link
                               href={`/customer/dashboard?assessmentId=${o.assessments[0].id}&preview=1`}
-                              className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
-                              style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                              className="inline-flex rounded-2xl px-3 py-1.5 text-xs font-black uppercase tracking-wide transition hover:-translate-y-[1px]"
+                              style={ADMIN_PREMIUM_BUTTON_STYLE}
                             >
                               Customer User Admin
                             </Link>
                           ) : null}
                           <Link
                             href={`/admin/crm/organizations/${o.id}/quotes`}
-                            className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
-                            style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                            className="inline-flex rounded-2xl px-3 py-1.5 text-xs font-black uppercase tracking-wide transition hover:-translate-y-[1px]"
+                            style={ADMIN_PREMIUM_BUTTON_STYLE}
                           >
                             Quotes
                           </Link>
                           <Link
                             href={`/admin/crm/organizations/${o.id}/projects`}
-                            className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
-                            style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                            className="inline-flex rounded-2xl px-3 py-1.5 text-xs font-black uppercase tracking-wide transition hover:-translate-y-[1px]"
+                            style={ADMIN_PREMIUM_BUTTON_STYLE}
                           >
                             Projects
                           </Link>
                           <Link
                             href={`/admin/crm/organizations/${o.id}/msa`}
-                            className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
-                            style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                            className="inline-flex rounded-2xl px-3 py-1.5 text-xs font-black uppercase tracking-wide transition hover:-translate-y-[1px]"
+                            style={ADMIN_PREMIUM_BUTTON_STYLE}
                           >
                             MSA
                           </Link>

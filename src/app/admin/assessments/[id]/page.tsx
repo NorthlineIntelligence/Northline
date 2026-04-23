@@ -724,6 +724,16 @@ async function setParticipantPortalRole(
   }
 
   const disableEdits = isLocked || saving;
+  const topActionButtonStyle: React.CSSProperties = {
+    background: "linear-gradient(180deg, #FFFFFF 0%, #F7FAFF 100%)",
+    color: BRAND.dark,
+    border: `1px solid ${BRAND.border}`,
+    padding: "10px 14px",
+    borderRadius: 16,
+    fontWeight: 900,
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.06)",
+    cursor: "pointer",
+  };
 
   return (
     <main
@@ -764,7 +774,7 @@ async function setParticipantPortalRole(
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
   <span
     style={{
       fontSize: 12,
@@ -781,29 +791,28 @@ async function setParticipantPortalRole(
 
   <button
     onClick={() => router.push("/admin/dashboard")}
-    style={{
-      background: "#FFFFFF",
-      color: BRAND.dark,
-      border: `1px solid ${BRAND.border}`,
-      padding: "10px 12px",
-      borderRadius: 12,
-      fontWeight: 900,
-      cursor: "pointer",
-    }}
+    style={topActionButtonStyle}
   >
     Admin Dashboard
+  </button>
+
+  <button
+    onClick={() => router.push(`/admin/crm/organizations/${org?.id}`)}
+    disabled={!org?.id}
+    style={{
+      ...topActionButtonStyle,
+      cursor: !org?.id ? "not-allowed" : "pointer",
+      opacity: !org?.id ? 0.6 : 1,
+    }}
+  >
+    Organization Account
   </button>
 
   <button
     onClick={() => router.push(`/admin/assessments/${assessmentId}/dashboard`)}
     disabled={!assessmentId}
     style={{
-      background: "#FFFFFF",
-      color: BRAND.dark,
-      border: `1px solid ${BRAND.border}`,
-      padding: "10px 12px",
-      borderRadius: 12,
-      fontWeight: 900,
+      ...topActionButtonStyle,
       cursor: !assessmentId ? "not-allowed" : "pointer",
       opacity: !assessmentId ? 0.6 : 1,
     }}
@@ -813,15 +822,7 @@ async function setParticipantPortalRole(
 
   <button
     onClick={() => router.push(`/assessments/${assessmentId}/narrative`)}
-    style={{
-      background: "#FFFFFF",
-      color: BRAND.dark,
-      border: `1px solid ${BRAND.border}`,
-      padding: "10px 12px",
-      borderRadius: 12,
-      fontWeight: 900,
-      cursor: "pointer",
-    }}
+    style={topActionButtonStyle}
   >
     View Executive Insights
   </button>

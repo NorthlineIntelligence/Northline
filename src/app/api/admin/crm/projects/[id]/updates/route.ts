@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getAdminApiUser } from "@/lib/adminApiAuth";
+import { encodeWhyWithTransition } from "@/lib/pmStatusAudit";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 const PostSchema = z.object({
   sprint_id: z.string().uuid(),
   status_label: z.string().min(1).max(100),
   why_text: z.string().max(6000).optional(),
+  from_status: z.string().max(100).optional(),
+  to_status: z.string().max(100).optional(),
   is_customer_visible: z.boolean().optional().default(false),
 });
 
@@ -38,7 +41,12 @@ export async function POST(
     data: {
       sprint_id: input.data.sprint_id,
       status_label: input.data.status_label,
-      why_text: input.data.why_text ?? null,
+      why_text:
+        encodeWhyWithTransition({
+          whyText: input.data.why_text ?? null,
+          fromStatus: input.data.from_status,
+          toStatus: input.data.to_status,
+        }) ?? null,
       is_customer_visible: input.data.is_customer_visible ?? false,
       author_email: auth.email,
     },

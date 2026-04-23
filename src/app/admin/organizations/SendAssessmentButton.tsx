@@ -69,7 +69,7 @@ export default function SendAssessmentButton({
         type="button"
         onClick={() => void sendNow()}
         disabled={busy || assessmentLocked}
-        className="rounded-lg bg-[#173464] px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-2xl border border-[#173464] bg-[#173464] px-4 py-2 text-sm font-black tracking-tight text-white shadow-[0_1px_2px_rgba(15,23,42,0.08),0_8px_18px_rgba(23,52,100,0.24)] transition hover:-translate-y-[1px] hover:bg-[#132d59] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {busy ? "Sending Assessment..." : "Send Assessment"}
       </button>

@@ -6,6 +6,7 @@ import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from 
 import { getCustomerPortalViewer } from "@/lib/customerPortalAuth";
 import { isAdminEmail } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
+import { mapProjectForCustomer, type PmProjectDto } from "@/lib/pmViewModel";
 
 function fmtDate(iso: Date | null) {
   if (!iso) return "—";
@@ -79,6 +80,43 @@ export default async function CustomerDashboardPage(props: {
   const participantRole =
     viewer?.participant.portal_role ??
     (adminUser ? "ORG_ADMIN" : "PORTAL_USER");
+  const pmProjectsRaw = await prisma.pmProject.findMany({
+    where: { organization_id: assessment.organization.id },
+    include: {
+      sprints: {
+        orderBy: { sprint_number: "asc" },
+        include: {
+          updates: { orderBy: { created_at: "desc" }, take: 3 },
+        },
+      },
+    },
+    orderBy: { updated_at: "desc" },
+    take: 5,
+  });
+  const customerPmProjects = pmProjectsRaw.map((p) =>
+    mapProjectForCustomer({
+      id: p.id,
+      title: p.title,
+      status: p.status,
+      completionPct: p.completion_pct,
+      customerSummary: p.customer_summary,
+      sprints: p.sprints.map((s) => ({
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        completionPct: s.completion_pct,
+        targetEndAt: s.target_end_at ? s.target_end_at.toISOString() : null,
+        updates: s.updates.map((u) => ({
+          id: u.id,
+          statusLabel: u.status_label,
+          whyText: u.why_text,
+          createdAt: u.created_at.toISOString(),
+          customerVisible: u.is_customer_visible,
+          authorEmail: u.author_email,
+        })),
+      })),
+    } as PmProjectDto)
+  );
 
   return (
     <main style={{ minHeight: "100vh", background: shellBackground, padding: 24 }}>
@@ -184,7 +222,14 @@ export default async function CustomerDashboardPage(props: {
             <div style={{ fontSize: 18, fontWeight: 900, color: BRAND.dark }}>Engagement Modules</div>
             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
               <LockedModule title="Document Library" subtitle="Unlocks after MSA lifecycle stage." />
-              <LockedModule title="PM Workspace" subtitle="Customer PM portal arrives in next phase." />
+              <LockedModule
+                title="PM Workspace"
+                subtitle={
+                  customerPmProjects.length > 0
+                    ? `${customerPmProjects.length} internal project(s) are already attach-ready for customer portal access.`
+                    : "Customer PM portal arrives in next phase."
+                }
+              />
             </div>
           </section>
         </div>

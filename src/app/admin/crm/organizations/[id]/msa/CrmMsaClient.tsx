@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { CrmQuote } from "@prisma/client";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBg } from "@/lib/northlineBrand";
+import { ADMIN_PREMIUM_BUTTON_STYLE } from "@/lib/adminButtonStyles";
 import { QUOTE_STANDARD_TERMS_TEXT, QUOTE_STANDARD_TERMS_VERSION } from "@/lib/quoteStandardTerms";
 
 type OrgResponse = {
@@ -128,7 +129,7 @@ export default function CrmMsaClient({ organizationId }: { organizationId: strin
   return (
     <div className="min-h-screen px-6 py-10" style={{ background: shellBg, color: BRAND.text }}>
       <div className="mx-auto max-w-5xl space-y-6">
-        <header className="flex items-center justify-between gap-3">
+        <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
               MSA Workspace
@@ -137,13 +138,22 @@ export default function CrmMsaClient({ organizationId }: { organizationId: strin
               {data.organization.name}
             </h1>
           </div>
-          <Link
-            href={`/admin/crm/organizations/${organizationId}`}
-            className="rounded-xl border bg-white px-4 py-2 text-sm font-bold shadow-sm"
-            style={{ borderColor: BRAND.border, color: BRAND.dark }}
-          >
-            Back to customer
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/admin/crm/organizations/${organizationId}`}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
+            >
+              ← Back to Organization Account
+            </Link>
+            <Link
+              href="/admin/crm"
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
+            >
+              CRM Hub
+            </Link>
+          </div>
         </header>
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BRAND.border }}>

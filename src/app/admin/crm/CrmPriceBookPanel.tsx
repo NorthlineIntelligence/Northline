@@ -18,8 +18,8 @@ type PriceBookRow = {
 };
 
 const SAMPLE_JSON = `[
-  { "sku": "WS-DISCOVERY", "description": "AI readiness workshop (1 day)", "unit": "day", "unit_price_cents": 1500000 },
-  { "sku": "IMPL-PILOT", "description": "Pilot implementation support", "unit": "sprint", "unit_price_cents": 3500000 }
+  { "sku": "WS-DISCOVERY", "description": "AI readiness workshop (1 day)", "unit": "day", "unit_price_cents": 1500000, "estimated_hours": 8, "timeline": "1 day" },
+  { "sku": "IMPL-PILOT", "description": "Pilot implementation support", "unit": "sprint", "unit_price_cents": 3500000, "estimated_hours": 24, "timeline": "3 weeks", "adhoc_hourly_rate_cents": 35000 }
 ]`;
 
 export function CrmPriceBookPanel() {
@@ -317,6 +317,7 @@ export function CrmPriceBookPanel() {
                 "Hourly Rate (Base)",
                 "Hourly Rate (Min)",
                 "Hourly Rate (Max)",
+                "Adhoc Hourly Rate",
                 "Project Cost (Estimated)",
               ];
               const sample = [
@@ -332,6 +333,7 @@ export function CrmPriceBookPanel() {
                 "250",
                 "250",
                 "250",
+                "275",
                 "750",
               ];
               const csv = `${headers.join(",")}\n${sample.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")}\n`;

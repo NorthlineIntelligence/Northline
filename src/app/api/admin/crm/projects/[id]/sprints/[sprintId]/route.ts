@@ -68,7 +68,7 @@ export async function PATCH(
 
   const sprints = await prisma.pmSprint.findMany({
     where: { project_id: parsed.data.id },
-    select: { completion_pct: true },
+    select: { completion_pct: true, target_start_at: true, target_end_at: true, estimated_completion_date: true },
   });
   const completion =
     sprints.length > 0
@@ -76,7 +76,19 @@ export async function PATCH(
       : 0;
   await prisma.pmProject.update({
     where: { id: parsed.data.id },
-    data: { completion_pct: completion },
+    data: {
+      completion_pct: completion,
+      target_start_at:
+        sprints
+          .map((s) => s.target_start_at)
+          .filter((d): d is Date => d instanceof Date)
+          .sort((a, b) => a.getTime() - b.getTime())[0] ?? null,
+      target_end_at:
+        sprints
+          .map((s) => s.target_end_at ?? s.estimated_completion_date)
+          .filter((d): d is Date => d instanceof Date)
+          .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
+    },
   });
 
   return NextResponse.json({ ok: true, sprint: updated, project_completion_pct: completion });
@@ -101,7 +113,7 @@ export async function DELETE(
 
   const sprints = await prisma.pmSprint.findMany({
     where: { project_id: parsed.data.id },
-    select: { completion_pct: true },
+    select: { completion_pct: true, target_start_at: true, target_end_at: true, estimated_completion_date: true },
   });
   const completion =
     sprints.length > 0
@@ -109,7 +121,19 @@ export async function DELETE(
       : 0;
   await prisma.pmProject.update({
     where: { id: parsed.data.id },
-    data: { completion_pct: completion },
+    data: {
+      completion_pct: completion,
+      target_start_at:
+        sprints
+          .map((s) => s.target_start_at)
+          .filter((d): d is Date => d instanceof Date)
+          .sort((a, b) => a.getTime() - b.getTime())[0] ?? null,
+      target_end_at:
+        sprints
+          .map((s) => s.target_end_at ?? s.estimated_completion_date)
+          .filter((d): d is Date => d instanceof Date)
+          .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
+    },
   });
 
   return NextResponse.json({ ok: true, project_completion_pct: completion });

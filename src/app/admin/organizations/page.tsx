@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin";
+import { ADMIN_PREMIUM_BUTTON_STYLE } from "@/lib/adminButtonStyles";
 import AdminControlsToggleButton from "../AdminControlsToggleButton";
 import ProjectScopeToggleButton from "../ProjectScopeToggleButton";
 import DeleteOrganizationButton from "../DeleteOrganizationButton";
@@ -31,20 +32,22 @@ export default async function AdminOrganizationsPage() {
               Organizations
             </h1>
             <p className="mt-2 text-sm text-[#66819e]">
-              Manage orgs, view settings, and jump into the latest assessment.
+              Manage orgs, open organization accounts, and jump into the latest assessment.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <a
               href="/admin/crm"
-              className="rounded-lg border border-[#cdd8df] bg-white px-4 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
             >
               Client CRM
             </a>
             <a
               href="/admin/organizations/new"
-              className="rounded-lg border border-[#cdd8df] bg-white px-4 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={ADMIN_PREMIUM_BUTTON_STYLE}
             >
               + Create New Organization
             </a>
@@ -78,16 +81,18 @@ export default async function AdminOrganizationsPage() {
                     <div className="flex flex-col items-stretch gap-3 sm:items-end">
                       <div className="flex flex-wrap gap-2">
                         <a
-                          href={`/admin/organizations/${org.id}`}
-                          className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+                          href={`/admin/crm/organizations/${org.id}`}
+                          className="rounded-2xl px-3 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                          style={ADMIN_PREMIUM_BUTTON_STYLE}
                         >
-                          Org Settings
+                          Open Organization Account
                         </a>
 
                         {latestAssessmentId ? (
                           <a
                             href={`/customer/dashboard?assessmentId=${latestAssessmentId}&preview=1`}
-                            className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+                            className="rounded-2xl px-3 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                            style={ADMIN_PREMIUM_BUTTON_STYLE}
                           >
                             Customer User Admin
                           </a>
@@ -96,7 +101,8 @@ export default async function AdminOrganizationsPage() {
                         {latestAssessmentId ? (
                           <a
                             href={`/assessments/${latestAssessmentId}/results`}
-                            className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+                            className="rounded-2xl px-3 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+                            style={ADMIN_PREMIUM_BUTTON_STYLE}
                           >
                             Latest Results
                           </a>

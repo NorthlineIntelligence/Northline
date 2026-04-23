@@ -8,6 +8,19 @@ const LineItemSchema = z.object({
   description: z.string().max(2000),
   unit: z.string().max(80).default("unit"),
   unit_price_cents: z.number().int().min(0),
+  engagement_name: z.string().max(200).optional(),
+  category: z.string().max(200).optional(),
+  company_tier: z.string().max(120).optional(),
+  base_price_cents: z.number().int().min(0).optional(),
+  min_price_cents: z.number().int().min(0).optional(),
+  max_price_cents: z.number().int().min(0).optional(),
+  hourly_rate_base_cents: z.number().int().min(0).optional(),
+  hourly_rate_min_cents: z.number().int().min(0).optional(),
+  hourly_rate_max_cents: z.number().int().min(0).optional(),
+  adhoc_hourly_rate_cents: z.number().int().min(0).optional(),
+  estimated_hours: z.number().min(0).optional(),
+  timeline: z.string().max(120).optional(),
+  project_cost_estimated_cents: z.number().int().min(0).optional(),
 });
 
 const PostSchema = z.object({

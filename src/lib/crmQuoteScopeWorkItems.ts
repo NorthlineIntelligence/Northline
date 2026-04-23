@@ -26,6 +26,10 @@ export type ScopeWorkItem = {
     | "HOURLY_RATE_MAX";
   quantity: number;
   discountPct: number;
+  /** Informational build effort shown on quote line items; not used in pricing math */
+  buildHours: number | null;
+  /** Informational build timeline shown on quote line items; not used in pricing math */
+  buildTime: string | null;
 };
 
 const KINDS: ScopeWorkItemKind[] = ["PILOT", "ASSESSMENT_ONLY", "ALACARTE", "CUSTOM"];
@@ -85,6 +89,14 @@ export function normalizeScopeWorkItem(raw: unknown, fallbackIndex: number): Sco
       typeof r.discountPct === "number" && Number.isFinite(r.discountPct)
         ? Math.max(0, Math.min(100, r.discountPct))
         : 0,
+    buildHours:
+      typeof r.buildHours === "number" && Number.isFinite(r.buildHours) && r.buildHours >= 0
+        ? r.buildHours
+        : null,
+    buildTime:
+      r.buildTime === null || r.buildTime === undefined || String(r.buildTime).trim() === ""
+        ? null
+        : String(r.buildTime).slice(0, 120),
   };
 }
 
@@ -93,6 +105,7 @@ export type ScopeSummaryForWorkItems = {
     name?: string;
     summary?: string;
     deliverables?: string[];
+    timelineLabel?: string;
   }>;
 };
 
@@ -120,6 +133,8 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
       pricingSelection: "BASE_PRICE",
       quantity: 0,
       discountPct: 0,
+      buildHours: null,
+      buildTime: typeof p?.timelineLabel === "string" ? p.timelineLabel.slice(0, 120) : null,
     });
   });
 
@@ -140,6 +155,8 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
     pricingSelection: "BASE_PRICE",
     quantity: 0,
     discountPct: 0,
+    buildHours: null,
+    buildTime: null,
   });
 
   items.push({
@@ -159,6 +176,8 @@ export function buildScopeWorkItemsFromScopeSummary(summary: ScopeSummaryForWork
     pricingSelection: "BASE_PRICE",
     quantity: 0,
     discountPct: 0,
+    buildHours: null,
+    buildTime: null,
   });
 
   return items;

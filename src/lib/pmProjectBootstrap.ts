@@ -4,9 +4,97 @@ type ScopeSummaryProject = {
   name?: string;
   timelineLabel?: string;
   summary?: string;
+  objectivesBrief?: string;
+  quoteBasisText?: string;
+  scopeSummary?: string;
+  scope_summary?: string;
+  objectives_brief?: string;
   costBand?: string | null;
   deliverables?: string[];
+  deliverablesText?: string;
+  whatWeWillDeliver?: string[] | string;
+  what_we_will_deliver?: string[] | string;
+  projectedTools?: string[];
+  projectedToolsText?: string;
+  recommendedTools?: string[] | string;
+  recommended_tools?: string[] | string;
+  projected_tools?: string[] | string;
+  toolsText?: string;
+  tools?: string[];
+  phaseHighlights?: string[];
+  priority?: number | null;
 };
+
+function composeStructuredScopeSummary(args: {
+  summary?: string;
+  deliverables?: string[] | string;
+  projectedTools?: string[] | string;
+}) {
+  const summary = (args.summary ?? "").trim();
+  const toList = (value: string[] | string | undefined) => {
+    if (Array.isArray(value)) return value.map((d) => d.trim()).filter(Boolean);
+    if (typeof value === "string") {
+      return value
+        .split("\n")
+        .map((d) => d.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
+  const deliverables = toList(args.deliverables);
+  const projectedTools = toList(args.projectedTools);
+  const sections: string[] = [];
+  if (summary) sections.push(`Scope Summary:\n${summary}`);
+  if (deliverables.length) sections.push(`What we will deliver:\n${deliverables.map((d) => `- ${d}`).join("\n")}`);
+  if (projectedTools.length) sections.push(`Projected Tools:\n${projectedTools.map((d) => `- ${d}`).join("\n")}`);
+  return sections.join("\n\n").trim() || null;
+}
+
+function sortProjectsForPm(projects: ScopeSummaryProject[]) {
+  return [...projects]
+    .map((p, index) => ({ p, index }))
+    .sort((a, b) => {
+      const aPriority = Number.isFinite(Number(a.p.priority)) ? Number(a.p.priority) : Number.POSITIVE_INFINITY;
+      const bPriority = Number.isFinite(Number(b.p.priority)) ? Number(b.p.priority) : Number.POSITIVE_INFINITY;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      return a.index - b.index;
+    })
+    .map((x) => x.p);
+}
+
+function toStringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((d) => String(d ?? "").trim()).filter(Boolean);
+  if (typeof value === "string") return value.split("\n").map((d) => d.trim()).filter(Boolean);
+  return [];
+}
+
+function normalizeScopeProject(raw: unknown): ScopeSummaryProject {
+  const p = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    name: typeof p.name === "string" ? p.name : undefined,
+    timelineLabel: typeof p.timelineLabel === "string" ? p.timelineLabel : undefined,
+    summary: typeof p.summary === "string" ? p.summary : undefined,
+    objectivesBrief: typeof p.objectivesBrief === "string" ? p.objectivesBrief : undefined,
+    quoteBasisText: typeof p.quoteBasisText === "string" ? p.quoteBasisText : undefined,
+    scopeSummary: typeof p.scopeSummary === "string" ? p.scopeSummary : undefined,
+    scope_summary: typeof p.scope_summary === "string" ? p.scope_summary : undefined,
+    objectives_brief: typeof p.objectives_brief === "string" ? p.objectives_brief : undefined,
+    costBand: typeof p.costBand === "string" ? p.costBand : p.costBand == null ? null : undefined,
+    deliverables: toStringList(p.deliverables),
+    deliverablesText: typeof p.deliverablesText === "string" ? p.deliverablesText : undefined,
+    whatWeWillDeliver: toStringList(p.whatWeWillDeliver),
+    what_we_will_deliver: toStringList(p.what_we_will_deliver),
+    projectedTools: toStringList(p.projectedTools),
+    projectedToolsText: typeof p.projectedToolsText === "string" ? p.projectedToolsText : undefined,
+    recommendedTools: toStringList(p.recommendedTools),
+    recommended_tools: toStringList(p.recommended_tools),
+    projected_tools: toStringList(p.projected_tools),
+    toolsText: typeof p.toolsText === "string" ? p.toolsText : undefined,
+    tools: toStringList(p.tools),
+    phaseHighlights: toStringList(p.phaseHighlights),
+    priority: typeof p.priority === "number" ? p.priority : null,
+  };
+}
 
 function clampPct(n: number) {
   return Math.max(0, Math.min(100, Math.round(n)));
@@ -70,7 +158,7 @@ export function buildProjectFromQuote(args: {
       : {};
   const projectsLocked = payload.scopeProjectsLocked === true;
   const projects = Array.isArray(scopeSummary.projects)
-    ? (scopeSummary.projects as ScopeSummaryProject[])
+    ? scopeSummary.projects.map((p) => normalizeScopeProject(p))
     : [];
 
   const now = new Date();
@@ -82,7 +170,9 @@ export function buildProjectFromQuote(args: {
 
   let cursor = now;
   const sourceProjects =
-    projectsLocked && projects.length ? projects : [{ name: "Discovery & delivery", timelineLabel: "2 weeks" }];
+    projectsLocked && projects.length
+      ? sortProjectsForPm(projects)
+      : [{ name: "Discovery & delivery", timelineLabel: "2 weeks" }];
 
   const sprints = sourceProjects.map(
     (p, idx) => {
@@ -91,13 +181,46 @@ export function buildProjectFromQuote(args: {
       const start = cursor;
       const end = addDays(start, days);
       cursor = end;
-      const checklist = Array.isArray(p.deliverables)
-        ? p.deliverables.map((d) => d.trim()).filter(Boolean)
-        : [];
-      const milestoneText = checklist.length
-        ? `Milestones:\n${checklist.map((d) => `- [ ] ${d}`).join("\n")}`
-        : "";
-      const mergedSummary = [p.summary?.trim() || "", milestoneText].filter(Boolean).join("\n\n");
+      const checklist = [
+        ...toStringList(p.deliverables),
+        ...toStringList(p.deliverablesText),
+        ...toStringList(p.whatWeWillDeliver),
+        ...toStringList(p.what_we_will_deliver),
+      ];
+      const projectedTools = Array.isArray(p.projectedTools)
+        ? p.projectedTools
+        : typeof p.projectedToolsText === "string"
+          ? p.projectedToolsText
+              .split("\n")
+              .map((d) => d.trim())
+              .filter(Boolean)
+          : Array.isArray(p.recommendedTools)
+            ? p.recommendedTools
+            : Array.isArray(p.recommended_tools)
+              ? p.recommended_tools
+          : Array.isArray(p.projected_tools)
+            ? p.projected_tools
+            : typeof p.toolsText === "string"
+              ? p.toolsText
+                  .split("\n")
+                  .map((d) => d.trim())
+                  .filter(Boolean)
+          : Array.isArray(p.tools)
+            ? p.tools
+            : [];
+      const summaryText =
+        p.summary ||
+        p.scopeSummary ||
+        p.scope_summary ||
+        p.objectivesBrief ||
+        p.objectives_brief ||
+        p.quoteBasisText ||
+        (Array.isArray(p.phaseHighlights) ? p.phaseHighlights.join("\n") : "");
+      const mergedSummary = composeStructuredScopeSummary({
+        summary: summaryText,
+        deliverables: checklist,
+        projectedTools,
+      });
       return {
         sprint_number: idx + 1,
         title: (p.name?.trim() || `Project scope ${idx + 1}`).slice(0, 200),

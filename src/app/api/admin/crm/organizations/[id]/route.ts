@@ -52,6 +52,10 @@ export async function GET(
           status: true,
           created_at: true,
           locked_at: true,
+          Participant: {
+            where: { email: { not: null } },
+            select: { email: true },
+          },
         },
       },
       crm_quotes: {
@@ -118,6 +122,58 @@ export async function GET(
       new Date(inv.due_date).getTime() < Date.now()
   );
 
+  const pmProjects = await prisma.pmProject.findMany({
+    where: { organization_id: orgId },
+    select: {
+      id: true,
+      status: true,
+      completion_pct: true,
+      target_end_at: true,
+      sprints: {
+        select: {
+          id: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  const now = Date.now();
+  const projectsAtRisk = pmProjects.filter((p) => p.status === "AT_RISK" || p.status === "DELAYED" || p.status === "OVERDUE").length;
+  const projectsDueSoon = pmProjects.filter((p) => {
+    if (!p.target_end_at) return false;
+    const diff = new Date(p.target_end_at).getTime() - now;
+    return diff >= 0 && diff <= 1000 * 60 * 60 * 24 * 7;
+  }).length;
+  const avgCompletionPct =
+    pmProjects.length > 0
+      ? Math.round(pmProjects.reduce((sum, p) => sum + (p.completion_pct ?? 0), 0) / pmProjects.length)
+      : 0;
+
+  const deliveryUpdates = await prisma.pmSprintUpdate.findMany({
+    where: {
+      sprint: {
+        project: { organization_id: orgId },
+      },
+    },
+    orderBy: { created_at: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      status_label: true,
+      why_text: true,
+      created_at: true,
+      author_email: true,
+      is_customer_visible: true,
+      sprint: {
+        select: {
+          title: true,
+          status: true,
+        },
+      },
+    },
+  });
+
   return NextResponse.json({
     ok: true,
     organization: org,
@@ -133,6 +189,25 @@ export async function GET(
     alerts: {
       followUpOverdue,
       overdueInvoices: invoiceAlerts.length,
+    },
+    dashboard: {
+      kpis: {
+        activeProjects: pmProjects.length,
+        projectsAtRisk,
+        projectsDueSoon,
+        avgCompletionPct,
+        overdueInvoices: invoiceAlerts.length,
+      },
+      deliveryUpdates: deliveryUpdates.map((u) => ({
+        id: u.id,
+        status_label: u.status_label,
+        why_text: u.why_text,
+        created_at: u.created_at,
+        author_email: u.author_email,
+        is_customer_visible: u.is_customer_visible,
+        sprint_title: u.sprint.title,
+        sprint_status: u.sprint.status,
+      })),
     },
   });
 }

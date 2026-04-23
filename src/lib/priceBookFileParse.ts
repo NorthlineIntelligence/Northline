@@ -14,6 +14,7 @@ const LineItemSchema = z.object({
   hourly_rate_base_cents: z.number().int().min(0).optional(),
   hourly_rate_min_cents: z.number().int().min(0).optional(),
   hourly_rate_max_cents: z.number().int().min(0).optional(),
+  adhoc_hourly_rate_cents: z.number().int().min(0).optional(),
   estimated_hours: z.number().min(0).optional(),
   timeline: z.string().max(120).optional(),
   project_cost_estimated_cents: z.number().int().min(0).optional(),
@@ -55,6 +56,17 @@ function normalizeLineItem(raw: unknown): z.infer<typeof LineItemSchema> | null 
     description,
     unit,
     unit_price_cents,
+      adhoc_hourly_rate_cents:
+        typeof o.adhoc_hourly_rate_cents === "number" && Number.isFinite(o.adhoc_hourly_rate_cents)
+          ? Math.max(0, Math.round(o.adhoc_hourly_rate_cents))
+          : typeof o.hourly_rate_adhoc_cents === "number" && Number.isFinite(o.hourly_rate_adhoc_cents)
+            ? Math.max(0, Math.round(o.hourly_rate_adhoc_cents))
+            : undefined,
+      estimated_hours:
+        typeof o.estimated_hours === "number" && Number.isFinite(o.estimated_hours)
+          ? Math.max(0, o.estimated_hours)
+          : undefined,
+      timeline: typeof o.timeline === "string" ? o.timeline.slice(0, 120) : undefined,
   });
   return parsed.success ? parsed.data : null;
 }
@@ -70,7 +82,8 @@ export function parsePriceBookJson(text: string): {
   } catch {
     return { line_items: [], warnings: ["Invalid JSON"] };
   }
-  const arr = Array.isArray(data) ? data : (data as any)?.line_items ?? (data as any)?.items;
+  const dataObj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  const arr = Array.isArray(data) ? data : dataObj?.line_items ?? dataObj?.items;
   if (!Array.isArray(arr)) {
     return { line_items: [], warnings: ["JSON must be an array of line items, or an object with line_items"] };
   }
@@ -146,6 +159,7 @@ export function parsePriceBookCsv(text: string): {
   const iHourlyBase = idx("hourly_rate_base");
   const iHourlyMin = idx("hourly_rate_min");
   const iHourlyMax = idx("hourly_rate_max");
+  const iAdhocHourly = idx("adhoc_hourly_rate");
   const iEstimatedHours = idx("estimated_hours");
   const iTimeline = idx("timeline");
   const iProjectEstimated = idx("project_cost_estimated");
@@ -222,6 +236,7 @@ export function parsePriceBookCsv(text: string): {
     const hourlyRateBaseCents = iHourlyBase >= 0 ? parseMoneyToCents(cols[iHourlyBase] ?? "") : undefined;
     const hourlyRateMinCents = iHourlyMin >= 0 ? parseMoneyToCents(cols[iHourlyMin] ?? "") : undefined;
     const hourlyRateMaxCents = iHourlyMax >= 0 ? parseMoneyToCents(cols[iHourlyMax] ?? "") : undefined;
+    const adhocHourlyRateCents = iAdhocHourly >= 0 ? parseMoneyToCents(cols[iAdhocHourly] ?? "") : undefined;
     const estimatedHoursRaw = iEstimatedHours >= 0 ? Number.parseFloat((cols[iEstimatedHours] ?? "").replace(/,/g, "")) : NaN;
     const estimatedHours = Number.isFinite(estimatedHoursRaw) ? Math.max(0, estimatedHoursRaw) : undefined;
     const timeline = iTimeline >= 0 ? (cols[iTimeline] ?? "").replace(/^"|"$/g, "").trim() : undefined;
@@ -246,6 +261,7 @@ export function parsePriceBookCsv(text: string): {
       hourly_rate_base_cents: hourlyRateBaseCents,
       hourly_rate_min_cents: hourlyRateMinCents,
       hourly_rate_max_cents: hourlyRateMaxCents,
+      adhoc_hourly_rate_cents: adhocHourlyRateCents,
       estimated_hours: estimatedHours,
       timeline: timeline || undefined,
       project_cost_estimated_cents: projectEstimatedCents,
