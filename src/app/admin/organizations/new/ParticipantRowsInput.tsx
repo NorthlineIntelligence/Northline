@@ -5,11 +5,19 @@ import { useMemo, useState } from "react";
 const MIN_ROWS = 5;
 const MAX_ROWS = 25;
 
-type Row = { email: string; canViewExecutiveInsights: boolean };
+type Row = {
+  email: string;
+  canViewExecutiveInsights: boolean;
+  userAdminRights: boolean;
+};
 
 export default function ParticipantRowsInput() {
   const [rows, setRows] = useState<Row[]>(
-    Array.from({ length: MIN_ROWS }).map(() => ({ email: "", canViewExecutiveInsights: true }))
+    Array.from({ length: MIN_ROWS }).map(() => ({
+      email: "",
+      canViewExecutiveInsights: true,
+      userAdminRights: false,
+    }))
   );
 
   const canAdd = rows.length < MAX_ROWS;
@@ -18,7 +26,7 @@ export default function ParticipantRowsInput() {
   return (
     <div className="space-y-3">
       {rows.map((row, i) => (
-        <div key={i} className="grid gap-2 rounded-lg border border-[#e6ebf0] p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div key={i} className="grid gap-2 rounded-lg border border-[#e6ebf0] p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
           <input
             name="participant_email"
             type="email"
@@ -50,6 +58,25 @@ export default function ParticipantRowsInput() {
             />
             Can view Executive Insights
           </label>
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#173464]">
+            <input
+              type="hidden"
+              name="participant_user_admin_rights"
+              value={row.userAdminRights ? "1" : "0"}
+            />
+            <input
+              type="checkbox"
+              checked={row.userAdminRights}
+              onChange={(e) =>
+                setRows((prev) =>
+                  prev.map((r, idx) =>
+                    idx === i ? { ...r, userAdminRights: e.target.checked } : r
+                  )
+                )
+              }
+            />
+            User Admin Rights
+          </label>
         </div>
       ))}
 
@@ -61,7 +88,10 @@ export default function ParticipantRowsInput() {
           type="button"
           disabled={!canAdd}
           onClick={() =>
-            setRows((prev) => [...prev, { email: "", canViewExecutiveInsights: true }])
+            setRows((prev) => [
+              ...prev,
+              { email: "", canViewExecutiveInsights: true, userAdminRights: false },
+            ])
           }
           className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-xs font-semibold text-[#173464] disabled:opacity-50"
         >

@@ -124,6 +124,7 @@ model Participant {
   /// If assessment.locked_department is set, this can be null.
   department Department?
   can_view_executive_insights Boolean @default(true)
+  portal_role ParticipantPortalRole @default(NONE)
 
   Assessment   Assessment   @relation(fields: [assessment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
@@ -138,6 +139,12 @@ model Participant {
   @@index([organization_id, user_id])
   @@index([assessment_id, department])
   @@index([assessment_id, created_at])
+}
+
+enum ParticipantPortalRole {
+  NONE
+  PORTAL_USER
+  ORG_ADMIN
 }
 
 model Question {

@@ -122,14 +122,25 @@ export async function POST(req: NextRequest) {
     const participantVisibilityRaw = (form.getAll("participant_can_view_executive_insights") as unknown[]).map(
       (v) => String(v ?? "").trim()
     );
+    const participantUserAdminRaw = (form.getAll("participant_user_admin_rights") as unknown[]).map(
+      (v) => String(v ?? "").trim()
+    );
     const participantEntries = participantEmailsFromFields
       .map((email, idx) => ({
         email,
         can_view_executive_insights:
           (participantVisibilityRaw[idx] ?? "1").toLowerCase() !== "0",
+        portal_role:
+          (participantUserAdminRaw[idx] ?? "0").toLowerCase() === "1"
+            ? ("ORG_ADMIN" as const)
+            : ("NONE" as const),
       }))
       .filter((row) => row.email);
-    const dedupedParticipantEntries: Array<{ email: string; can_view_executive_insights: boolean }> = [];
+    const dedupedParticipantEntries: Array<{
+      email: string;
+      can_view_executive_insights: boolean;
+      portal_role: "NONE" | "ORG_ADMIN";
+    }> = [];
     const seen = new Set<string>();
     for (const row of participantEntries) {
       if (seen.has(row.email)) continue;
@@ -220,6 +231,7 @@ export async function POST(req: NextRequest) {
             assessment_id: assessment.id,
             email: row.email,
             can_view_executive_insights: row.can_view_executive_insights,
+            portal_role: row.portal_role,
           })),
           skipDuplicates: true,
         });

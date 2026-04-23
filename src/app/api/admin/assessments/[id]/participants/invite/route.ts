@@ -13,6 +13,9 @@ const BodySchema = z
   .object({
     emails: z.array(z.string().email()).min(1).max(100),
     expiresInHours: z.number().int().min(1).max(24 * 30).optional(), // up to 30 days
+    portalRoleByEmail: z
+      .record(z.string().email(), z.enum(["NONE", "PORTAL_USER", "ORG_ADMIN"]))
+      .optional(),
   })
   .strict();
 
@@ -120,6 +123,40 @@ function getOrigin(req: NextRequest) {
     </div>
     `;
   }
+
+function buildPortalAccessEmailHtml(args: { accessUrl: string }) {
+  const { accessUrl } = args;
+  return `
+    <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; color:#0B1220; line-height:1.45">
+      <div style="max-width: 640px; margin: 0 auto; padding: 24px;">
+        <div style="font-size: 18px; font-weight: 800; color:#173464;">
+          Northline Customer Portal Access
+        </div>
+        <div style="margin-top: 14px; font-size: 14px;">
+          Your organization granted you access to the Northline customer portal.
+        </div>
+        <div style="margin-top: 16px;">
+          <a href="${accessUrl}"
+             style="display:inline-block; background:#173464; color:#ffffff; text-decoration:none; font-weight:800; padding:12px 16px; border-radius:12px;">
+            Create Account Access
+          </a>
+        </div>
+        <div style="margin-top: 14px; font-size: 12px; color:#4B5565;">
+          You will receive one additional secure sign-in email to complete login.
+        </div>
+        <div style="margin-top: 8px; font-size: 12px; color:#4B5565;">
+          Depending on your organization authentication settings, that email may be delivered by Supabase Auth.
+        </div>
+        <div style="margin-top: 12px; font-size: 12px; color:#4B5565;">
+          If the button doesn’t work, copy/paste this link:
+          <div style="margin-top: 8px; padding: 10px; background:#F6F8FC; border:1px solid #E6EAF2; border-radius: 10px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+            ${accessUrl}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
   
   async function sendInviteEmail(args: { to: string; subject: string; html: string }) {
     const apiKey = process.env.RESEND_API_KEY ?? "";
@@ -209,6 +246,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const normalizedEmails = Array.from(
       new Set(parsedBody.data.emails.map((e) => e.trim().toLowerCase()).filter(Boolean))
     );
+    const portalRoleByEmail = parsedBody.data.portalRoleByEmail ?? {};
+    const anyPortalAccessRequested = normalizedEmails.some((email) =>
+      Object.prototype.hasOwnProperty.call(portalRoleByEmail, email)
+        ? portalRoleByEmail[email] !== "NONE"
+        : false
+    );
 
     // ---- assessment ----
     const assessment = await prisma.assessment.findUnique({
@@ -225,8 +268,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       return NextResponse.json({ ok: false, error: "Assessment not found" }, { status: 404 });
     }
 
-    // Prevent inviting into closed/locked assessments
-    if (assessment.locked_at != null || assessment.status === "CLOSED") {
+    // Prevent assessment-taking invites into closed/locked assessments.
+    // Portal-access invites are still allowed so admins can onboard stakeholders post-assessment.
+    if ((assessment.locked_at != null || assessment.status === "CLOSED") && !anyPortalAccessRequested) {
       return NextResponse.json(
         { ok: false, error: "Assessment is locked/closed; cannot send new invites." },
         { status: 409 }
@@ -242,10 +286,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       email: string;
       participantId: string;
       inviteUrl: string;
+      portalAccessUrl: string;
+      portalRole: "NONE" | "PORTAL_USER" | "ORG_ADMIN";
       expiresAt: string;
     }> = [];
 
     for (const email of normalizedEmails) {
+      const hasPortalRoleOverride = Object.prototype.hasOwnProperty.call(portalRoleByEmail, email);
+      const portalRole = portalRoleByEmail[email] ?? "NONE";
       const rawToken = makeRawToken();
       const tokenHash = sha256Hex(rawToken);
 
@@ -261,18 +309,20 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           assessment_id: assessmentId,
           organization_id: assessment.organization_id,
           email,
+          portal_role: portalRole,
           invite_token_hash: tokenHash,
           invite_token_expires_at: expiresAt,
           invite_sent_at: new Date(),
           invite_accepted_at: null,
         },
         update: {
+          ...(hasPortalRoleOverride ? { portal_role: portalRole } : {}),
           invite_token_hash: tokenHash,
           invite_token_expires_at: expiresAt,
           invite_sent_at: new Date(),
           // do NOT wipe invite_accepted_at
         },
-        select: { id: true },
+        select: { id: true, portal_role: true },
       });
 
       const inviteUrl =
@@ -280,16 +330,51 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
   `?email=${encodeURIComponent(email)}` +
   `&token=${encodeURIComponent(rawToken)}`;
 
+      const portalAccessUrl =
+        `${origin}/customer/access` +
+        `?assessmentId=${encodeURIComponent(assessmentId)}` +
+        `&email=${encodeURIComponent(email)}`;
+
       invites.push({
         email,
         participantId: participant.id,
         inviteUrl,
+        portalAccessUrl,
+        portalRole: participant.portal_role as "NONE" | "PORTAL_USER" | "ORG_ADMIN",
         expiresAt: expiresAt.toISOString(),
       });
+
+      if (participant.portal_role !== "NONE") {
+        const existingContact = await prisma.orgContact.findFirst({
+          where: {
+            organization_id: assessment.organization_id,
+            email,
+          },
+          select: { id: true },
+        });
+        if (!existingContact) {
+          await prisma.orgContact.create({
+            data: {
+              organization_id: assessment.organization_id,
+              email,
+              name: email.split("@")[0] || email,
+              title: participant.portal_role === "ORG_ADMIN" ? "Portal Admin" : "Portal User",
+              is_archived: false,
+            },
+          });
+        } else {
+          await prisma.orgContact.update({
+            where: { id: existingContact.id },
+            data: { is_archived: false },
+          });
+        }
+      }
     }
 
     let sent = 0;
     let failed = 0;
+    let portalSent = 0;
+    let portalFailed = 0;
 
     if (invites.length > 0) {
       const subject = `Northline AI Readiness Diagnostic`;
@@ -300,8 +385,22 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             const html = buildInviteEmailHtml({ startUrl: inv.inviteUrl });
             await sendInviteEmail({ to: inv.email, subject, html });
             sent += 1;
+
+            if (inv.portalRole !== "NONE") {
+              const portalHtml = buildPortalAccessEmailHtml({ accessUrl: inv.portalAccessUrl });
+              await sendInviteEmail({
+                to: inv.email,
+                subject: "Northline Customer Portal Account Access",
+                html: portalHtml,
+              });
+              portalSent += 1;
+            }
           } catch (e: any) {
-            failed += 1;
+            if (inv.portalRole !== "NONE") {
+              portalFailed += 1;
+            } else {
+              failed += 1;
+            }
             console.error("Invite email failure:", inv.email, e?.message ?? String(e));
           }
         })
@@ -309,7 +408,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     }
 
     return NextResponse.json(
-      { ok: true, invited: invites.length, invites, sent, failed, mode: admin.mode },
+      {
+        ok: true,
+        invited: invites.length,
+        invites,
+        sent,
+        failed,
+        portalSent,
+        portalFailed,
+        mode: admin.mode,
+      },
       { status: 200 }
     );
   } catch (err: any) {

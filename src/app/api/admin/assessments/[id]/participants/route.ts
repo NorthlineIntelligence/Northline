@@ -12,7 +12,8 @@ const DeleteQuerySchema = z.object({
 });
 const PatchBodySchema = z.object({
   participantId: z.string().uuid(),
-  can_view_executive_insights: z.boolean(),
+  can_view_executive_insights: z.boolean().optional(),
+  portal_role: z.enum(["NONE", "PORTAL_USER", "ORG_ADMIN"]).optional(),
 });
 
 async function getSupabaseServerClient() {
@@ -114,6 +115,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
             invite_accepted_at: true,
             completed_at: true,
             can_view_executive_insights: true,
+            portal_role: true,
             created_at: true,
           },
           orderBy: { created_at: "asc" },
@@ -262,7 +264,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (!parsedBody.success) {
       return NextResponse.json({ ok: false, error: "Invalid request body" }, { status: 400 });
     }
-    const { participantId, can_view_executive_insights } = parsedBody.data;
+    const { participantId, can_view_executive_insights, portal_role } = parsedBody.data;
     const assessmentId = parsedParams.data.id;
 
     const assessment = await prisma.assessment.findUnique({
@@ -284,10 +286,25 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: "Participant not found" }, { status: 404 });
     }
 
+    if (
+      typeof can_view_executive_insights !== "boolean" &&
+      typeof portal_role !== "string"
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "At least one field must be provided for update." },
+        { status: 400 }
+      );
+    }
+
     const updated = await prisma.participant.update({
       where: { id: participantId },
-      data: { can_view_executive_insights },
-      select: { id: true, can_view_executive_insights: true },
+      data: {
+        ...(typeof can_view_executive_insights === "boolean"
+          ? { can_view_executive_insights }
+          : {}),
+        ...(typeof portal_role === "string" ? { portal_role } : {}),
+      },
+      select: { id: true, can_view_executive_insights: true, portal_role: true },
     });
     return NextResponse.json({ ok: true, participant: updated }, { status: 200 });
   } catch (err: any) {

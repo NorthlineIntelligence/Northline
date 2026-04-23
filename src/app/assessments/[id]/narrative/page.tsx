@@ -976,7 +976,8 @@ export default function AssessmentNarrativePage() {
   // Only lock non-admin viewers until every invited participant has submitted
   const participantLocked = !showAdminControls && allParticipantsCompleted === false;
   const hasInviteAuth = Boolean(inviteEmail && inviteToken);
-  const canAttemptGenerate = Boolean(assessmentId) && (showAdminControls || hasInviteAuth);
+  const hasSessionAuth = !hasInviteAuth;
+  const canAttemptGenerate = Boolean(assessmentId) && (showAdminControls || hasInviteAuth || hasSessionAuth);
 
   const showProjectScopeLink = Boolean(
     diagnosticData?.assessment?.organization?.show_project_scope_review

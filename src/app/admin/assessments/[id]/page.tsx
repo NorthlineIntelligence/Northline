@@ -51,6 +51,7 @@ type ParticipantRow = {
   id: string;
   email: string | null;
   can_view_executive_insights: boolean;
+  portal_role: "NONE" | "PORTAL_USER" | "ORG_ADMIN";
   department: string | null;
   role: string | null;
   seniority_level: string | null;
@@ -130,6 +131,7 @@ export default function AdminAssessmentPage() {
   const [inviteEmailsText, setInviteEmailsText] = useState("");
 const [inviting, setInviting] = useState(false);
 const [inviteResult, setInviteResult] = useState<string | null>(null);
+const [newInvitePortalAdmin, setNewInvitePortalAdmin] = useState(false);
 
 const [resendingEmail, setResendingEmail] = useState<string | null>(null);
 const [resendResult, setResendResult] = useState<string | null>(null);
@@ -228,6 +230,33 @@ async function setParticipantExecutiveInsightsVisibility(
     body: JSON.stringify({
       participantId,
       can_view_executive_insights: canViewExecutiveInsights,
+    }),
+  });
+  const json = await res.json().catch(() => ({} as any));
+  if (!res.ok) {
+    setDeleteResult(`Error (${res.status}): ${json?.error ?? "Update failed."}`);
+    setUpdatingVisibilityId(null);
+    return;
+  }
+  setUpdatingVisibilityId(null);
+  await refreshParticipants();
+}
+
+async function setParticipantPortalRole(
+  participantId: string,
+  portalRole: "NONE" | "PORTAL_USER" | "ORG_ADMIN"
+) {
+  if (!assessmentId) return;
+  setUpdatingVisibilityId(participantId);
+  setDeleteResult(null);
+
+  const res = await fetch(`/api/admin/assessments/${assessmentId}/participants`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      participantId,
+      portal_role: portalRole,
     }),
   });
   const json = await res.json().catch(() => ({} as any));
@@ -354,6 +383,12 @@ async function setParticipantExecutiveInsightsVisibility(
 
   async function sendInvites() {
     if (!assessmentId) return;
+    if (isLocked && !newInvitePortalAdmin) {
+      setInviteResult(
+        "Assessment is locked. Enable User Admin Rights to send portal-access invites after completion."
+      );
+      return;
+    }
 
     const raw = inviteEmailsText.trim();
     if (!raw) {
@@ -385,6 +420,9 @@ async function setParticipantExecutiveInsightsVisibility(
       body: JSON.stringify({
         emails,
         expiresInHours: 24 * 7,
+        portalRoleByEmail: Object.fromEntries(
+          emails.map((email) => [email, newInvitePortalAdmin ? "ORG_ADMIN" : "NONE"])
+        ),
       }),
     });
 
@@ -1317,7 +1355,7 @@ async function setParticipantExecutiveInsightsVisibility(
             <textarea
               value={inviteEmailsText}
               onChange={(e) => setInviteEmailsText(e.target.value)}
-              disabled={isLocked || inviting}
+              disabled={inviting}
               rows={3}
               placeholder={"sarah@client.com\njohn@client.com"}
               style={{
@@ -1345,20 +1383,31 @@ async function setParticipantExecutiveInsightsVisibility(
               }}
             >
               <div style={{ color: BRAND.muted, fontSize: 12 }}>
-                {isLocked ? "Locked: cannot add/invite participants." : "Invites expire in 7 days."}
+                  {isLocked
+                    ? "Assessment is locked for responses. Portal-access invites remain available."
+                    : "Invites expire in 7 days."}
               </div>
+                <label style={{ display: "inline-flex", gap: 8, alignItems: "center", color: BRAND.dark, fontWeight: 800 }}>
+                  <input
+                    type="checkbox"
+                    checked={newInvitePortalAdmin}
+                    onChange={(e) => setNewInvitePortalAdmin(e.target.checked)}
+                    disabled={inviting}
+                  />
+                  User Admin Rights
+                </label>
 
               <button
                 onClick={sendInvites}
-                disabled={isLocked || inviting}
+                disabled={inviting}
                 style={{
-                  background: isLocked || inviting ? "#98a2b3" : BRAND.dark,
+                  background: inviting ? "#98a2b3" : BRAND.dark,
                   color: "white",
                   border: "none",
                   padding: "10px 14px",
                   borderRadius: 12,
                   fontWeight: 900,
-                  cursor: isLocked || inviting ? "not-allowed" : "pointer",
+                  cursor: inviting ? "not-allowed" : "pointer",
                 }}
               >
                 {inviting ? "Sending…" : "Send Invites"}
@@ -1437,6 +1486,12 @@ async function setParticipantExecutiveInsightsVisibility(
                     >
                       Exec Insights
                     </th>
+                    <th
+                      style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}
+                      title="Customer portal access and org-level dashboard rights."
+                    >
+                      User Admin Rights
+                    </th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Invite</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Completed</th>
                     <th style={{ textAlign: "left", padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>Created</th>
@@ -1482,6 +1537,25 @@ async function setParticipantExecutiveInsightsVisibility(
                           </label>
                         </td>
                         <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
+                          <label
+                            style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 800 }}
+                            title="When enabled, this participant can access the customer portal as an Org Admin."
+                          >
+                            <input
+                              type="checkbox"
+                              checked={p.portal_role === "ORG_ADMIN"}
+                              disabled={updatingVisibilityId === p.id}
+                              onChange={(e) =>
+                                setParticipantPortalRole(
+                                  p.id,
+                                  e.target.checked ? "ORG_ADMIN" : "NONE"
+                                )
+                              }
+                            />
+                            {p.portal_role === "ORG_ADMIN" ? "Allowed" : "Hidden"}
+                          </label>
+                        </td>
+                        <td style={{ padding: 10, borderBottom: `1px solid ${BRAND.border}` }}>
                           <div style={{ fontWeight: 800 }}>{inviteState}</div>
                           <div style={{ color: BRAND.muted, fontSize: 12 }}>
                             Sent: {fmtDate(p.invite_sent_at)} • Accepted: {fmtDate(p.invite_accepted_at)}
@@ -1501,10 +1575,10 @@ async function setParticipantExecutiveInsightsVisibility(
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                             <button
                               onClick={() => resendInvite(p.email)}
-                              disabled={isLocked || !p.email || resendingEmail === (p.email ?? "").trim().toLowerCase()}
+                              disabled={!p.email || resendingEmail === (p.email ?? "").trim().toLowerCase()}
                               style={{
                                 background:
-                                  isLocked || !p.email || resendingEmail === (p.email ?? "").trim().toLowerCase()
+                                  !p.email || resendingEmail === (p.email ?? "").trim().toLowerCase()
                                     ? "#98a2b3"
                                     : BRAND.dark,
                                 color: "white",
@@ -1513,14 +1587,12 @@ async function setParticipantExecutiveInsightsVisibility(
                                 borderRadius: 10,
                                 fontWeight: 900,
                                 cursor:
-                                  isLocked || !p.email || resendingEmail === (p.email ?? "").trim().toLowerCase()
+                                  !p.email || resendingEmail === (p.email ?? "").trim().toLowerCase()
                                     ? "not-allowed"
                                     : "pointer",
                               }}
                               title={
-                                isLocked
-                                  ? "Locked: cannot resend invites."
-                                  : !p.email
+                                !p.email
                                   ? "No email on this participant."
                                   : "Resend invite"
                               }
