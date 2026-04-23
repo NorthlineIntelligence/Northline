@@ -20,6 +20,11 @@ export default async function AdminCrmHubPage() {
       crm_pipeline_stage: true,
       crm_next_follow_up_at: true,
       created_at: true,
+      assessments: {
+        orderBy: { created_at: "desc" },
+        take: 1,
+        select: { id: true },
+      },
       _count: { select: { assessments: true, crm_invoices: true } },
     },
   });
@@ -181,6 +186,15 @@ export default async function AdminCrmHubPage() {
                           >
                             Open
                           </Link>
+                          {o.assessments[0]?.id ? (
+                            <Link
+                              href={`/admin/assessments/${o.assessments[0].id}`}
+                              className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
+                              style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
+                            >
+                              Customer User Admin
+                            </Link>
+                          ) : null}
                           <Link
                             href={`/admin/crm/organizations/${o.id}/quotes`}
                             className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"

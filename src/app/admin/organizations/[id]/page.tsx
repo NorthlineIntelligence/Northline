@@ -116,6 +116,14 @@ export default async function OrganizationSettingsPage({ params }: PageProps) {
               initialEnabled={Boolean(org.show_project_scope_review)}
             />
             {latestAssessment ? (
+              <a
+                href={`/admin/assessments/${latestAssessment.id}`}
+                className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
+              >
+                Customer User Admin
+              </a>
+            ) : null}
+            {latestAssessment ? (
               <SendAssessmentButton
                 assessmentId={latestAssessment.id}
                 assessmentLocked={Boolean(latestAssessment.locked_at) || latestAssessment.status === "CLOSED"}
