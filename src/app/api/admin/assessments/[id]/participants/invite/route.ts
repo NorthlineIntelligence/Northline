@@ -77,6 +77,24 @@ function getOrigin(req: NextRequest) {
         <div style="margin-top: 14px; font-size: 14px;">
           You’ve been invited to participate in the AI Readiness Diagnostic.
         </div>
+
+        <div style="margin-top: 14px; font-size: 14px; font-weight: 700; color:#173464;">
+          Assessment Instructions
+        </div>
+        <ul style="margin-top: 8px; margin-bottom: 0; padding-left: 20px; font-size: 14px; color:#0B1220; line-height:1.55;">
+          <li>Select your department and seniority level to provide context for your responses.</li>
+          <li>
+            In the first free text field, list 1–2 word AI use cases relevant to your role
+            (e.g., lead scoring, scheduling, reporting).
+          </li>
+          <li>
+            Complete all 65 questions using a scale from 1 (Strongly Disagree) to 5 (Strongly Agree)
+            based on your day-to-day experience.
+          </li>
+          <li>
+            In the final free text field, describe areas in your daily work where AI could be helpful.
+          </li>
+        </ul>
   
         <div style="margin-top: 16px;">
           <a href="${startUrl}"
