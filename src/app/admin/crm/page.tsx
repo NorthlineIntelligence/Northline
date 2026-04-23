@@ -188,7 +188,7 @@ export default async function AdminCrmHubPage() {
                           </Link>
                           {o.assessments[0]?.id ? (
                             <Link
-                              href={`/admin/assessments/${o.assessments[0].id}`}
+                              href={`/customer/dashboard?assessmentId=${o.assessments[0].id}&preview=1`}
                               className="inline-flex rounded-lg border px-3 py-1.5 text-xs font-black uppercase tracking-wide"
                               style={{ borderColor: BRAND.border, color: BRAND.dark, background: "#fff" }}
                             >

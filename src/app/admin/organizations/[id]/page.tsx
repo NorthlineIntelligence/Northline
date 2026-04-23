@@ -117,7 +117,7 @@ export default async function OrganizationSettingsPage({ params }: PageProps) {
             />
             {latestAssessment ? (
               <a
-                href={`/admin/assessments/${latestAssessment.id}`}
+                href={`/customer/dashboard?assessmentId=${latestAssessment.id}&preview=1`}
                 className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
               >
                 Customer User Admin

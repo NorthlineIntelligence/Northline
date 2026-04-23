@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 import { getCustomerPortalViewer } from "@/lib/customerPortalAuth";
+import { isAdminEmail } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 
 function fmtDate(iso: Date | null) {
@@ -9,20 +12,59 @@ function fmtDate(iso: Date | null) {
   return new Date(iso).toLocaleString();
 }
 
-export default async function CustomerDashboardPage() {
-  const viewer = await getCustomerPortalViewer();
-  if (!viewer) redirect("/customer/access?error=no_portal_access");
+async function getAdminPreviewUser() {
+  const cookieStore = await cookies();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !supabaseKey) return null;
 
-  const participant = viewer.participant;
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll() {
+        // no-op
+      },
+    },
+  });
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  if (error || !user?.email || !isAdminEmail(user.email)) return null;
+  return user;
+}
+
+export default async function CustomerDashboardPage(props: {
+  searchParams?: Promise<{ assessmentId?: string; preview?: string }>;
+}) {
+  const searchParams = (await props.searchParams) ?? {};
+  const previewAssessmentId =
+    typeof searchParams.assessmentId === "string" ? searchParams.assessmentId : null;
+  const isPreviewMode = (searchParams.preview ?? "").toLowerCase() === "1";
+
+  const viewer = await getCustomerPortalViewer();
+  const adminUser = !viewer && isPreviewMode && previewAssessmentId ? await getAdminPreviewUser() : null;
+
+  if (!viewer && !adminUser) redirect("/customer/access?error=no_portal_access");
+
+  const assessmentId = viewer?.participant.assessment_id ?? previewAssessmentId;
+  if (!assessmentId) redirect("/customer/access?error=no_portal_access");
+
   const assessment = await prisma.assessment.findUnique({
-    where: { id: participant.assessment_id },
+    where: { id: assessmentId },
     select: {
       id: true,
       status: true,
       created_at: true,
+      organization: { select: { name: true, id: true } },
       Participant: {
-        where: { organization_id: participant.organization_id, email: { not: null } },
-        select: { email: true, completed_at: true, invite_sent_at: true },
+        where: { email: { not: null } },
+        select: { email: true, completed_at: true, invite_sent_at: true, portal_role: true },
         orderBy: { created_at: "asc" },
       },
     },
@@ -32,7 +74,11 @@ export default async function CustomerDashboardPage() {
 
   const total = assessment.Participant.length;
   const completed = assessment.Participant.filter((p) => p.completed_at != null).length;
-  const firstName = (viewer.userEmail.split("@")[0] || "Customer").replace(/[._-]/g, " ");
+  const displayEmail = viewer?.userEmail ?? adminUser?.email ?? "customer@northline";
+  const firstName = (displayEmail.split("@")[0] || "Customer").replace(/[._-]/g, " ");
+  const participantRole =
+    viewer?.participant.portal_role ??
+    (adminUser ? "ORG_ADMIN" : "PORTAL_USER");
 
   return (
     <main style={{ minHeight: "100vh", background: shellBackground, padding: 24 }}>
@@ -54,8 +100,27 @@ export default async function CustomerDashboardPage() {
           <div>
             <div style={{ color: BRAND.dark, fontWeight: 900, fontSize: 22 }}>Northline Customer Dashboard</div>
             <div style={{ color: BRAND.dark, fontWeight: 750, marginTop: 4 }}>
-              {participant.organization.name} • Signed in as {firstName}
+              {assessment.organization.name} • Signed in as {firstName}
             </div>
+            {adminUser ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: `1px solid ${BRAND.border}`,
+                  borderRadius: 999,
+                  padding: "4px 10px",
+                  fontSize: 12,
+                  fontWeight: 900,
+                  color: BRAND.dark,
+                  background: "#F8FAFC",
+                }}
+              >
+                Admin Preview
+              </div>
+            ) : null}
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div
@@ -104,7 +169,7 @@ export default async function CustomerDashboardPage() {
               <div>Assessment ID: {assessment.id}</div>
               <div>Status: {assessment.status}</div>
               <div>Created: {fmtDate(assessment.created_at)}</div>
-              <div>Your portal role: {participant.portal_role === "ORG_ADMIN" ? "Org Admin" : "Portal User"}</div>
+              <div>Your portal role: {participantRole === "ORG_ADMIN" ? "Org Admin" : "Portal User"}</div>
             </div>
           </section>
 

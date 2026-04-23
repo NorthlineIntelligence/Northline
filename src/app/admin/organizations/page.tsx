@@ -86,7 +86,7 @@ export default async function AdminOrganizationsPage() {
 
                         {latestAssessmentId ? (
                           <a
-                            href={`/admin/assessments/${latestAssessmentId}`}
+                            href={`/customer/dashboard?assessmentId=${latestAssessmentId}&preview=1`}
                             className="rounded-lg border border-[#cdd8df] bg-white px-3 py-2 text-sm font-medium text-[#173464] shadow-sm transition hover:shadow"
                           >
                             Customer User Admin
