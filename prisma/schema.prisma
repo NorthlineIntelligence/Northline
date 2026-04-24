@@ -21,6 +21,15 @@ model Organization {
 
   /// Admin-pasted context about the org (what they do, ICP, offerings, etc.)
   context_notes      String?
+  /// Known systems currently in use (CRM/PM/support/BI/etc).
+  tech_stack_notes   String?
+  /// Known integration patterns and dependencies across systems.
+  integration_notes  String?
+  /// Known internal processes/workflow structure across teams.
+  process_workflow_notes String?
+  /// Latest AI-generated current-state workflow map summary.
+  workflow_map_ai_summary String? @db.Text
+  workflow_map_ai_updated_at DateTime?
   legal_name         String?
   legal_entity_type  String?
   ein                String?

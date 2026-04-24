@@ -91,6 +91,32 @@ export default async function NewOrganizationPage() {
 
             <div>
               <label className="block text-sm font-medium mb-1">
+                Known Tech Stack & Integrations
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <textarea
+                  name="known_tech_stack"
+                  rows={4}
+                  className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
+                  placeholder="Known tech stack (Salesforce, HubSpot, Jira, NetSuite, etc.)"
+                />
+                <textarea
+                  name="known_integrations"
+                  rows={4}
+                  className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm"
+                  placeholder="Known integrations (Zapier, Make.com, APIs, webhooks, ETL, etc.)"
+                />
+                <textarea
+                  name="known_process_workflows"
+                  rows={4}
+                  className="w-full rounded-lg border border-[#cdd8df] px-3 py-2 text-sm md:col-span-2"
+                  placeholder="Known processes and workflows (handoffs, approvals, ticket-to-revenue flow, reporting cadence, SOPs, etc.)"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
                 Organization Documents for AI Grounding
               </label>
               <IntakeDocumentDropInput name="documents" />

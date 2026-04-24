@@ -14,6 +14,7 @@ export type SimplifiedQuoteProject = {
   timelineLabel: string;
   phaseHighlights: string[];
   costBand: string | null;
+  projectedTools: string[];
   /** Single block used in CRM + quote work items */
   quoteBasisText: string;
 };
@@ -68,6 +69,10 @@ function asStringArray(v: unknown, maxItems: number, itemMax: number): string[] 
   return out;
 }
 
+function uniqueList(values: string[]) {
+  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
+}
+
 function parseProject(raw: unknown, index: number): SimplifiedQuoteProject {
   const p = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const name =
@@ -108,6 +113,14 @@ function parseProject(raw: unknown, index: number): SimplifiedQuoteProject {
         : null;
 
   const risks = asStringArray(p.risksAndBarriers, 4, 200);
+  const recTools =
+    p.recommendedTools && typeof p.recommendedTools === "object"
+      ? (p.recommendedTools as Record<string, unknown>)
+      : {};
+  const projectedTools = uniqueList([
+    ...asStringArray(recTools.ai, 6, 160),
+    ...asStringArray(recTools.nonAi, 8, 160),
+  ]).slice(0, 12);
   const quoteParts: string[] = [];
 
   if (deliverables.length) {
@@ -135,6 +148,9 @@ function parseProject(raw: unknown, index: number): SimplifiedQuoteProject {
   if (costBand) {
     quoteParts.push("", `Investment band (indicative): ${costBand}`);
   }
+  if (projectedTools.length) {
+    quoteParts.push("", "Recommended tools:", ...projectedTools.map((t) => `• ${t}`));
+  }
 
   if (risks.length && deliverables.length < 2) {
     quoteParts.push("", "Key risks to plan for:", ...risks.map((r) => `• ${r}`));
@@ -150,6 +166,7 @@ function parseProject(raw: unknown, index: number): SimplifiedQuoteProject {
     timelineLabel,
     phaseHighlights,
     costBand,
+    projectedTools,
     quoteBasisText: quoteBasisText || name,
   };
 }

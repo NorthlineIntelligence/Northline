@@ -17,6 +17,7 @@ const DEFAULT_MODEL = "claude-sonnet-4-6";
 const CostEnum = z.enum(["low", "medium", "high", "low-medium", "medium-high"]);
 const TimelineUnitEnum = z.enum(["days", "weeks", "months"]);
 const BandKeyEnum = z.enum(["stabilize", "proceed", "ready", "unknown"]);
+const IntegrationTypeEnum = z.enum(["native", "custom_build", "automation_platform"]);
 
 const PhaseSchema = z.object({
   label: z.string().min(1).max(120),
@@ -37,6 +38,17 @@ const ProjectSchema = z.object({
     displayLabel: z.string().min(1).max(240),
   }),
   timelinePhases: z.array(PhaseSchema).min(2).max(5),
+  recommendedTools: z.object({
+    ai: z.array(z.string().min(1).max(300)).max(10),
+    nonAi: z.array(z.string().min(1).max(300)).max(10),
+  }).optional().default({ ai: [], nonAi: [] }),
+  integrationRecommendations: z.array(
+    z.object({
+      name: z.string().min(1).max(300),
+      type: IntegrationTypeEnum,
+      rationale: z.string().min(1).max(600),
+    })
+  ).max(10).optional().default([]),
 });
 
 const ReadinessSchema = z.object({
@@ -53,6 +65,70 @@ const ScopeDocSchema = z.object({
 });
 
 export type ProjectScopeDoc = z.infer<typeof ScopeDocSchema>;
+
+function parseTechStackItems(text: string | null | undefined): string[] {
+  const raw = String(text ?? "").trim();
+  if (!raw) return [];
+  const parts = raw
+    .split(/\n|,|;|\|/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return Array.from(new Set(parts)).slice(0, 20);
+}
+
+function buildGenericTools(projectName: string) {
+  return {
+    ai: [
+      `LLM assistant workflow for ${projectName}`,
+      "AI prompt + quality guardrail layer",
+    ],
+    nonAi: [
+      "Project tracking workspace (e.g., Jira/Asana/ClickUp)",
+      "Documentation + SOP workspace (e.g., Notion/Confluence)",
+    ],
+  };
+}
+
+function buildGenericIntegrations() {
+  return [
+    {
+      name: "CRM sync (bi-directional)",
+      type: "native" as const,
+      rationale: "Keep account, activity, and delivery status aligned with go-to-market workflows.",
+    },
+    {
+      name: "PM status + milestone sync",
+      type: "automation_platform" as const,
+      rationale: "Use Zapier/Make.com if native connectors are unavailable for rapid deployment.",
+    },
+    {
+      name: "Knowledge base and reporting handoff",
+      type: "custom_build" as const,
+      rationale: "Support reusable reporting and governance artifacts beyond off-the-shelf mappings.",
+    },
+  ];
+}
+
+function inferToolsFromTechStack(techStack: string[]) {
+  const normalized = techStack.map((s) => s.toLowerCase());
+  const has = (x: string) => normalized.some((v) => v.includes(x));
+  const ai: string[] = ["AI copilot for workflow execution and QA"];
+  const nonAi: string[] = [];
+  const integrations = buildGenericIntegrations();
+
+  if (has("salesforce")) nonAi.push("Salesforce");
+  if (has("hubspot")) nonAi.push("HubSpot");
+  if (has("jira")) nonAi.push("Jira");
+  if (has("asana")) nonAi.push("Asana");
+  if (has("clickup")) nonAi.push("ClickUp");
+  if (has("notion")) nonAi.push("Notion");
+  if (has("slack")) nonAi.push("Slack");
+  if (has("microsoft") || has("office 365")) nonAi.push("Microsoft 365");
+  if (has("google workspace")) nonAi.push("Google Workspace");
+
+  if (!nonAi.length) nonAi.push("Existing CRM and PM stack");
+  return { ai, nonAi, integrations };
+}
 
 function sha256Hex(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
@@ -108,12 +184,35 @@ function finalizeScopeDoc(
     readinessScore: number | null;
     readinessBand: string | null;
     readinessKey: string;
+    companyTechStack: string[];
   }
 ): ProjectScopeDoc {
   const bandKeyParsed = BandKeyEnum.safeParse(ctx.readinessKey);
   const bandKey = bandKeyParsed.success ? bandKeyParsed.data : "unknown";
 
-  const projects = raw.projects.map(applyTimelineBuffer);
+  const inferred = inferToolsFromTechStack(ctx.companyTechStack);
+  const projects = raw.projects.map((p) => {
+    const buffered = applyTimelineBuffer(p);
+    const fallbackTools = buildGenericTools(buffered.name);
+    return {
+      ...buffered,
+      recommendedTools: {
+        ai: buffered.recommendedTools?.ai?.length ? buffered.recommendedTools.ai : inferred.ai.length ? inferred.ai : fallbackTools.ai,
+        nonAi:
+          buffered.recommendedTools?.nonAi?.length
+            ? buffered.recommendedTools.nonAi
+            : inferred.nonAi.length
+              ? inferred.nonAi
+              : fallbackTools.nonAi,
+      },
+      integrationRecommendations:
+        buffered.integrationRecommendations?.length
+          ? buffered.integrationRecommendations
+          : inferred.integrations.length
+            ? inferred.integrations
+            : buildGenericIntegrations(),
+    };
+  });
 
   const accelerators =
     bandKey === "stabilize"
@@ -181,6 +280,8 @@ function buildPlaceholderScope(args: {
         { label: "Build / configure", portionPct: 45, durationLabel: "~4–5 weeks" },
         { label: "Pilot & hardening", portionPct: 30, durationLabel: "~3–4 weeks" },
       ],
+      recommendedTools: buildGenericTools(String(p?.name ?? `Initiative ${i + 1}`)),
+      integrationRecommendations: buildGenericIntegrations(),
     })) ?? [];
 
   while (projects.length < 1) {
@@ -196,6 +297,8 @@ function buildPlaceholderScope(args: {
         { label: "Discovery", portionPct: 30, durationLabel: "TBD" },
         { label: "Delivery", portionPct: 70, durationLabel: "TBD" },
       ],
+      recommendedTools: buildGenericTools("Foundational pilot"),
+      integrationRecommendations: buildGenericIntegrations(),
     });
   }
 
@@ -238,8 +341,10 @@ async function generateScopeWithAI(args: {
   results: any;
   narrativeJson: any;
   pilotProjects: any[];
+  companyTechStack: string[];
+  integrationContext: string;
 }) {
-  const { assessmentId, results, narrativeJson, pilotProjects } = args;
+  const { assessmentId, results, narrativeJson, pilotProjects, companyTechStack, integrationContext } = args;
   const companyReference = results?.narrativeContext?.reference?.companyDescriptor ?? "the company";
   const readinessScore = results?.aggregate?.overall?.weightedAverage ?? null;
   const readinessBand = results?.aggregate?.overall?.readinessBand ?? null;
@@ -257,6 +362,8 @@ async function generateScopeWithAI(args: {
     executiveSummaryBullets: executiveBullets.slice(0, 6),
     maturityInterpretationSummary: maturityExpl,
     pilotProjects,
+    companyTechStack,
+    integrationContext,
     instructions: {
       costScale:
         "costEstimate must be one of: low, medium, high, low-medium, medium-high. Be conservative; when uncertain prefer the higher band or a blended band (e.g. low-medium).",
@@ -269,6 +376,8 @@ async function generateScopeWithAI(args: {
         readinessKey === "stabilize"
           ? "Include 3–8 practical stabilizeFirstAccelerators bullets to raise readiness (governance, data, ownership, training)."
           : "stabilizeFirstAccelerators should be an empty array.",
+      toolsAndIntegrations:
+        "For each project include recommendedTools.ai[], recommendedTools.nonAi[], and integrationRecommendations[]. Evaluate whether non-AI systems integration/workflow structuring is a prerequisite or higher priority than AI when signals suggest fragmentation, manual transfers, no unified operational view, inconsistent workflows, or low system integrity/readiness. Frame this as a foundation layer (Foundational Systems Layer / Unified Operational Layer / Integration & Workflow Standardization). Include concrete non-AI recommendations such as CRM-billing-support synchronization, centralized data/reporting layer, workflow automation via Zapier/Make.com, API-based system connections, and cross-team process standardization. If companyTechStack/integrationContext is present, reference specific tools and connections; otherwise use generalized but actionable language. Clearly distinguish integration/UOL as the foundation and AI as an enhancement layer. If readiness.bandKey is stabilize, strongly prioritize non-AI foundational work and position AI as a secondary phase.",
     },
   };
 
@@ -290,11 +399,16 @@ async function generateScopeWithAI(args: {
     "- risksAndBarriers: barriers that could delay or derail.",
     "- timeline.valueRealistic + timeline.unit + timeline.displayLabel (realistic BEFORE 15% buffer).",
     "- timelinePhases for a simple executive timeline visual.",
+    "- recommendedTools.ai and recommendedTools.nonAi (concrete where stack context exists).",
+    "- integrationRecommendations[] with name, type (native|custom_build|automation_platform), and rationale.",
+    "- If foundational systems issues exist, prioritize non-AI integration/workflow recommendations ahead of AI automation.",
     "",
     "readiness.executiveMemo: short executive memo on whether the company is ready to move forward NOW, tied to readiness.bandKey. If stabilize-first, say so plainly.",
     "readiness.stabilizeFirstAccelerators: only if bandKey is stabilize; else [].",
+    "If readiness.bandKey is stabilize, prioritize foundational non-AI integration/workflow work and treat AI as secondary/future phase.",
     "",
     "disclaimer: one paragraph that plans are subject to change as information emerges.",
+    "Do not force AI solutions where foundational system issues are the real blocker.",
   ].join("\n");
 
   const user =
@@ -369,6 +483,28 @@ async function generateScopeWithAI(args: {
                 },
               },
             },
+            recommendedTools: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                ai: { type: "array", items: { type: "string" }, maxItems: 10 },
+                nonAi: { type: "array", items: { type: "string" }, maxItems: 10 },
+              },
+            },
+            integrationRecommendations: {
+              type: "array",
+              maxItems: 10,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name", "type", "rationale"],
+                properties: {
+                  name: { type: "string" },
+                  type: { type: "string", enum: ["native", "custom_build", "automation_platform"] },
+                  rationale: { type: "string" },
+                },
+              },
+            },
           },
         },
       },
@@ -400,7 +536,7 @@ async function generateScopeWithAI(args: {
   return toolInput;
 }
 
-function sanitizeAndParse(raw: any, assessmentId: string, results: any): Record<string, unknown> {
+function sanitizeAndParse(raw: any, assessmentId: string, results: any, companyTechStack: string[]): Record<string, unknown> {
   const readinessScore = results?.aggregate?.overall?.weightedAverage ?? null;
   const readinessBand = results?.aggregate?.overall?.readinessBand ?? null;
   const readinessKey = String(results?.aggregate?.overall?.readinessKey ?? "unknown");
@@ -426,6 +562,7 @@ function sanitizeAndParse(raw: any, assessmentId: string, results: any): Record<
     readinessScore,
     readinessBand,
     readinessKey,
+    companyTechStack,
   });
 
   const asRecord = {
@@ -475,7 +612,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       select: {
         organization_id: true,
         organization: {
-          select: { show_project_scope_review: true },
+          select: {
+            show_project_scope_review: true,
+            context_notes: true,
+            tech_stack_notes: true,
+            integration_notes: true,
+            process_workflow_notes: true,
+            primary_pressures: true,
+            website: true,
+            industry: true,
+          },
         },
       },
     });
@@ -533,6 +679,33 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
     const narrativeJson = latestNarrative.narrative_json as any;
     const pilotProjects = Array.isArray(narrativeJson?.pilotProjects) ? narrativeJson.pilotProjects : [];
+    const participantContextRows = await prisma.participant.findMany({
+      where: { assessment_id: assessmentId },
+      select: { ai_opportunities_notes: true },
+      take: 30,
+      orderBy: { created_at: "asc" },
+    });
+    const intakeContext = participantContextRows
+      .map((p) => String(p.ai_opportunities_notes ?? "").trim())
+      .filter(Boolean)
+      .join("\n");
+    const companyTechStack = parseTechStackItems(
+      assessment.organization?.tech_stack_notes ?? assessment.organization?.context_notes ?? ""
+    );
+    const integrationContext = [
+      assessment.organization?.integration_notes
+        ? `Known integrations:\n${assessment.organization.integration_notes}`
+        : "",
+      assessment.organization?.process_workflow_notes
+        ? `Known processes/workflows:\n${assessment.organization.process_workflow_notes}`
+        : "",
+      assessment.organization?.primary_pressures ? `Primary pressures: ${assessment.organization.primary_pressures}` : "",
+      assessment.organization?.website ? `Website: ${assessment.organization.website}` : "",
+      assessment.organization?.industry ? `Industry: ${assessment.organization.industry}` : "",
+      intakeContext ? `Participant intake context:\n${intakeContext}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     if (pilotProjects.length === 0) {
       return NextResponse.json(
         { ok: false, error: "Narrative has no pilot projects to scope." },
@@ -582,8 +755,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           results,
           narrativeJson,
           pilotProjects,
+          companyTechStack,
+          integrationContext,
         });
-        scopeJson = sanitizeAndParse(aiRaw, assessmentId, results);
+        scopeJson = sanitizeAndParse(aiRaw, assessmentId, results, companyTechStack);
         usedAI = true;
       } catch (e: any) {
         console.warn("project-scope AI failed, using placeholder:", e?.message ?? e);
@@ -592,7 +767,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           pilotProjects,
           results,
         });
-        scopeJson = sanitizeAndParse(ph, assessmentId, results);
+        scopeJson = sanitizeAndParse(ph, assessmentId, results, companyTechStack);
       }
     } else {
       const ph = buildPlaceholderScope({
@@ -600,7 +775,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         pilotProjects,
         results,
       });
-      scopeJson = sanitizeAndParse(ph, assessmentId, results);
+      scopeJson = sanitizeAndParse(ph, assessmentId, results, companyTechStack);
     }
 
     const created = await prisma.assessmentProjectScope.create({

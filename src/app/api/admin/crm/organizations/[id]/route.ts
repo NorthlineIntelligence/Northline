@@ -21,6 +21,10 @@ const PatchSchema = z.object({
   billing_contact_name: z.union([z.string().max(300), z.null()]).optional(),
   billing_email: z.union([z.string().max(320), z.null()]).optional(),
   payment_method: z.union([z.string().max(200), z.null()]).optional(),
+  context_notes: z.union([z.string().max(20000), z.null()]).optional(),
+  tech_stack_notes: z.union([z.string().max(20000), z.null()]).optional(),
+  integration_notes: z.union([z.string().max(20000), z.null()]).optional(),
+  process_workflow_notes: z.union([z.string().max(20000), z.null()]).optional(),
 });
 
 export async function GET(
@@ -271,6 +275,12 @@ export async function PATCH(
   }
   if (patch.data.billing_email !== undefined) data.billing_email = patch.data.billing_email;
   if (patch.data.payment_method !== undefined) data.payment_method = patch.data.payment_method;
+  if (patch.data.context_notes !== undefined) data.context_notes = patch.data.context_notes;
+  if (patch.data.tech_stack_notes !== undefined) data.tech_stack_notes = patch.data.tech_stack_notes;
+  if (patch.data.integration_notes !== undefined) data.integration_notes = patch.data.integration_notes;
+  if (patch.data.process_workflow_notes !== undefined) {
+    data.process_workflow_notes = patch.data.process_workflow_notes;
+  }
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ ok: false, error: "No updates" }, { status: 400 });

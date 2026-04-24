@@ -27,6 +27,7 @@ export function summarizeScopeForQuote(scopeJson: unknown): {
       name: p.name,
       summary: p.quoteBasisText,
       deliverables: p.deliverables,
+      projectedTools: p.projectedTools ?? [],
       timelineLabel: p.timelineLabel,
       costBand: p.costBand,
       objectivesBrief: p.objectivesBrief,

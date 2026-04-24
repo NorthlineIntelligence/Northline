@@ -335,6 +335,7 @@ export default function ProjectScopePage() {
           >
             <li style={{ marginBottom: 6 }}>One card per high-value entry point: scope, objectives, and outcomes.</li>
             <li style={{ marginBottom: 6 }}>Cost bands and timelines are conservative planning aids—not fixed quotes.</li>
+            <li style={{ marginBottom: 6 }}>Each entry includes recommended tools and integration paths (native, automation, or custom).</li>
             <li>All detail is subject to change as you add facts, owners, and constraints.</li>
           </ul>
         </header>
@@ -638,6 +639,44 @@ export default function ProjectScopePage() {
 
                 <SectionLabel>Expected outcomes</SectionLabel>
                 <BulletList items={(Array.isArray(p.expectedOutcomes) ? p.expectedOutcomes : []).filter(Boolean)} />
+
+                <SectionLabel>Recommended tools</SectionLabel>
+                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+                  <div style={{ padding: "14px 16px", borderRadius: 12, border: `1px solid ${BRAND.border}`, background: BRAND.wash }}>
+                    <div style={{ fontFamily: montserrat.style.fontFamily, fontSize: 11, fontWeight: 900, letterSpacing: "0.08em", color: BRAND.greyBlue, textTransform: "uppercase", marginBottom: 8 }}>
+                      AI tools
+                    </div>
+                    <BulletList items={(Array.isArray(p.recommendedTools?.ai) ? p.recommendedTools.ai : []).filter(Boolean)} />
+                  </div>
+                  <div style={{ padding: "14px 16px", borderRadius: 12, border: `1px solid ${BRAND.border}`, background: "#fff" }}>
+                    <div style={{ fontFamily: montserrat.style.fontFamily, fontSize: 11, fontWeight: 900, letterSpacing: "0.08em", color: BRAND.greyBlue, textTransform: "uppercase", marginBottom: 8 }}>
+                      Non-AI tools
+                    </div>
+                    <BulletList items={(Array.isArray(p.recommendedTools?.nonAi) ? p.recommendedTools.nonAi : []).filter(Boolean)} />
+                  </div>
+                </div>
+
+                <SectionLabel>Integration recommendations</SectionLabel>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(Array.isArray(p.integrationRecommendations) ? p.integrationRecommendations : []).map((rec: any, i: number) => (
+                    <div key={i} style={{ borderRadius: 12, border: `1px solid ${BRAND.border}`, padding: "12px 14px", background: "#fff" }}>
+                      <div style={{ fontFamily: montserrat.style.fontFamily, fontSize: 13, fontWeight: 900, color: BRAND.dark }}>
+                        {rec?.name ?? `Integration ${i + 1}`}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: BRAND.greyBlue, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {String(rec?.type ?? "native").replaceAll("_", " ")}
+                      </div>
+                      <p style={{ margin: "8px 0 0", fontFamily: openSans.style.fontFamily, fontSize: 14, fontWeight: 600, color: BRAND.text, lineHeight: 1.55 }}>
+                        {String(rec?.rationale ?? "")}
+                      </p>
+                    </div>
+                  ))}
+                  {!(Array.isArray(p.integrationRecommendations) && p.integrationRecommendations.length > 0) ? (
+                    <ProseBlock>
+                      Integrate this initiative with your CRM and PM tooling. Use native connectors first, then Zapier/Make.com, and reserve custom builds for edge cases.
+                    </ProseBlock>
+                  ) : null}
+                </div>
 
                 <SectionLabel>Risks & barriers</SectionLabel>
                 <div

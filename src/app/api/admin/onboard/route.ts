@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
-import { Industry } from "@prisma/client";
+import { Department, Industry } from "@prisma/client";
 import { industryLabel, normalizeIndustryText } from "@/lib/assessmentIndustry";
 import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
 
@@ -112,6 +112,9 @@ export async function POST(req: NextRequest) {
     const industryRaw = String(form.get("industry") ?? "").trim();
     const assessmentIndustryRaw = String(form.get("assessment_industry") ?? "").trim();
     const contextNotes = String(form.get("context_notes") ?? "").trim();
+    const knownTechStack = String(form.get("known_tech_stack") ?? "").trim();
+    const knownIntegrations = String(form.get("known_integrations") ?? "").trim();
+    const knownProcessWorkflows = String(form.get("known_process_workflows") ?? "").trim();
 
     const assessmentType = String(form.get("assessment_type") ?? "FULL").trim(); // FULL | DEPARTMENT
     const lockedDepartment = String(form.get("locked_department") ?? "").trim(); // Department enum value or ""
@@ -197,7 +200,6 @@ export async function POST(req: NextRequest) {
       null;
 
     const invitees = dedupedParticipantEntries.filter((e) => e.email !== adminEmail);
-
     const result = await prisma.$transaction(async (tx) => {
       const org = await tx.organization.create({
         data: {
@@ -205,6 +207,9 @@ export async function POST(req: NextRequest) {
           website: websiteRaw || null,
           industry: organizationIndustryLabel,
           context_notes: contextNotes || null,
+          tech_stack_notes: knownTechStack || null,
+          integration_notes: knownIntegrations || null,
+          process_workflow_notes: knownProcessWorkflows || null,
         },
         select: { id: true, name: true },
       });
@@ -213,7 +218,7 @@ export async function POST(req: NextRequest) {
         data: {
           organization_id: org.id,
           locked_department:
-            assessmentType === "DEPARTMENT" ? (lockedDepartment as any) : null,
+            assessmentType === "DEPARTMENT" ? (lockedDepartment as Department) : null,
           industry: (assessmentIndustry as Industry | null) ?? null,
         },
         select: { id: true, organization_id: true },
@@ -288,9 +293,9 @@ export async function POST(req: NextRequest) {
     orgUrl.searchParams.set("sent", "0");
     orgUrl.searchParams.set("failed", "0");
     return NextResponse.redirect(orgUrl, { status: 303 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: "Internal Server Error", message: err?.message ?? String(err) },
+      { error: "Internal Server Error", message: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

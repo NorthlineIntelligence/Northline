@@ -188,6 +188,13 @@ export default function CrmOrganizationClient({
   const [billingContactName, setBillingContactName] = useState("");
   const [billingEmail, setBillingEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [contextNotesBusiness, setContextNotesBusiness] = useState("");
+  const [companyTechStack, setCompanyTechStack] = useState("");
+  const [companyIntegrations, setCompanyIntegrations] = useState("");
+  const [companyProcesses, setCompanyProcesses] = useState("");
+  const [workflowMapSummary, setWorkflowMapSummary] = useState("");
+  const [workflowMapUpdatedAt, setWorkflowMapUpdatedAt] = useState<string | null>(null);
+  const [generatingWorkflowMap, setGeneratingWorkflowMap] = useState(false);
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -238,6 +245,14 @@ export default function CrmOrganizationClient({
       setBillingContactName(o.billing_contact_name ?? "");
       setBillingEmail(o.billing_email ?? "");
       setPaymentMethod(o.payment_method ?? "");
+      setContextNotesBusiness(o.context_notes ?? "");
+      setCompanyTechStack((o as unknown as { tech_stack_notes?: string | null }).tech_stack_notes ?? "");
+      setCompanyIntegrations((o as unknown as { integration_notes?: string | null }).integration_notes ?? "");
+      setCompanyProcesses((o as unknown as { process_workflow_notes?: string | null }).process_workflow_notes ?? "");
+      setWorkflowMapSummary((o as unknown as { workflow_map_ai_summary?: string | null }).workflow_map_ai_summary ?? "");
+      setWorkflowMapUpdatedAt(
+        (o as unknown as { workflow_map_ai_updated_at?: string | null }).workflow_map_ai_updated_at ?? null
+      );
     } catch (e: unknown) {
       setLoadErr(e instanceof Error ? e.message : "Load failed");
     }
@@ -383,7 +398,37 @@ export default function CrmOrganizationClient({
       billing_contact_name: billingContactName.trim() || null,
       billing_email: billingEmail.trim() || null,
       payment_method: paymentMethod.trim() || null,
+      context_notes: contextNotesBusiness.trim() || null,
+      tech_stack_notes: companyTechStack.trim() || null,
+      integration_notes: companyIntegrations.trim() || null,
+      process_workflow_notes: companyProcesses.trim() || null,
     });
+  }
+
+  async function generateWorkflowMap() {
+    setGeneratingWorkflowMap(true);
+    try {
+      await patchOrg({
+        context_notes: contextNotesBusiness.trim() || null,
+        tech_stack_notes: companyTechStack.trim() || null,
+        integration_notes: companyIntegrations.trim() || null,
+        process_workflow_notes: companyProcesses.trim() || null,
+      });
+      const res = await fetch(`/api/admin/crm/organizations/${organizationId}/workflow-map/generate`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error || "Failed to generate workflow map");
+      setWorkflowMapSummary(String(json?.summary ?? ""));
+      setWorkflowMapUpdatedAt(
+        typeof json?.updated_at === "string" ? json.updated_at : json?.updated_at ? String(json.updated_at) : null
+      );
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to generate workflow map");
+    } finally {
+      setGeneratingWorkflowMap(false);
+    }
   }
 
   async function addContact() {
@@ -1428,7 +1473,68 @@ export default function CrmOrganizationClient({
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
             />
+            <textarea
+              className="min-h-[84px] rounded-xl border px-3 py-2 text-sm font-semibold outline-none md:col-span-2"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Context notes (business model, positioning, constraints)"
+              value={contextNotesBusiness}
+              onChange={(e) => setContextNotesBusiness(e.target.value)}
+            />
+            <textarea
+              className="min-h-[96px] rounded-xl border px-3 py-2 text-sm font-semibold outline-none md:col-span-2"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Known tech stack (CRM, PM, support, BI, automation tools, custom systems)"
+              value={companyTechStack}
+              onChange={(e) => setCompanyTechStack(e.target.value)}
+            />
+            <textarea
+              className="min-h-[96px] rounded-xl border px-3 py-2 text-sm font-semibold outline-none md:col-span-2"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Known integrations (Zapier/Make.com flows, APIs, data syncs, custom connectors)"
+              value={companyIntegrations}
+              onChange={(e) => setCompanyIntegrations(e.target.value)}
+            />
+            <textarea
+              className="min-h-[96px] rounded-xl border px-3 py-2 text-sm font-semibold outline-none md:col-span-2"
+              style={{ borderColor: BRAND.border }}
+              placeholder="Known processes and workflows (handoffs, approvals, ticket-to-revenue flow, reporting cadence, operational SOPs)"
+              value={companyProcesses}
+              onChange={(e) => setCompanyProcesses(e.target.value)}
+            />
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busy || generatingWorkflowMap}
+              className="rounded-xl px-4 py-2 text-sm font-black uppercase tracking-wide text-white disabled:opacity-50"
+              style={{ background: BRAND.cyan }}
+              onClick={generateWorkflowMap}
+            >
+              {generatingWorkflowMap ? "Generating workflow map…" : "Generate workflow map from notes"}
+            </button>
+            <Link
+              href={`/admin/crm/organizations/${organizationId}/workflow-infographic`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl px-4 py-2 text-sm font-black uppercase tracking-wide text-white"
+              style={{ background: BRAND.dark }}
+            >
+              Generate infographic
+            </Link>
+            {workflowMapUpdatedAt ? (
+              <span className="text-xs font-semibold" style={{ color: BRAND.muted }}>
+                Updated {new Date(workflowMapUpdatedAt).toLocaleString()}
+              </span>
+            ) : null}
+          </div>
+          {workflowMapSummary ? (
+            <div
+              className="mt-3 whitespace-pre-wrap rounded-xl border px-3 py-3 text-sm font-semibold"
+              style={{ borderColor: BRAND.border, background: "rgba(23,52,100,0.04)", color: BRAND.text }}
+            >
+              {workflowMapSummary}
+            </div>
+          ) : null}
           <button
             type="button"
             disabled={busy}
