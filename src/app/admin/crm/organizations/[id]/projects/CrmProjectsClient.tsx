@@ -40,6 +40,12 @@ function toDateInputValue(value: string | Date | null | undefined) {
   return d.toISOString().slice(0, 10);
 }
 
+function toValidDate(value: string | Date | null | undefined) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function formatProjectDisplayTitle(raw: string | null | undefined, fallback = "Project") {
   const value = String(raw ?? "").trim();
   if (!value) return fallback;
@@ -279,10 +285,8 @@ export default function CrmProjectsClient({ organizationId }: { organizationId: 
   const calculatedProjectEndDate = useMemo(() => {
     if (!project) return "";
     const dates = project.sprints
-      .map((s) => s.estimated_completion_date || s.target_end_at)
-      .filter(Boolean)
-      .map((d) => new Date(d as string))
-      .filter((d) => !Number.isNaN(d.getTime()));
+      .map((s) => toValidDate(s.estimated_completion_date || s.target_end_at))
+      .filter((d): d is Date => d !== null);
     if (!dates.length) return "";
     return toDateInputValue(new Date(Math.max(...dates.map((d) => d.getTime()))));
   }, [project]);

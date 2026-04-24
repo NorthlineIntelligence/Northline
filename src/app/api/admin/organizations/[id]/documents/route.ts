@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getAdminApiUser } from "@/lib/adminApiAuth";
 import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
+import { uploadOrganizationLibraryFile } from "@/lib/googleDrive";
+import { sendMakeLibraryEvent } from "@/lib/makeWebhook";
 
 export const runtime = "nodejs";
 
@@ -224,6 +226,41 @@ export async function POST(
         text_extracted: true,
       },
     });
+
+    try {
+      const ab = await file.arrayBuffer();
+      const bytes = Buffer.from(ab);
+      const synced = await uploadOrganizationLibraryFile({
+        organizationId,
+        organizationName: org.name,
+        filename: file.name,
+        mimeType: mime || "application/octet-stream",
+        bytes,
+      });
+      if (synced.fileId || synced.webViewLink) {
+        await prisma.organizationDocument.update({
+          where: { id: doc.id },
+          data: {
+            google_drive_file_id: synced.fileId,
+            storage_path: synced.fileId ? `gdrive:${synced.fileId}` : null,
+            source_url: synced.webViewLink ?? note,
+          },
+        });
+      }
+      await sendMakeLibraryEvent({
+        event_type: "library_document_created",
+        organization_id: organizationId,
+        organization_name: org.name,
+        source_type: "UPLOAD",
+        source_id: doc.id,
+        filename: file.name,
+        mime_type: mime || "application/octet-stream",
+        file_base64: bytes.toString("base64"),
+        text_preview: extractedText?.slice(0, 3000) ?? undefined,
+      });
+    } catch {
+      // best-effort Drive sync; keep local document record if Drive upload fails
+    }
 
     created.push({
       id: doc.id,

@@ -4,6 +4,8 @@ import { isAdminEmail } from "@/lib/admin";
 import { Department, Industry } from "@prisma/client";
 import { industryLabel, normalizeIndustryText } from "@/lib/assessmentIndustry";
 import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
+import { ensureOrganizationDriveFolders } from "@/lib/googleDrive";
+import { sendMakeLibraryEvent } from "@/lib/makeWebhook";
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -284,6 +286,22 @@ export async function POST(req: NextRequest) {
       }
 
       return { orgId: org.id, orgName: org.name, assessmentId: assessment.id };
+    });
+
+    try {
+      await ensureOrganizationDriveFolders({
+        organizationId: result.orgId,
+        organizationName: result.orgName,
+      });
+    } catch {
+      // best-effort Drive bootstrap
+    }
+    await sendMakeLibraryEvent({
+      event_type: "organization_created",
+      organization_id: result.orgId,
+      organization_name: result.orgName,
+      source_type: "ORG_BOOTSTRAP",
+      source_id: result.orgId,
     });
 
     // Do not auto-send invites on intake create. Save participants only.

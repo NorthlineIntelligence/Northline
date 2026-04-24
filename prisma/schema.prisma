@@ -30,6 +30,10 @@ model Organization {
   /// Latest AI-generated current-state workflow map summary.
   workflow_map_ai_summary String? @db.Text
   workflow_map_ai_updated_at DateTime?
+  /// Google Drive root folder id for this organization.
+  google_drive_root_folder_id String?
+  /// Google Drive "Customer Library" folder id under org root.
+  google_drive_library_folder_id String?
   legal_name         String?
   legal_entity_type  String?
   ein                String?
@@ -281,6 +285,8 @@ model OrganizationDocument {
   source_type     String
   source_url      String?
   storage_path    String?
+  /// Drive file id when synced to Google Drive.
+  google_drive_file_id String?
   mime_type       String?
   text_extracted  String?
   created_at      DateTime     @default(now())
