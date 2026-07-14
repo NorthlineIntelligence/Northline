@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
@@ -56,6 +57,10 @@ async function loadAssessmentAndLock(assessmentId: string) {
     select: {
       id: true,
       organization_id: true,
+      name: true,
+      assessment_type: true,
+      question_set_version: true,
+      ai_processing_mode: true,
       Participant: { select: { id: true, completed_at: true } },
     },
   });
@@ -140,6 +145,14 @@ export async function GET(
     isLocked: loaded.isLocked,
     participantsTotal: loaded.participantsTotal,
     participantsCompleted: loaded.participantsCompleted,
+    assessment: {
+      id: loaded.assessment.id,
+      name: loaded.assessment.name,
+      assessment_type: loaded.assessment.assessment_type,
+      question_set_version: loaded.assessment.question_set_version,
+      ai_processing_mode:
+        loaded.assessment.ai_processing_mode === "FAST" ? "fast" : "executive",
+    },
     organization,
   });
 }

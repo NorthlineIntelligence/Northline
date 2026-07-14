@@ -3,6 +3,8 @@ import { INDUSTRY_OPTIONS } from "@/lib/assessmentIndustry";
 import Link from "next/link";
 import IntakeDocumentDropInput from "./IntakeDocumentDropInput";
 import ParticipantRowsInput from "./ParticipantRowsInput";
+import { AssessmentModuleFields } from "./AssessmentModuleFields";
+import { OnboardInviteSchedulerSection } from "./OnboardInviteSchedulerSection";
 
 export default async function NewOrganizationPage() {
   await requireAdmin();
@@ -131,9 +133,11 @@ export default async function NewOrganizationPage() {
           <div className="rounded-2xl border border-[#cdd8df] bg-white p-6 shadow-sm space-y-4">
             <div className="text-base font-semibold">Assessment Configuration</div>
 
+            <AssessmentModuleFields />
+
             <div>
               <label className="block text-sm font-medium mb-1">
-                Assessment Type
+                Readiness Assessment Scope
               </label>
               <select
                 name="assessment_type"
@@ -193,6 +197,8 @@ export default async function NewOrganizationPage() {
               Starts with 5 rows. Add more as needed (up to 25).
             </div>
             <ParticipantRowsInput />
+
+            <OnboardInviteSchedulerSection />
           </div>
 
           <button

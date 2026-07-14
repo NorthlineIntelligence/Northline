@@ -49,10 +49,12 @@ export async function GET(
       },
       assessments: {
         orderBy: { created_at: "desc" },
-        take: 3,
+        take: 8,
         select: {
           id: true,
           name: true,
+          cohort_name: true,
+          assessment_type: true,
           status: true,
           created_at: true,
           locked_at: true,
@@ -95,15 +97,19 @@ export async function GET(
   }
 
   const latestAssessmentId = org.assessments[0]?.id ?? null;
+  const latestReadinessAssessmentId =
+    org.assessments.find((a) => a.assessment_type === "READINESS")?.id ?? null;
+  const latestPriorityDiscoveryAssessmentId =
+    org.assessments.find((a) => a.assessment_type === "PRIORITY_DISCOVERY")?.id ?? null;
 
   let latestNarrativeAssessmentId: string | null = null;
-  if (latestAssessmentId) {
+  if (latestReadinessAssessmentId) {
     const n = await prisma.assessmentNarrative.findFirst({
-      where: { assessment_id: latestAssessmentId },
+      where: { assessment_id: latestReadinessAssessmentId },
       orderBy: { version: "desc" },
       select: { assessment_id: true },
     });
-    latestNarrativeAssessmentId = n?.assessment_id ?? latestAssessmentId;
+    latestNarrativeAssessmentId = n?.assessment_id ?? latestReadinessAssessmentId;
   }
 
   let latestScope: { assessment_id: string; version: number } | null = null;
@@ -183,6 +189,7 @@ export async function GET(
     organization: org,
     links: {
       executiveInsightsAssessmentId: latestNarrativeAssessmentId,
+      priorityDiscoveryAssessmentId: latestPriorityDiscoveryAssessmentId,
       projectScope: latestScope
         ? {
             assessmentId: latestScope.assessment_id,

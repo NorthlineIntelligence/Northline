@@ -90,6 +90,16 @@ export default async function AdminDashboardPage() {
           </a>
 
           <a
+            href="/admin/workbench"
+            className="rounded-2xl border border-[#173464] bg-white p-5 shadow-sm transition hover:shadow-md"
+          >
+            <div className="text-base font-semibold">Private AI Workbench</div>
+            <div className="mt-1 text-sm text-[#66819e]">
+              Client workspaces, secure documents, AI analysis, outputs, and private LLM settings.
+            </div>
+          </a>
+
+          <a
             href="/admin/organizations/new"
             className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
           >
@@ -116,6 +126,16 @@ export default async function AdminDashboardPage() {
             <div className="text-base font-semibold">Question Ingestion</div>
             <div className="mt-1 text-sm text-[#66819e]">
               Upload a CSV, preview questions, and import into the question bank.
+            </div>
+          </a>
+
+          <a
+            href="/admin/priority-discovery/questions"
+            className="rounded-2xl border border-[#cdd8df] bg-white p-5 shadow-sm transition hover:shadow-md"
+          >
+            <div className="text-base font-semibold">Priority Discovery Questions</div>
+            <div className="mt-1 text-sm text-[#66819e]">
+              Manage mixed-format questions, sections, imports, exports, and published versions.
             </div>
           </a>
 

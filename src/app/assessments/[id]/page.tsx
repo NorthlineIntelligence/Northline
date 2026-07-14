@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Montserrat, Open_Sans } from "next/font/google";
 import { NORTHLINE_BRAND as BRAND } from "@/lib/northlineBrand";
+import PriorityDiscoveryParticipant from "@/components/priority-discovery/PriorityDiscoveryParticipant";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -47,6 +48,8 @@ type Department =
 type AssessmentMeta = {
   id: string;
   name: string | null;
+  assessment_type?: "READINESS" | "PRIORITY_DISCOVERY";
+  question_set_version?: string;
   locked_department: Department | null;
   organization?: {
     id: string;
@@ -423,6 +426,10 @@ export default function AssessmentTakePage() {
         } else {
           const metaJson = await metaRes.json().catch(() => null);
           if (!cancelled) setAssessmentMeta(metaJson?.assessment ?? null);
+          if (metaJson?.assessment?.assessment_type === "PRIORITY_DISCOVERY") {
+            if (!cancelled) setLoading(false);
+            return;
+          }
         }
 
         // Load questions
@@ -696,6 +703,19 @@ export default function AssessmentTakePage() {
           </div>
         </div>
       </main>
+    );
+  }
+
+  if (assessmentMeta?.assessment_type === "PRIORITY_DISCOVERY" && assessmentId && participantId) {
+    return (
+      <PriorityDiscoveryParticipant
+        assessmentId={assessmentId}
+        participantId={participantId}
+        inviteEmail={inviteEmail}
+        inviteToken={inviteToken}
+        authQs={authQs}
+        organizationName={organizationDisplayName}
+      />
     );
   }
 

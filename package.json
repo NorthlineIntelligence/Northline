@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "cron:invites": "npx tsx scripts/process-scheduled-invites.ts",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",

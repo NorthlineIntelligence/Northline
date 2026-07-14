@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAdminEmail } from "@/lib/admin";
-import { Department, Industry } from "@prisma/client";
+import { Department, Industry, AssessmentAiProcessingMode } from "@prisma/client";
 import { industryLabel, normalizeIndustryText } from "@/lib/assessmentIndustry";
 import { anonymizeOrgText } from "@/lib/anonymizeOrgText";
 import { ensureOrganizationDriveFolders } from "@/lib/googleDrive";
 import { sendMakeLibraryEvent } from "@/lib/makeWebhook";
+import { PRIORITY_DISCOVERY_SEED_QUESTIONS } from "@/lib/priorityDiscovery/questions";
+import { Prisma } from "@prisma/client";
+import { createScheduledInvite } from "@/lib/scheduledInvites";
+import { getInviteOrigin, processAssessmentInvites } from "@/lib/assessmentInvites";
+import { isValidTimezone } from "@/lib/scheduleTimezone";
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -118,6 +123,18 @@ export async function POST(req: NextRequest) {
     const knownIntegrations = String(form.get("known_integrations") ?? "").trim();
     const knownProcessWorkflows = String(form.get("known_process_workflows") ?? "").trim();
 
+    const assessmentKindRaw = String(form.get("assessment_kind") ?? "readiness").trim();
+    const assessmentKind =
+      assessmentKindRaw === "priority_discovery" ? "PRIORITY_DISCOVERY" : "READINESS";
+    const aiProcessingModeRaw = String(form.get("ai_processing_mode") ?? "executive").trim().toLowerCase();
+    const aiProcessingMode =
+      aiProcessingModeRaw === "fast"
+        ? AssessmentAiProcessingMode.FAST
+        : AssessmentAiProcessingMode.EXECUTIVE;
+    const inviteSendMode = String(form.get("invite_send_mode") ?? "later").trim().toLowerCase();
+    const inviteScheduledDate = String(form.get("invite_scheduled_date") ?? "").trim();
+    const inviteScheduledTime = String(form.get("invite_scheduled_time") ?? "").trim();
+    const inviteTimezone = String(form.get("invite_timezone") ?? "America/New_York").trim();
     const assessmentType = String(form.get("assessment_type") ?? "FULL").trim(); // FULL | DEPARTMENT
     const lockedDepartment = String(form.get("locked_department") ?? "").trim(); // Department enum value or ""
 
@@ -163,7 +180,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (assessmentType === "DEPARTMENT" && !lockedDepartment) {
+    if (assessmentKind === "READINESS" && assessmentType === "DEPARTMENT" && !lockedDepartment) {
       return NextResponse.json(
         {
           error: "Bad Request",
@@ -203,6 +220,33 @@ export async function POST(req: NextRequest) {
 
     const invitees = dedupedParticipantEntries.filter((e) => e.email !== adminEmail);
     const result = await prisma.$transaction(async (tx) => {
+      if (assessmentKind === "PRIORITY_DISCOVERY") {
+        const existingPriorityQuestions = await tx.priorityQuestion.count({
+          where: { assessment_type: "PRIORITY_DISCOVERY", question_set_version: "1" },
+        });
+        if (existingPriorityQuestions === 0) {
+          await tx.priorityQuestion.createMany({
+            data: PRIORITY_DISCOVERY_SEED_QUESTIONS.map((q) => ({
+              assessment_type: "PRIORITY_DISCOVERY",
+              question_set_version: "1",
+              section: q.section,
+              question_text: q.questionText,
+              question_help_text: q.questionHelpText || null,
+              response_type: q.responseType,
+              options: (q.options ?? []) as Prisma.InputJsonValue,
+              scale_min: q.scaleMin ?? null,
+              scale_max: q.scaleMax ?? null,
+              scale_labels: (q.scaleLabels ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+              required: q.required,
+              order: q.order,
+              tags: (q.tags ?? []) as Prisma.InputJsonValue,
+              scoring_dimension: q.scoringDimension ?? null,
+              is_active: q.isActive,
+            })),
+          });
+        }
+      }
+
       const org = await tx.organization.create({
         data: {
           name,
@@ -219,9 +263,16 @@ export async function POST(req: NextRequest) {
       const assessment = await tx.assessment.create({
         data: {
           organization_id: org.id,
+          assessment_type: assessmentKind,
+          question_set_version: "1",
+          ai_processing_mode: aiProcessingMode,
           locked_department:
-            assessmentType === "DEPARTMENT" ? (lockedDepartment as Department) : null,
+            assessmentKind === "READINESS" && assessmentType === "DEPARTMENT" ? (lockedDepartment as Department) : null,
           industry: (assessmentIndustry as Industry | null) ?? null,
+          name:
+            assessmentKind === "PRIORITY_DISCOVERY"
+              ? "AI Priority Discovery Assessment"
+              : "AI Readiness Assessment",
         },
         select: { id: true, organization_id: true },
       });
@@ -288,6 +339,64 @@ export async function POST(req: NextRequest) {
       return { orgId: org.id, orgName: org.name, assessmentId: assessment.id };
     });
 
+    let sent = 0;
+    let failed = 0;
+    let scheduled = false;
+    let scheduledCount = 0;
+
+    if (invitees.length > 0 && (inviteSendMode === "immediate" || inviteSendMode === "scheduled")) {
+      const portalRoleByEmail = Object.fromEntries(
+        invitees.map((row) => [row.email, row.portal_role === "ORG_ADMIN" ? "ORG_ADMIN" : "NONE"])
+      ) as Record<string, "NONE" | "ORG_ADMIN">;
+
+      if (inviteSendMode === "immediate") {
+        try {
+          const inviteResult = await processAssessmentInvites({
+            assessmentId: result.assessmentId,
+            emails: invitees.map((row) => row.email),
+            origin: getInviteOrigin(req.nextUrl.origin),
+            expiresInHours: 24 * 7,
+            portalRoleByEmail,
+          });
+          sent = inviteResult.sent;
+          failed = inviteResult.failed;
+        } catch (err: unknown) {
+          failed = invitees.length;
+          console.error("Onboard immediate invite failure:", err);
+        }
+      } else if (inviteSendMode === "scheduled") {
+        if (!inviteScheduledDate || !inviteScheduledTime || !isValidTimezone(inviteTimezone)) {
+          return NextResponse.json(
+            { error: "Bad Request", message: "Scheduled send requires date, time, and timezone." },
+            { status: 400 }
+          );
+        }
+        try {
+          await createScheduledInvite({
+            assessmentId: result.assessmentId,
+            organizationId: result.orgId,
+            emails: invitees.map((row) => row.email),
+            portalRoleByEmail,
+            expiresInHours: 24 * 7,
+            localDate: inviteScheduledDate,
+            localTime: inviteScheduledTime,
+            timezone: inviteTimezone,
+            createdByEmail: adminEmail,
+          });
+          scheduled = true;
+          scheduledCount = invitees.length;
+        } catch (err: unknown) {
+          return NextResponse.json(
+            {
+              error: "Bad Request",
+              message: err instanceof Error ? err.message : "Failed to schedule assessment invites.",
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     try {
       await ensureOrganizationDriveFolders({
         organizationId: result.orgId,
@@ -304,12 +413,17 @@ export async function POST(req: NextRequest) {
       source_id: result.orgId,
     });
 
-    // Do not auto-send invites on intake create. Save participants only.
-    const orgUrl = new URL(`/admin/organizations/${result.orgId}`, req.url);
+    const orgUrl = new URL(`/admin/crm/organizations/${result.orgId}`, req.url);
     orgUrl.searchParams.set("created", "1");
     orgUrl.searchParams.set("invited", String(invitees.length));
-    orgUrl.searchParams.set("sent", "0");
-    orgUrl.searchParams.set("failed", "0");
+    orgUrl.searchParams.set("sent", String(sent));
+    orgUrl.searchParams.set("failed", String(failed));
+    if (scheduled) {
+      orgUrl.searchParams.set("scheduled", "1");
+      orgUrl.searchParams.set("scheduledCount", String(scheduledCount));
+      orgUrl.searchParams.set("scheduledAt", `${inviteScheduledDate} ${inviteScheduledTime}`);
+      orgUrl.searchParams.set("scheduledTz", inviteTimezone);
+    }
     return NextResponse.redirect(orgUrl, { status: 303 });
   } catch (err: unknown) {
     return NextResponse.json(

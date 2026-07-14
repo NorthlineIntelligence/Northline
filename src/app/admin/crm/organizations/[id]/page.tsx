@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin";
 import CrmOrganizationClient from "./CrmOrganizationClient";
@@ -13,5 +14,9 @@ export default async function CrmOrganizationPage(context: { params: Promise<{ i
     );
   }
 
-  return <CrmOrganizationClient organizationId={parsed.data.id} />;
+  return (
+    <Suspense fallback={<div className="p-8 text-sm font-semibold text-[#66819e]">Loading account…</div>}>
+      <CrmOrganizationClient organizationId={parsed.data.id} />
+    </Suspense>
+  );
 }

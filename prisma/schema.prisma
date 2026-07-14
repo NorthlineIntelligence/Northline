@@ -49,8 +49,10 @@ model Organization {
 
   created_at         DateTime               @default(now())
   assessments        Assessment[]
+  priority_analyses  PriorityAnalysis[]
   documents          OrganizationDocument[]
   participants       Participant[]
+  invite_schedules   AssessmentInviteSchedule[]
   show_admin_controls Boolean               @default(false)
   /// When true, Executive Insights shows a Project Scope link (AI-generated scopes per pilot).
   show_project_scope_review Boolean        @default(false)
@@ -83,8 +85,12 @@ model Assessment {
   status            AssessmentStatus @default(DRAFT)
   locked_at         DateTime?
   created_at        DateTime         @default(now())
+  assessment_type   AssessmentKind   @default(READINESS) @map("assessment_type")
+  question_set_version String        @default("1")
+  ai_processing_mode AssessmentAiProcessingMode @default(EXECUTIVE) @map("aiProcessingMode")
   type              assessmenttype   @default(FULL)
   name              String           @default("NL-Assess")
+  parent_assessment_id String?       @db.Uuid @map("parentAssessmentId")
 
   /// If set, this assessment is "team-only locked" and participants do NOT choose a department.
   /// All questions should be filtered to audience = locked_department OR ALL.
@@ -97,15 +103,149 @@ model Assessment {
   Response           Response[]
   narratives         AssessmentNarrative[]
   project_scopes     AssessmentProjectScope[]
+  priority_responses PriorityResponse[]
+  priority_analyses  PriorityAnalysis[]
+  invite_schedules   AssessmentInviteSchedule[]
   crm_quotes         CrmQuote[]
   pm_projects        PmProject[]
+  priority_questions PriorityQuestion[]
+  parent_assessment  Assessment?  @relation("AssessmentPhases", fields: [parent_assessment_id], references: [id], onDelete: SetNull)
+  child_assessments  Assessment[] @relation("AssessmentPhases")
 
   @@index([organization_id])
   @@index([status])
+  @@index([assessment_type])
   @@index([type])
   @@index([locked_department])
   @@index([industry])
   @@index([organization_id, created_at])
+}
+
+model PriorityQuestion {
+  id                   String               @id @default(uuid()) @db.Uuid
+  assessment_id        String?              @db.Uuid @map("assessmentId")
+  assessment_type      AssessmentKind       @default(PRIORITY_DISCOVERY) @map("assessmentType")
+  question_set_version String               @default("1")
+  section              String
+  question_text        String               @map("questionText") @db.Text
+  question_help_text   String?              @map("questionHelpText") @db.Text
+  response_type        PriorityResponseType @map("responseType")
+  options              Json?
+  scale_min            Int?                 @map("scaleMin")
+  scale_max            Int?                 @map("scaleMax")
+  scale_labels         Json?                @map("scaleLabels")
+  required             Boolean              @default(false)
+  order                Int
+  tags                 Json?
+  scoring_dimension    PriorityScoringDimension? @map("scoringDimension")
+  is_active            Boolean              @default(true) @map("isActive")
+  created_at           DateTime             @default(now()) @map("createdAt")
+  updated_at           DateTime             @updatedAt @map("updatedAt")
+
+  Assessment           Assessment?          @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  responses            PriorityResponse[]
+
+  @@index([assessment_type, question_set_version, is_active, order])
+  @@index([assessment_type, section])
+  @@index([assessment_id, is_active, order])
+}
+
+model PriorityResponse {
+  id             String   @id @default(uuid()) @db.Uuid
+  assessment_id  String   @db.Uuid @map("assessmentId")
+  participant_id String   @db.Uuid @map("participantId")
+  question_id    String   @db.Uuid @map("questionId")
+  answer_text    String?  @map("answerText") @db.Text
+  answer_number  Int?     @map("answerNumber")
+  answer_json    Json?    @map("answerJson")
+  created_at     DateTime @default(now()) @map("createdAt")
+  updated_at     DateTime @updatedAt @map("updatedAt")
+
+  Assessment  Assessment       @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  Participant Participant      @relation(fields: [participant_id], references: [id], onDelete: Cascade)
+  Question    PriorityQuestion @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@unique([assessment_id, participant_id, question_id], map: "priority_response_unique_per_participant_question")
+  @@index([assessment_id, participant_id])
+  @@index([assessment_id, question_id])
+}
+
+model PriorityAnalysis {
+  id                    String   @id @default(uuid()) @db.Uuid
+  assessment_id         String   @db.Uuid @map("assessmentId")
+  organization_id       String   @db.Uuid @map("organizationId")
+  ai_model_used         String?  @map("aiModelUsed")
+  input_hash            String   @map("inputHash")
+  output_json           Json     @map("outputJson")
+  executive_summary     String?  @map("executiveSummary") @db.Text
+  overall_synergy_score Int?     @map("overallSynergyScore")
+  consultant_notes_html String?  @map("consultantNotesHtml") @db.Text
+  created_at            DateTime @default(now()) @map("createdAt")
+
+  Assessment  Assessment        @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  Organization Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  projects    PriorityProject[]
+
+  @@index([assessment_id, created_at])
+  @@index([organization_id, created_at])
+}
+
+model PriorityProject {
+  id                           String  @id @default(uuid()) @db.Uuid
+  priority_analysis_id          String  @db.Uuid @map("priorityAnalysisId")
+  rank                         Int
+  project_name                 String  @map("projectName")
+  problem_statement            String? @map("problemStatement") @db.Text
+  recommended_solution         String? @map("recommendedSolution") @db.Text
+  short_term_impact            String? @map("shortTermImpact") @db.Text
+  long_term_impact             String? @map("longTermImpact") @db.Text
+  implementation_risk          String? @map("implementationRisk")
+  readiness_dependency         String? @map("readinessDependency") @db.Text
+  first_step                   String? @map("firstStep") @db.Text
+  estimated_effort             PriorityEstimatedEffort? @map("estimatedEffort")
+  estimated_time_horizon        PriorityTimeHorizon? @map("estimatedTimeHorizon")
+  ai_suitability_score          Int?    @map("aiSuitabilityScore")
+  automation_suitability_score  Int?    @map("automationSuitabilityScore")
+  business_impact_score         Int?    @map("businessImpactScore")
+  urgency_score                 Int?    @map("urgencyScore")
+  synergy_score                 Int?    @map("synergyScore")
+  risk_score                    Int?    @map("riskScore")
+  priority_score                Int?    @map("priorityScore")
+  confidence_level              PriorityConfidenceLevel? @map("confidenceLevel")
+  evidence_json                 Json?   @map("evidenceJson")
+  created_at                    DateTime @default(now()) @map("createdAt")
+
+  PriorityAnalysis PriorityAnalysis @relation(fields: [priority_analysis_id], references: [id], onDelete: Cascade)
+
+  @@index([priority_analysis_id, rank])
+}
+
+model AssessmentInviteSchedule {
+  id                         String                         @id @default(uuid()) @db.Uuid
+  assessment_id              String                         @db.Uuid @map("assessmentId")
+  organization_id            String                         @db.Uuid @map("organizationId")
+  emails_json                Json                           @map("emailsJson")
+  portal_role_by_email_json  Json?                          @map("portalRoleByEmailJson")
+  scheduled_at_utc           DateTime                       @map("scheduledAtUtc")
+  timezone                   String
+  local_date                 String                         @map("localDate")
+  local_time                 String                         @map("localTime")
+  status                     AssessmentInviteScheduleStatus @default(PENDING)
+  expires_in_hours           Int                            @default(168) @map("expiresInHours")
+  sent_count                 Int                            @default(0) @map("sentCount")
+  failed_count               Int                            @default(0) @map("failedCount")
+  portal_sent_count          Int                            @default(0) @map("portalSentCount")
+  portal_failed_count        Int                            @default(0) @map("portalFailedCount")
+  last_error                 String?                        @map("lastError") @db.Text
+  created_by_email           String?                        @map("createdByEmail")
+  created_at                 DateTime                       @default(now()) @map("createdAt")
+  processed_at               DateTime?                      @map("processedAt")
+
+  Assessment   Assessment   @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  Organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduled_at_utc])
+  @@index([assessment_id, created_at])
 }
 
 model Participant {
@@ -142,6 +282,7 @@ model Participant {
   Assessment   Assessment   @relation(fields: [assessment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   Response     Response[]
+  priority_responses PriorityResponse[]
 
   @@unique([assessment_id, user_id], map: "participant_unique_per_assessment_user")
   @@unique([assessment_id, email], map: "participant_unique_per_assessment_email")
@@ -303,6 +444,15 @@ enum Pillar {
   SUSTAINABILITY_PRACTICE
 }
 
+enum AssessmentInviteScheduleStatus {
+  PENDING
+  PROCESSING
+  SENT
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
 enum Department {
   /// Included for every participant/assessment unless you explicitly choose to filter it out.
   ALL
@@ -343,9 +493,66 @@ enum AssessmentStatus {
   CLOSED
 }
 
+enum AssessmentKind {
+  READINESS @map("readiness")
+  PRIORITY_DISCOVERY @map("priority_discovery")
+}
+
+enum AssessmentAiProcessingMode {
+  FAST @map("fast")
+  EXECUTIVE @map("executive")
+}
+
 enum assessmenttype {
   FULL
   LITE
+}
+
+enum PriorityResponseType {
+  FREE_TEXT
+  LIKERT
+  RANKING
+  MULTI_SELECT
+  FORCED_CHOICE
+  DEPARTMENT
+  CONFIDENCE
+  URGENCY
+}
+
+enum PriorityScoringDimension {
+  URGENCY
+  BUSINESS_IMPACT
+  FREQUENCY
+  MANUAL_EFFORT
+  CUSTOMER_IMPACT
+  EMPLOYEE_IMPACT
+  DATA_READINESS
+  OWNERSHIP_CLARITY
+  RISK_LEVEL
+  AI_APPLICABILITY
+  AUTOMATION_APPLICABILITY
+  STRATEGIC_ALIGNMENT
+  CONFIDENCE
+  RESPONDENT_ALIGNMENT
+}
+
+enum PriorityEstimatedEffort {
+  LOW @map("low")
+  MEDIUM @map("medium")
+  HIGH @map("high")
+}
+
+enum PriorityTimeHorizon {
+  DAYS_0_30 @map("0-30 days")
+  DAYS_30_90 @map("30-90 days")
+  DAYS_90_180 @map("90-180 days")
+  MONTHS_6_12 @map("6-12 months")
+}
+
+enum PriorityConfidenceLevel {
+  LOW @map("low")
+  MEDIUM @map("medium")
+  HIGH @map("high")
 }
 
 enum NarrativeStatus {

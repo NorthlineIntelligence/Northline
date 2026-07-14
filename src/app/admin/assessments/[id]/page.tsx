@@ -1,8 +1,12 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
+import { AiProcessingModeToggle, type AiProcessingMode } from "@/components/priority-discovery/AiProcessingModeToggle";
+import { INVITE_TIMEZONE_OPTIONS } from "@/lib/scheduleTimezone";
+import { AssessmentPriorityQuestionsEditor } from "@/components/assessments/AssessmentPriorityQuestionsEditor";
 
 type OrgPayload = {
   id: string;
@@ -44,6 +48,13 @@ type LoadResponse = {
   isLocked: boolean;
   participantsTotal: number;
   participantsCompleted: number;
+  assessment: {
+    id: string;
+    name: string | null;
+    assessment_type: "READINESS" | "PRIORITY_DISCOVERY";
+    question_set_version: string;
+    ai_processing_mode?: AiProcessingMode;
+  };
   organization: OrgPayload;
 };
 
@@ -69,6 +80,21 @@ type ParticipantsResponse = {
   participants: ParticipantRow[];
 };
 
+type InviteScheduleRow = {
+  id: string;
+  emails: string[];
+  scheduledAtUtc: string;
+  timezone: string;
+  localDate: string;
+  localTime: string;
+  status: string;
+  sentCount: number;
+  failedCount: number;
+  lastError: string | null;
+  createdAt: string;
+  processedAt: string | null;
+};
+
 function fmtDate(s: string | null) {
   if (!s) return "—";
   const d = new Date(s);
@@ -89,6 +115,10 @@ export default function AdminAssessmentPage() {
   const [isLocked, setIsLocked] = useState(false);
   const [participantsTotal, setParticipantsTotal] = useState(0);
   const [participantsCompleted, setParticipantsCompleted] = useState(0);
+  const [assessmentType, setAssessmentType] = useState<"READINESS" | "PRIORITY_DISCOVERY">("READINESS");
+  const [aiProcessingMode, setAiProcessingMode] = useState<AiProcessingMode>("executive");
+  const [savingAiMode, setSavingAiMode] = useState(false);
+  const [aiModeResult, setAiModeResult] = useState<string | null>(null);
 
   const [org, setOrg] = useState<OrgPayload | null>(null);
 
@@ -129,6 +159,13 @@ export default function AdminAssessmentPage() {
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
   const [inviteEmailsText, setInviteEmailsText] = useState("");
+const [inviteSendMode, setInviteSendMode] = useState<"immediate" | "scheduled">("immediate");
+const [inviteScheduledDate, setInviteScheduledDate] = useState("");
+const [inviteScheduledTime, setInviteScheduledTime] = useState("09:00");
+const [inviteTimezone, setInviteTimezone] = useState("America/New_York");
+const [inviteSchedules, setInviteSchedules] = useState<InviteScheduleRow[]>([]);
+const [inviteSchedulesLoading, setInviteSchedulesLoading] = useState(false);
+const [cancellingScheduleId, setCancellingScheduleId] = useState<string | null>(null);
 const [inviting, setInviting] = useState(false);
 const [inviteResult, setInviteResult] = useState<string | null>(null);
 const [newInvitePortalAdmin, setNewInvitePortalAdmin] = useState(false);
@@ -381,6 +418,43 @@ async function setParticipantPortalRole(
     }
   }
 
+  async function refreshInviteSchedules() {
+    if (!assessmentId) return;
+    setInviteSchedulesLoading(true);
+    try {
+      const res = await fetch(`/api/admin/assessments/${assessmentId}/participants/invite-schedules`, {
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok) {
+        setInviteSchedules(json.schedules ?? []);
+      }
+    } finally {
+      setInviteSchedulesLoading(false);
+    }
+  }
+
+  async function cancelInviteSchedule(scheduleId: string) {
+    if (!assessmentId) return;
+    const ok = window.confirm("Cancel this scheduled invite send?");
+    if (!ok) return;
+
+    setCancellingScheduleId(scheduleId);
+    const res = await fetch(
+      `/api/admin/assessments/${assessmentId}/participants/invite-schedules?scheduleId=${encodeURIComponent(scheduleId)}`,
+      { method: "DELETE", credentials: "include" }
+    );
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      setInviteResult(json?.error ?? `Cancel failed (${res.status}).`);
+      setCancellingScheduleId(null);
+      return;
+    }
+    setInviteResult("Scheduled invite cancelled.");
+    setCancellingScheduleId(null);
+    await refreshInviteSchedules();
+  }
+
   async function sendInvites() {
     if (!assessmentId) return;
     if (isLocked && !newInvitePortalAdmin) {
@@ -410,6 +484,13 @@ async function setParticipantPortalRole(
       return;
     }
 
+    if (inviteSendMode === "scheduled") {
+      if (!inviteScheduledDate || !inviteScheduledTime || !inviteTimezone) {
+        setInviteResult("Choose a date, time, and timezone for scheduled send.");
+        return;
+      }
+    }
+
     setInviting(true);
     setInviteResult(null);
 
@@ -420,6 +501,10 @@ async function setParticipantPortalRole(
       body: JSON.stringify({
         emails,
         expiresInHours: 24 * 7,
+        sendMode: inviteSendMode,
+        scheduledLocalDate: inviteSendMode === "scheduled" ? inviteScheduledDate : undefined,
+        scheduledLocalTime: inviteSendMode === "scheduled" ? inviteScheduledTime : undefined,
+        timezone: inviteSendMode === "scheduled" ? inviteTimezone : undefined,
         portalRoleByEmail: Object.fromEntries(
           emails.map((email) => [email, newInvitePortalAdmin ? "ORG_ADMIN" : "NONE"])
         ),
@@ -435,12 +520,24 @@ async function setParticipantPortalRole(
     }
 
     const invited = Number(json?.invited ?? emails.length);
-    setInviteResult(`Invited ${invited}.`);
+    if (json?.scheduled) {
+      setInviteResult(
+        `Scheduled ${invited} invite${invited === 1 ? "" : "s"} for ${inviteScheduledDate} ${inviteScheduledTime} (${inviteTimezone}).`
+      );
+    } else {
+      const sent = Number(json?.sent ?? 0);
+      const failed = Number(json?.failed ?? 0);
+      setInviteResult(
+        failed > 0
+          ? `Invited ${invited}. Sent ${sent}, failed ${failed}.`
+          : `Invited ${invited}. Sent ${sent}.`
+      );
+      await refreshParticipants();
+    }
 
     setInviteEmailsText("");
     setInviting(false);
-
-    await refreshParticipants();
+    await refreshInviteSchedules();
   }
 
   const lockLabel = useMemo(() => {
@@ -498,6 +595,8 @@ async function setParticipantPortalRole(
           setIsLocked(Boolean(json.isLocked));
           setParticipantsTotal(Number(json.participantsTotal ?? 0));
           setParticipantsCompleted(Number(json.participantsCompleted ?? 0));
+          setAssessmentType(json.assessment?.assessment_type ?? "READINESS");
+          setAiProcessingMode(json.assessment?.ai_processing_mode ?? "executive");
 
           setOrg(json.organization);
 
@@ -553,10 +652,9 @@ async function setParticipantPortalRole(
         }
 
         if (!cancelled) {
-          // Keep org route as the source for isLocked/counts in this page for now,
-          // but still show the list from the participants route.
           setParticipants(pJson.participants);
           setParticipantsLoading(false);
+          await refreshInviteSchedules();
         }
 
         if (!cancelled) {
@@ -654,6 +752,30 @@ async function setParticipantPortalRole(
       setPaymentMethod(updated.payment_method ?? "");
       setShowAdminControls(Boolean(updated.show_admin_controls));
     }
+  }
+
+  async function saveAiProcessingMode() {
+    if (!assessmentId) return;
+
+    setSavingAiMode(true);
+    setAiModeResult(null);
+
+    const res = await fetch(`/api/admin/assessments/${assessmentId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ ai_processing_mode: aiProcessingMode }),
+    });
+
+    const json = await res.json().catch(() => ({} as any));
+    if (!res.ok) {
+      setAiModeResult(`Error (${res.status}): ${json?.error ?? "Save failed."}`);
+      setSavingAiMode(false);
+      return;
+    }
+
+    setAiModeResult("AI processing mode saved.");
+    setSavingAiMode(false);
   }
 
   if (loading) {
@@ -821,10 +943,18 @@ async function setParticipantPortalRole(
   </button>
 
   <button
-    onClick={() => router.push(`/assessments/${assessmentId}/narrative`)}
+    onClick={() =>
+      router.push(
+        assessmentType === "PRIORITY_DISCOVERY"
+          ? `/admin/assessments/${assessmentId}/priority-results`
+          : `/assessments/${assessmentId}/narrative`
+      )
+    }
     style={topActionButtonStyle}
   >
-    View Executive Insights
+    {assessmentType === "PRIORITY_DISCOVERY"
+      ? "Open Priority Discovery Readout"
+      : "View Executive Insights"}
   </button>
 </div>  
           </div>
@@ -1109,6 +1239,80 @@ async function setParticipantPortalRole(
           </div>
         </div>
 
+        {assessmentType === "PRIORITY_DISCOVERY" ? (
+          <div
+            style={{
+              marginTop: 16,
+              background: BRAND.card,
+              border: `1px solid ${BRAND.border}`,
+              borderRadius: 16,
+              padding: 20,
+              boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 900, color: BRAND.dark }}>
+              Priority Discovery AI Processing
+            </div>
+            <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 13 }}>
+              Choose which private Northline model runs when you generate or regenerate the executive readout.
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <AiProcessingModeToggle
+                value={aiProcessingMode}
+                onChange={setAiProcessingMode}
+                disabled={savingAiMode}
+              />
+            </div>
+            <div
+              style={{
+                marginTop: 16,
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                onClick={saveAiProcessingMode}
+                disabled={savingAiMode}
+                style={{
+                  background: savingAiMode ? "#98a2b3" : BRAND.dark,
+                  color: "white",
+                  border: "none",
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  fontWeight: 900,
+                  cursor: savingAiMode ? "not-allowed" : "pointer",
+                }}
+              >
+                {savingAiMode ? "Saving…" : "Save AI Mode"}
+              </button>
+            </div>
+            {aiModeResult ? (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: 12,
+                  border: `1px solid ${BRAND.border}`,
+                  background: "#F9FAFB",
+                  color: aiModeResult.includes("Error") ? "#b42318" : BRAND.dark,
+                  fontWeight: 800,
+                }}
+              >
+                {aiModeResult}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {assessmentType === "PRIORITY_DISCOVERY" && assessmentId ? (
+          <div style={{ marginTop: 16 }}>
+            <AssessmentPriorityQuestionsEditor assessmentId={assessmentId} />
+          </div>
+        ) : null}
+
         <div
           style={{
             marginTop: 16,
@@ -1316,7 +1520,7 @@ async function setParticipantPortalRole(
                 Participants
               </div>
               <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 13 }}>
-                Add emails here to generate invite links (email delivery later can be automated).
+                Add emails and send immediately, or schedule delivery for a specific date and time.
               </div>
             </div>
 
@@ -1350,8 +1554,105 @@ async function setParticipantPortalRole(
               Add participant emails
             </div>
             <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 13 }}>
-              Paste one per line (or comma-separated). Invites are blocked once locked.
+              Paste one per line (or comma-separated). Invites are blocked once locked unless User Admin Rights is enabled.
             </div>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setInviteSendMode("immediate")}
+                disabled={inviting}
+                style={{
+                  border: `1px solid ${inviteSendMode === "immediate" ? BRAND.dark : BRAND.border}`,
+                  background: inviteSendMode === "immediate" ? "#E8F7F8" : "#FFFFFF",
+                  color: BRAND.dark,
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  fontWeight: 900,
+                  cursor: inviting ? "not-allowed" : "pointer",
+                }}
+              >
+                Immediate Send
+              </button>
+              <button
+                type="button"
+                onClick={() => setInviteSendMode("scheduled")}
+                disabled={inviting}
+                style={{
+                  border: `1px solid ${inviteSendMode === "scheduled" ? BRAND.dark : BRAND.border}`,
+                  background: inviteSendMode === "scheduled" ? "#E8F7F8" : "#FFFFFF",
+                  color: BRAND.dark,
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  fontWeight: 900,
+                  cursor: inviting ? "not-allowed" : "pointer",
+                }}
+              >
+                Scheduled Send
+              </button>
+            </div>
+
+            {inviteSendMode === "scheduled" ? (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: "grid",
+                  gap: 10,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                }}
+              >
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: BRAND.dark }}>Date</span>
+                  <input
+                    type="date"
+                    value={inviteScheduledDate}
+                    onChange={(e) => setInviteScheduledDate(e.target.value)}
+                    disabled={inviting}
+                    style={{
+                      borderRadius: 12,
+                      border: `1px solid ${BRAND.border}`,
+                      padding: "10px 12px",
+                      fontSize: 14,
+                    }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: BRAND.dark }}>Time</span>
+                  <input
+                    type="time"
+                    value={inviteScheduledTime}
+                    onChange={(e) => setInviteScheduledTime(e.target.value)}
+                    disabled={inviting}
+                    style={{
+                      borderRadius: 12,
+                      border: `1px solid ${BRAND.border}`,
+                      padding: "10px 12px",
+                      fontSize: 14,
+                    }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: BRAND.dark }}>Timezone</span>
+                  <select
+                    value={inviteTimezone}
+                    onChange={(e) => setInviteTimezone(e.target.value)}
+                    disabled={inviting}
+                    style={{
+                      borderRadius: 12,
+                      border: `1px solid ${BRAND.border}`,
+                      padding: "10px 12px",
+                      fontSize: 14,
+                    }}
+                  >
+                    {INVITE_TIMEZONE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
 
             <textarea
               value={inviteEmailsText}
@@ -1386,7 +1687,9 @@ async function setParticipantPortalRole(
               <div style={{ color: BRAND.muted, fontSize: 12 }}>
                   {isLocked
                     ? "Assessment is locked for responses. Portal-access invites remain available."
-                    : "Invites expire in 7 days."}
+                    : inviteSendMode === "scheduled"
+                      ? "Invites will send automatically at the scheduled date and time."
+                      : "Invites expire in 7 days."}
               </div>
                 <label style={{ display: "inline-flex", gap: 8, alignItems: "center", color: BRAND.dark, fontWeight: 800 }}>
                   <input
@@ -1411,9 +1714,70 @@ async function setParticipantPortalRole(
                   cursor: inviting ? "not-allowed" : "pointer",
                 }}
               >
-                {inviting ? "Sending…" : "Send Invites"}
+                {inviting
+                  ? inviteSendMode === "scheduled"
+                    ? "Scheduling…"
+                    : "Sending…"
+                  : inviteSendMode === "scheduled"
+                    ? "Schedule Invites"
+                    : "Send Invites"}
               </button>
             </div>
+
+            {inviteSchedules.length > 0 ? (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontWeight: 900, color: BRAND.dark }}>Scheduled invite sends</div>
+                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                  {inviteSchedules.map((schedule) => (
+                    <div
+                      key={schedule.id}
+                      style={{
+                        border: `1px solid ${BRAND.border}`,
+                        borderRadius: 12,
+                        padding: 12,
+                        background: "#F9FAFB",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontWeight: 800, color: BRAND.dark }}>
+                            {schedule.localDate} {schedule.localTime} ({schedule.timezone})
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, color: BRAND.muted }}>
+                            {schedule.emails.length} email{schedule.emails.length === 1 ? "" : "s"} • Status: {schedule.status}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, color: BRAND.muted }}>
+                            {schedule.emails.join(", ")}
+                          </div>
+                        </div>
+                        {schedule.status === "PENDING" ? (
+                          <button
+                            onClick={() => cancelInviteSchedule(schedule.id)}
+                            disabled={cancellingScheduleId === schedule.id}
+                            style={{
+                              background: "#FFFFFF",
+                              color: "#b42318",
+                              border: "1px solid #FECDCA",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              fontWeight: 900,
+                              cursor: cancellingScheduleId === schedule.id ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {cancellingScheduleId === schedule.id ? "Cancelling…" : "Cancel"}
+                          </button>
+                        ) : null}
+                      </div>
+                      {schedule.lastError ? (
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{schedule.lastError}</div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : inviteSchedulesLoading ? (
+              <div style={{ marginTop: 12, fontSize: 12, color: BRAND.muted }}>Loading scheduled sends…</div>
+            ) : null}
             {deleteResult ? (
               <div
                 style={{

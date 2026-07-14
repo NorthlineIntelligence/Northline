@@ -29,6 +29,7 @@ type AssessmentMeta = {
     id: string;
     status: string;
     type: string;
+    assessment_type?: "READINESS" | "PRIORITY_DISCOVERY";
     locked_at: string | null;
     locked_department: Department | null;
     name?: string | null;
@@ -84,23 +85,6 @@ function BrandWordmark() {
 
 function labelDept(d: string) {
   return String(d ?? "").toUpperCase().replaceAll("_", " ");
-}
-
-async function safeReadError(res: Response): Promise<string> {
-  const ct = res.headers.get("content-type") ?? "";
-  try {
-    if (ct.includes("application/json")) {
-      const j = await res.json();
-      return (
-        (j?.message as string) ||
-        (j?.error as string) ||
-        JSON.stringify(j).slice(0, 400)
-      );
-    }
-    return (await res.text()).slice(0, 400);
-  } catch {
-    return "";
-  }
 }
 
 export default function AssessmentStartPage() {
@@ -202,6 +186,7 @@ export default function AssessmentStartPage() {
               );
               
               metaUrl.searchParams.set("email", emailFromLink);
+              metaUrl.searchParams.set("token", tokenFromLink);
               
               const aRes = await fetch(metaUrl.toString(), {
                 method: "GET",
@@ -214,6 +199,15 @@ export default function AssessmentStartPage() {
 
             if (!cancelled) {
               setAssessment(meta);
+            }
+
+            if (meta?.assessment_type === "PRIORITY_DISCOVERY") {
+              router.replace(
+                `/assessments/${assessmentId}?email=${encodeURIComponent(
+                  emailFromLink
+                )}&token=${encodeURIComponent(tokenFromLink)}`
+              );
+              return;
             }
 
             // 3) If locked_department exists and assessment is NOT locked, auto-set dept silently
@@ -230,6 +224,7 @@ export default function AssessmentStartPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   email: emailFromLink,
+                  token: tokenFromLink,
                   department: lockDept,
                 }),
               }).catch(() => {});
@@ -241,9 +236,9 @@ export default function AssessmentStartPage() {
         }
 
         if (!cancelled) setLoading(false);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!cancelled) {
-          setLoadError(e?.message ?? String(e));
+          setLoadError(e instanceof Error ? e.message : String(e));
           setLoading(false);
         }
       }
@@ -253,7 +248,7 @@ export default function AssessmentStartPage() {
     return () => {
       cancelled = true;
     };
-  }, [assessmentId, emailFromLink, tokenFromLink]);
+  }, [assessmentId, emailFromLink, router, tokenFromLink]);
 
   async function saveIntakeAndContinue() {
     if (!assessmentId) return;

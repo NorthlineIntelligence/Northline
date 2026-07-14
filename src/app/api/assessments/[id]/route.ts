@@ -22,27 +22,27 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   const { id: assessmentId } = await context.params;
 
   let authorized = false;
+  const url = req.nextUrl;
+  const email = (url.searchParams.get("email") ?? "").trim().toLowerCase();
+  const token = (url.searchParams.get("token") ?? "").trim();
 
-  const admin = await requireAdmin();
-  if (admin.user) {
-    authorized = true;
-  } else {
-    const url = req.nextUrl;
-    const email = (url.searchParams.get("email") ?? "").trim().toLowerCase();
-    const token = (url.searchParams.get("token") ?? "").trim();
-    if (email && token) {
-      const tokenHash = sha256Hex(token);
-      const participant = await prisma.participant.findFirst({
-        where: {
-          assessment_id: assessmentId,
-          email,
-          invite_token_hash: tokenHash,
-          OR: [{ invite_token_expires_at: null }, { invite_token_expires_at: { gt: new Date() } }],
-        },
-        select: { id: true },
-      });
-      authorized = Boolean(participant);
-    }
+  if (email && token) {
+    const tokenHash = sha256Hex(token);
+    const participant = await prisma.participant.findFirst({
+      where: {
+        assessment_id: assessmentId,
+        email,
+        invite_token_hash: tokenHash,
+        OR: [{ invite_token_expires_at: null }, { invite_token_expires_at: { gt: new Date() } }],
+      },
+      select: { id: true },
+    });
+    authorized = Boolean(participant);
+  }
+
+  if (!authorized) {
+    const admin = await requireAdmin();
+    authorized = Boolean(admin.user);
   }
 
   if (!authorized) {
@@ -55,6 +55,8 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       select: {
         id: true,
         name: true,
+        assessment_type: true,
+        question_set_version: true,
         locked_department: true,
         industry: true,
         organization_id: true,
@@ -73,9 +75,10 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }
 
     return NextResponse.json({ ok: true, assessment }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { ok: false, error: "Fetch failed", message: err?.message ?? String(err) },
+      { ok: false, error: "Fetch failed", message },
       { status: 500 }
     );
   }
@@ -98,9 +101,10 @@ export async function PATCH(
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await req.json());
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { ok: false, error: "Invalid body", message: err?.message ?? String(err) },
+      { ok: false, error: "Invalid body", message },
       { status: 400 }
     );
   }
@@ -116,9 +120,10 @@ export async function PATCH(
     });
 
     return NextResponse.json({ ok: true, assessment: updated }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { ok: false, error: "Update failed", message: err?.message ?? String(err) },
+      { ok: false, error: "Update failed", message },
       { status: 500 }
     );
   }

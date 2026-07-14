@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/authz";
 import { z } from "zod";
-import { Department, Industry } from "@prisma/client";
+import { Department, Industry, AssessmentAiProcessingMode } from "@prisma/client";
 
 const BodySchema = z.object({
-  locked_department: z.nativeEnum(Department).nullable(),
+  locked_department: z.nativeEnum(Department).nullable().optional(),
   industry: z.nativeEnum(Industry).nullable().optional(),
+  ai_processing_mode: z.enum(["fast", "executive"]).optional(),
 });
 
 export async function PATCH(
@@ -31,13 +32,34 @@ export async function PATCH(
   }
 
   try {
+    const data: {
+      locked_department?: Department | null;
+      industry?: Industry | null;
+      ai_processing_mode?: AssessmentAiProcessingMode;
+    } = {};
+
+    if (body.locked_department !== undefined) {
+      data.locked_department = body.locked_department;
+    }
+    if (body.industry !== undefined) {
+      data.industry = body.industry;
+    }
+    if (body.ai_processing_mode !== undefined) {
+      data.ai_processing_mode =
+        body.ai_processing_mode === "fast"
+          ? AssessmentAiProcessingMode.FAST
+          : AssessmentAiProcessingMode.EXECUTIVE;
+    }
+
     const updated = await prisma.assessment.update({
       where: { id },
-      data: {
-        locked_department: body.locked_department,
-        ...(body.industry !== undefined ? { industry: body.industry } : {}),
+      data,
+      select: {
+        id: true,
+        locked_department: true,
+        industry: true,
+        ai_processing_mode: true,
       },
-      select: { id: true, locked_department: true, industry: true },
     });
 
     return NextResponse.json({ ok: true, assessment: updated }, { status: 200 });

@@ -134,14 +134,48 @@ async function getParticipantByAssessmentAndUser(args: {
   return rows?.[0] ?? null;
 }
 
+async function claimParticipantInviteForUser(args: {
+  assessmentId: string;
+  userId: string;
+  email: string;
+}): Promise<ParticipantRow | null> {
+  const email = args.email.trim().toLowerCase();
+  if (!email) return null;
+
+  const rows = await prisma.$queryRaw<ParticipantRow[]>`
+    UPDATE "Participant"
+    SET
+      user_id = ${args.userId}::uuid,
+      invite_accepted_at = COALESCE(invite_accepted_at, NOW())
+    WHERE assessment_id = ${args.assessmentId}::uuid
+      AND lower(email) = ${email}
+      AND (user_id IS NULL OR user_id = ${args.userId}::uuid)
+    RETURNING
+      id,
+      assessment_id,
+      organization_id,
+      user_id,
+      email,
+      department,
+      role,
+      seniority_level,
+      ai_opportunities_notes,
+      created_at,
+      invite_accepted_at,
+      completed_at;
+  `;
+
+  return rows?.[0] ?? null;
+}
+
 async function createParticipantForUser(args: {
   assessmentId: string;
   organizationId: string;
   userId: string;
 }): Promise<ParticipantRow> {
   const rows = await prisma.$queryRaw<ParticipantRow[]>`
-    INSERT INTO "Participant" (assessment_id, organization_id, user_id)
-    VALUES (${args.assessmentId}::uuid, ${args.organizationId}::uuid, ${args.userId}::uuid)
+    INSERT INTO "Participant" (id, assessment_id, organization_id, user_id)
+    VALUES (gen_random_uuid(), ${args.assessmentId}::uuid, ${args.organizationId}::uuid, ${args.userId}::uuid)
     RETURNING
       id,
       assessment_id,
@@ -161,7 +195,7 @@ async function createParticipantForUser(args: {
   return row;
 }
 
-async function ensureParticipantForUser(assessmentId: string, userId: string) {
+async function ensureParticipantForUser(assessmentId: string, userId: string, email?: string | null) {
   const assessment = await getAssessment(assessmentId);
   if (!assessment) {
     return { ok: false as const, status: 404 as const, error: "Assessment not found" };
@@ -173,6 +207,19 @@ async function ensureParticipantForUser(assessmentId: string, userId: string) {
       ok: true as const,
       status: 200 as const,
       participant: existing,
+      reused: true as const,
+      assessment,
+    };
+  }
+
+  const claimedInvite = email
+    ? await claimParticipantInviteForUser({ assessmentId, userId, email })
+    : null;
+  if (claimedInvite) {
+    return {
+      ok: true as const,
+      status: 200 as const,
+      participant: claimedInvite,
       reused: true as const,
       assessment,
     };
@@ -201,7 +248,7 @@ async function ensureParticipantForUser(assessmentId: string, userId: string) {
       reused: false as const,
       assessment,
     };
-  } catch (err: any) {
+  } catch {
     // handle race: if unique constraint exists in DB, retry select
     const again = await getParticipantByAssessmentAndUser({ assessmentId, userId });
     if (again) {
@@ -213,7 +260,7 @@ async function ensureParticipantForUser(assessmentId: string, userId: string) {
         assessment,
       };
     }
-    throw err;
+    throw new Error("Failed to create participant for authenticated user.");
   }
 }
 
@@ -366,7 +413,7 @@ export async function POST(
     const user = data?.user ?? null;
 
     if (!userError && user?.id) {
-      const ensured = await ensureParticipantForUser(assessmentId, user.id);
+      const ensured = await ensureParticipantForUser(assessmentId, user.id, user.email);
       if (!ensured.ok) {
         return NextResponse.json({ ok: false, error: ensured.error }, { status: ensured.status });
       }
@@ -493,10 +540,11 @@ export async function POST(
       { ok: true, participant: finalParticipant, reused: true, assessment: { locked_department: assessment.locked_department, status: assessment.status, locked_at: assessment.locked_at } },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("POST /api/assessments/[id]/participant error:", err);
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { ok: false, error: "Internal server error.", message: err?.message ?? String(err) },
+      { ok: false, error: "Internal server error.", message },
       { status: 500 }
     );
   }

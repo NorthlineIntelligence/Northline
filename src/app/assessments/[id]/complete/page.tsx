@@ -109,12 +109,24 @@ export default function AssessmentCompletePage() {
   }, [inviteEmail, inviteToken]);
 
   const [insightsAccess, setInsightsAccess] = React.useState<"unknown" | "allowed" | "restricted">("unknown");
+  const [assessmentType, setAssessmentType] = React.useState<"READINESS" | "PRIORITY_DISCOVERY" | null>(null);
 
   useEffect(() => {
     if (!assessmentId) return;
     let cancelled = false;
     (async () => {
       try {
+        const metaRes = await fetch(`/api/assessments/${assessmentId}${authQs}`, {
+          credentials: "include",
+        });
+        const metaJson = await metaRes.json().catch(() => null);
+        if (!cancelled && metaJson?.assessment?.assessment_type) {
+          setAssessmentType(metaJson.assessment.assessment_type);
+        }
+        if (metaJson?.assessment?.assessment_type === "PRIORITY_DISCOVERY") {
+          if (!cancelled) setInsightsAccess("restricted");
+          return;
+        }
         const res = await fetch(`/api/assessments/${assessmentId}/narrative${authQs}`, {
           credentials: "include",
         });
@@ -180,7 +192,9 @@ export default function AssessmentCompletePage() {
           }}
         >
           {insightsAccess === "restricted"
-            ? "Your responses have been recorded. Results are under review by Northline Intelligence and your executive team."
+            ? assessmentType === "PRIORITY_DISCOVERY"
+              ? "Your responses have been recorded. Next, open the executive readout to run or review the Priority Discovery recommendations and print the PDF version."
+              : "Your responses have been recorded. Results are under review by Northline Intelligence and your executive team."
             : "Your responses have been recorded. Next, open your executive narrative when it is available."}
         </div>
         {insightsAccess === "restricted" ? (
@@ -201,10 +215,7 @@ export default function AssessmentCompletePage() {
               textTransform: "uppercase",
             }}
           >
-            <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>
-              🔒
-            </span>
-            Review in progress
+            {assessmentType === "PRIORITY_DISCOVERY" ? "Executive readout ready for review" : "Review in progress"}
           </div>
         ) : null}
 
@@ -216,7 +227,31 @@ export default function AssessmentCompletePage() {
         ) : null}
 
         <div style={{ marginTop: 24, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {insightsAccess === "restricted" ? (
+          {insightsAccess === "restricted" && assessmentType === "PRIORITY_DISCOVERY" ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!assessmentId) return;
+                router.push(`/admin/assessments/${assessmentId}/priority-results`);
+              }}
+              disabled={!assessmentId}
+              style={{
+                background: BRAND.cyan,
+                color: BRAND.dark,
+                border: "none",
+                padding: "14px 22px",
+                borderRadius: 14,
+                fontWeight: 800,
+                fontSize: 14,
+                letterSpacing: "0.02em",
+                cursor: assessmentId ? "pointer" : "not-allowed",
+                opacity: assessmentId ? 1 : 0.55,
+                boxShadow: assessmentId ? "0 6px 22px rgba(52, 176, 180, 0.35)" : "none",
+              }}
+            >
+              Open Executive Readout →
+            </button>
+          ) : insightsAccess === "restricted" ? (
             <button
               type="button"
               onClick={() => {

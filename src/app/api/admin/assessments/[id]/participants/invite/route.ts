@@ -1,21 +1,36 @@
 // src/app/api/admin/assessments/[id]/participants/invite/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { isAdminEmail } from "@/lib/admin";
+import {
+  getInviteOrigin,
+  processAssessmentInvites,
+} from "@/lib/assessmentInvites";
+import { createScheduledInvite } from "@/lib/scheduledInvites";
+import { isValidTimezone } from "@/lib/scheduleTimezone";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
 const BodySchema = z
   .object({
     emails: z.array(z.string().email()).min(1).max(100),
-    expiresInHours: z.number().int().min(1).max(24 * 30).optional(), // up to 30 days
+    expiresInHours: z.number().int().min(1).max(24 * 30).optional(),
     portalRoleByEmail: z
       .record(z.string().email(), z.enum(["NONE", "PORTAL_USER", "ORG_ADMIN"]))
       .optional(),
+    sendMode: z.enum(["immediate", "scheduled"]).default("immediate"),
+    scheduledLocalDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    scheduledLocalTime: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .optional(),
+    timezone: z.string().min(1).max(80).optional(),
   })
   .strict();
 
@@ -52,143 +67,14 @@ async function getSupabaseServerClient() {
   });
 }
 
-function sha256Hex(input: string) {
-  return crypto.createHash("sha256").update(input).digest("hex");
-}
-
-function makeRawToken() {
-  return crypto.randomBytes(32).toString("base64url");
-}
-
 function getOrigin(req: NextRequest) {
-    const proto = req.headers.get("x-forwarded-proto") ?? "http";
-    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-    if (host) return `${proto}://${host}`;
-    return req.nextUrl.origin;
-  }
-  
-  function buildInviteEmailHtml(args: { startUrl: string }) {
-    const { startUrl } = args;
-  
-    return `
-    <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; color:#0B1220; line-height:1.45">
-      <div style="max-width: 640px; margin: 0 auto; padding: 24px;">
-        <div style="font-size: 18px; font-weight: 800; color:#173464;">
-          Northline AI Readiness
-        </div>
-  
-        <div style="margin-top: 14px; font-size: 14px;">
-          You’ve been invited to participate in the AI Readiness Diagnostic.
-        </div>
-
-        <div style="margin-top: 14px; font-size: 14px; font-weight: 700; color:#173464;">
-          Assessment Instructions
-        </div>
-        <div style="margin-top: 8px; font-size: 14px; color:#0B1220; line-height:1.55;">
-          This assessment is anonymous and diagnostic — not performative. Please answer as honestly as possible; your input helps create an accurate snapshot of AI readiness and informs the most effective path forward.
-        </div>
-        <ul style="margin-top: 8px; margin-bottom: 0; padding-left: 20px; font-size: 14px; color:#0B1220; line-height:1.55;">
-          <li>Select your department and seniority level to provide context for your responses.</li>
-          <li>
-            In the first free text field, list 1–2 word AI use cases relevant to your role
-            (e.g., lead scoring, scheduling, reporting).
-          </li>
-          <li>
-            Complete all 65 questions using a scale from 1 (Strongly Disagree) to 5 (Strongly Agree)
-            based on your day-to-day experience.
-          </li>
-          <li>
-            In the final free text field, describe areas in your daily work where AI could be helpful.
-          </li>
-        </ul>
-  
-        <div style="margin-top: 16px;">
-          <a href="${startUrl}"
-             style="display:inline-block; background:#173464; color:#ffffff; text-decoration:none; font-weight:800; padding:12px 16px; border-radius:12px;">
-            Start Assessment
-          </a>
-        </div>
-  
-        <div style="margin-top: 14px; font-size: 12px; color:#4B5565;">
-          If the button doesn’t work, copy/paste this link:
-          <div style="margin-top: 8px; padding: 10px; background:#F6F8FC; border:1px solid #E6EAF2; border-radius: 10px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
-            ${startUrl}
-          </div>
-        </div>
-  
-        <div style="margin-top: 18px; font-size: 12px; color:#4B5565;">
-          This diagnostic is designed for executive clarity — not busywork. Thanks for contributing.
-        </div>
-      </div>
-    </div>
-    `;
-  }
-
-function buildPortalAccessEmailHtml(args: { accessUrl: string }) {
-  const { accessUrl } = args;
-  return `
-    <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; color:#0B1220; line-height:1.45">
-      <div style="max-width: 640px; margin: 0 auto; padding: 24px;">
-        <div style="font-size: 18px; font-weight: 800; color:#173464;">
-          Northline Customer Portal Access
-        </div>
-        <div style="margin-top: 14px; font-size: 14px;">
-          Your organization granted you access to the Northline customer portal.
-        </div>
-        <div style="margin-top: 16px;">
-          <a href="${accessUrl}"
-             style="display:inline-block; background:#173464; color:#ffffff; text-decoration:none; font-weight:800; padding:12px 16px; border-radius:12px;">
-            Create Account Access
-          </a>
-        </div>
-        <div style="margin-top: 14px; font-size: 12px; color:#4B5565;">
-          You will receive one additional secure sign-in email to complete login.
-        </div>
-        <div style="margin-top: 8px; font-size: 12px; color:#4B5565;">
-          Depending on your organization authentication settings, that email may be delivered by Supabase Auth.
-        </div>
-        <div style="margin-top: 12px; font-size: 12px; color:#4B5565;">
-          If the button doesn’t work, copy/paste this link:
-          <div style="margin-top: 8px; padding: 10px; background:#F6F8FC; border:1px solid #E6EAF2; border-radius: 10px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
-            ${accessUrl}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  if (host) return `${proto}://${host}`;
+  return req.nextUrl.origin;
 }
-  
-  async function sendInviteEmail(args: { to: string; subject: string; html: string }) {
-    const apiKey = process.env.RESEND_API_KEY ?? "";
-    const from = process.env.RESEND_FROM_EMAIL ?? "";
-  
-    if (!apiKey || !from) {
-      throw new Error("Missing RESEND_API_KEY or RESEND_FROM_EMAIL environment variables.");
-    }
-  
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: args.to,
-        subject: args.subject,
-        html: args.html,
-      }),
-    });
-  
-    const detail = await res.text().catch(() => "");
-  
-    if (!res.ok) {
-      throw new Error(`Resend error (${res.status}): ${detail}`);
-    }
-  }
 
 async function assertAdmin(req: NextRequest) {
-  // DEV BYPASS: lets you curl locally without needing a browser session cookie
   if (process.env.NODE_ENV !== "production") {
     const dev = req.headers.get("x-dev-admin");
     if (dev === "1" || dev?.toLowerCase() === "true") {
@@ -216,13 +102,11 @@ async function assertAdmin(req: NextRequest) {
 
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    // ---- auth ----
     const admin = await assertAdmin(req);
     if (!admin.ok) {
       return NextResponse.json({ ok: false, error: admin.error }, { status: admin.status });
     }
 
-    // ---- params ----
     const params = await context.params;
     const parsedParams = ParamsSchema.safeParse(params);
     if (!parsedParams.success) {
@@ -230,7 +114,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     }
     const assessmentId = parsedParams.data.id;
 
-    // ---- body ----
     const body = await req.json().catch(() => null);
     const parsedBody = BodySchema.safeParse(body);
     if (!parsedBody.success) {
@@ -241,8 +124,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     }
 
     const expiresInHours = parsedBody.data.expiresInHours ?? 168;
-    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
-
     const normalizedEmails = Array.from(
       new Set(parsedBody.data.emails.map((e) => e.trim().toLowerCase()).filter(Boolean))
     );
@@ -253,7 +134,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         : false
     );
 
-    // ---- assessment ----
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
       select: {
@@ -261,6 +141,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         organization_id: true,
         status: true,
         locked_at: true,
+        assessment_type: true,
       },
     });
 
@@ -268,8 +149,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       return NextResponse.json({ ok: false, error: "Assessment not found" }, { status: 404 });
     }
 
-    // Prevent assessment-taking invites into closed/locked assessments.
-    // Portal-access invites are still allowed so admins can onboard stakeholders post-assessment.
     if ((assessment.locked_at != null || assessment.status === "CLOSED") && !anyPortalAccessRequested) {
       return NextResponse.json(
         { ok: false, error: "Assessment is locked/closed; cannot send new invites." },
@@ -277,153 +156,70 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       );
     }
 
-    const origin =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  process.env.NEXT_PUBLIC_APP_URL ??
-  getOrigin(req);
-
-    const invites: Array<{
-      email: string;
-      participantId: string;
-      inviteUrl: string;
-      portalAccessUrl: string;
-      portalRole: "NONE" | "PORTAL_USER" | "ORG_ADMIN";
-      expiresAt: string;
-    }> = [];
-
-    for (const email of normalizedEmails) {
-      const hasPortalRoleOverride = Object.prototype.hasOwnProperty.call(portalRoleByEmail, email);
-      const portalRole = portalRoleByEmail[email] ?? "NONE";
-      const rawToken = makeRawToken();
-      const tokenHash = sha256Hex(rawToken);
-
-      // ✅ IMPORTANT: Prisma Client compound unique key name is assessment_id_email
-      const participant = await prisma.participant.upsert({
-        where: {
-          assessment_id_email: {
-            assessment_id: assessmentId,
-            email,
-          },
-        },
-        create: {
-          assessment_id: assessmentId,
-          organization_id: assessment.organization_id,
-          email,
-          portal_role: portalRole,
-          invite_token_hash: tokenHash,
-          invite_token_expires_at: expiresAt,
-          invite_sent_at: new Date(),
-          invite_accepted_at: null,
-        },
-        update: {
-          ...(hasPortalRoleOverride ? { portal_role: portalRole } : {}),
-          invite_token_hash: tokenHash,
-          invite_token_expires_at: expiresAt,
-          invite_sent_at: new Date(),
-          // do NOT wipe invite_accepted_at
-        },
-        select: { id: true, portal_role: true },
-      });
-
-      const inviteUrl =
-  `${origin}/assessments/${assessmentId}/start` +
-  `?email=${encodeURIComponent(email)}` +
-  `&token=${encodeURIComponent(rawToken)}`;
-
-      const portalAccessUrl =
-        `${origin}/customer/access` +
-        `?assessmentId=${encodeURIComponent(assessmentId)}` +
-        `&email=${encodeURIComponent(email)}`;
-
-      invites.push({
-        email,
-        participantId: participant.id,
-        inviteUrl,
-        portalAccessUrl,
-        portalRole: participant.portal_role as "NONE" | "PORTAL_USER" | "ORG_ADMIN",
-        expiresAt: expiresAt.toISOString(),
-      });
-
-      if (participant.portal_role !== "NONE") {
-        const existingContact = await prisma.orgContact.findFirst({
-          where: {
-            organization_id: assessment.organization_id,
-            email,
-          },
-          select: { id: true },
-        });
-        if (!existingContact) {
-          await prisma.orgContact.create({
-            data: {
-              organization_id: assessment.organization_id,
-              email,
-              name: email.split("@")[0] || email,
-              title: participant.portal_role === "ORG_ADMIN" ? "Portal Admin" : "Portal User",
-              is_archived: false,
-            },
-          });
-        } else {
-          await prisma.orgContact.update({
-            where: { id: existingContact.id },
-            data: { is_archived: false },
-          });
-        }
+    if (parsedBody.data.sendMode === "scheduled") {
+      const { scheduledLocalDate, scheduledLocalTime, timezone } = parsedBody.data;
+      if (!scheduledLocalDate || !scheduledLocalTime || !timezone) {
+        return NextResponse.json(
+          { ok: false, error: "Scheduled send requires date, time, and timezone." },
+          { status: 400 }
+        );
       }
-    }
+      if (!isValidTimezone(timezone)) {
+        return NextResponse.json({ ok: false, error: "Invalid timezone." }, { status: 400 });
+      }
 
-    let sent = 0;
-    let failed = 0;
-    let portalSent = 0;
-    let portalFailed = 0;
+      const schedule = await createScheduledInvite({
+        assessmentId,
+        organizationId: assessment.organization_id,
+        emails: normalizedEmails,
+        portalRoleByEmail,
+        expiresInHours,
+        localDate: scheduledLocalDate,
+        localTime: scheduledLocalTime,
+        timezone,
+        createdByEmail: admin.email,
+      });
 
-    if (invites.length > 0) {
-      const subject = `Northline AI Readiness Diagnostic`;
-
-      await Promise.all(
-        invites.map(async (inv) => {
-          try {
-            const html = buildInviteEmailHtml({ startUrl: inv.inviteUrl });
-            await sendInviteEmail({ to: inv.email, subject, html });
-            sent += 1;
-
-            if (inv.portalRole !== "NONE") {
-              const portalHtml = buildPortalAccessEmailHtml({ accessUrl: inv.portalAccessUrl });
-              await sendInviteEmail({
-                to: inv.email,
-                subject: "Northline Customer Portal Account Access",
-                html: portalHtml,
-              });
-              portalSent += 1;
-            }
-          } catch (e: any) {
-            if (inv.portalRole !== "NONE") {
-              portalFailed += 1;
-            } else {
-              failed += 1;
-            }
-            console.error("Invite email failure:", inv.email, e?.message ?? String(e));
-          }
-        })
+      return NextResponse.json(
+        {
+          ok: true,
+          scheduled: true,
+          schedule,
+          invited: normalizedEmails.length,
+          mode: admin.mode,
+        },
+        { status: 201 }
       );
     }
+
+    const origin = getInviteOrigin(getOrigin(req));
+    const result = await processAssessmentInvites({
+      assessmentId,
+      emails: normalizedEmails,
+      origin,
+      expiresInHours,
+      portalRoleByEmail,
+    });
 
     return NextResponse.json(
       {
         ok: true,
-        invited: invites.length,
-        invites,
-        sent,
-        failed,
-        portalSent,
-        portalFailed,
+        scheduled: false,
+        invited: result.invited,
+        invites: result.invites,
+        sent: result.sent,
+        failed: result.failed,
+        portalSent: result.portalSent,
+        portalFailed: result.portalFailed,
         mode: admin.mode,
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("POST invite error:", err);
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { ok: false, error: "Internal server error.", message: err?.message ?? String(err) },
+      { ok: false, error: message || "Internal server error." },
       { status: 500 }
     );
   }

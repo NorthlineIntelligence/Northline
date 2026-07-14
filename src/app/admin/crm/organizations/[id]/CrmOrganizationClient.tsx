@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   NORTHLINE_BRAND as BRAND,
 } from "@/lib/northlineBrand";
@@ -10,6 +11,7 @@ import { ActionRail, AdminShell, MetricChip, SectionCard, StatusBadge, adminPrem
 import AdminControlsToggleButton from "@/app/admin/AdminControlsToggleButton";
 import ProjectScopeToggleButton from "@/app/admin/ProjectScopeToggleButton";
 import SendAssessmentButton from "@/app/admin/organizations/SendAssessmentButton";
+import { CreateAssessmentModal } from "@/components/assessments/CreateAssessmentModal";
 import {
   CRM_PIPELINE_ORDER,
   CRM_STAGE_LABEL,
@@ -38,6 +40,8 @@ type OrgResponse = {
     assessments: Array<{
       id: string;
       name: string;
+      cohort_name: string | null;
+      assessment_type: "READINESS" | "PRIORITY_DISCOVERY";
       status: string;
       created_at: Date;
       locked_at: Date | null;
@@ -50,6 +54,7 @@ type OrgResponse = {
   };
   links: {
     executiveInsightsAssessmentId: string | null;
+    priorityDiscoveryAssessmentId: string | null;
     projectScope: { assessmentId: string; version: number } | null;
   };
   alerts: { followUpOverdue: boolean; overdueInvoices: number };
@@ -175,6 +180,43 @@ export default function CrmOrganizationClient({
   const [data, setData] = useState<OrgResponse | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showCreateAssessmentModal, setShowCreateAssessmentModal] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [onboardNotice, setOnboardNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("created") !== "1") return;
+    const invited = Number(searchParams.get("invited") ?? "0");
+    const sent = Number(searchParams.get("sent") ?? "0");
+    const failed = Number(searchParams.get("failed") ?? "0");
+    const scheduled = searchParams.get("scheduled") === "1";
+    const scheduledCount = Number(searchParams.get("scheduledCount") ?? "0");
+    const scheduledAt = searchParams.get("scheduledAt") ?? "";
+    const scheduledTz = searchParams.get("scheduledTz") ?? "";
+
+    if (scheduled) {
+      setOnboardNotice(
+        `Organization created. Scheduled ${scheduledCount} assessment invite${scheduledCount === 1 ? "" : "s"} for ${scheduledAt} (${scheduledTz}).`
+      );
+    } else if (sent > 0 || failed > 0) {
+      setOnboardNotice(
+        `Organization created. Invited ${invited} participant${invited === 1 ? "" : "s"} — sent ${sent}, failed ${failed}.`
+      );
+    } else if (invited > 0) {
+      setOnboardNotice(
+        `Organization created with ${invited} participant${invited === 1 ? "" : "s"}. Send or schedule invites from this page when ready.`
+      );
+    } else {
+      setOnboardNotice("Organization created.");
+    }
+
+    const next = new URL(window.location.href);
+    ["created", "invited", "sent", "failed", "scheduled", "scheduledCount", "scheduledAt", "scheduledTz"].forEach(
+      (key) => next.searchParams.delete(key)
+    );
+    router.replace(`${next.pathname}${next.search}`, { scroll: false });
+  }, [router, searchParams]);
 
   const [followUp, setFollowUp] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
@@ -1112,6 +1154,7 @@ export default function CrmOrganizationClient({
 
   const org = data.organization;
   const execId = data.links.executiveInsightsAssessmentId;
+  const priorityDiscoveryId = data.links.priorityDiscoveryAssessmentId;
   const scope = data.links.projectScope;
   const overdueFollow = data.alerts.followUpOverdue;
   const stage = org.crm_pipeline_stage;
@@ -1121,7 +1164,16 @@ export default function CrmOrganizationClient({
   const topActionButtonStyle = adminPremiumActionStyle;
 
   return (
+    <>
     <AdminShell>
+        {onboardNotice ? (
+          <div
+            className="mb-6 rounded-2xl border px-4 py-3 text-sm font-semibold"
+            style={{ borderColor: BRAND.border, background: "#E8F7F8", color: BRAND.dark }}
+          >
+            {onboardNotice}
+          </div>
+        ) : null}
         <header className="flex flex-col gap-3 border-b pb-6 sm:flex-row sm:items-start sm:justify-between" style={{ borderColor: BRAND.border }}>
           <div>
             <Link href="/admin/crm" className="text-xs font-black uppercase tracking-wider hover:underline" style={{ color: BRAND.cyan }}>
@@ -1199,6 +1251,14 @@ export default function CrmOrganizationClient({
             >
               Open MSA Workspace
             </Link>
+            <button
+              type="button"
+              onClick={() => setShowCreateAssessmentModal(true)}
+              className="rounded-2xl px-4 py-2 text-sm font-black tracking-tight transition hover:-translate-y-[1px]"
+              style={topActionButtonStyle}
+            >
+              New Assessment Phase
+            </button>
           </ActionRail>
         </header>
 
@@ -1344,7 +1404,20 @@ export default function CrmOrganizationClient({
                 </a>
               ) : (
                 <div className="text-sm font-semibold" style={{ color: BRAND.muted }}>
-                  No narrative yet—complete assessment and generate Executive Insights.
+                  No Readiness narrative yet—complete the Readiness assessment and generate Executive Insights.
+                </div>
+              )}
+              {priorityDiscoveryId ? (
+                <a
+                  href={`/admin/assessments/${priorityDiscoveryId}/priority-results`}
+                  className="rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  style={{ background: BRAND.dark }}
+                >
+                  Open Priority Discovery executive readout →
+                </a>
+              ) : (
+                <div className="text-sm font-semibold" style={{ color: BRAND.muted }}>
+                  No Priority Discovery assessment found for this client.
                 </div>
               )}
               {scope ? (
@@ -2992,17 +3065,30 @@ export default function CrmOrganizationClient({
         </section>
 
         <section className="rounded-2xl border bg-white/95 p-5 shadow-sm" style={{ borderColor: BRAND.border }}>
-          <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
-            Assessment Archives
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
+                Assessment Archives
+              </div>
+              <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
+                Each assessment phase has its own participants, question set, invites, and readout.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateAssessmentModal(true)}
+              className="rounded-lg border bg-white px-3 py-2 text-xs font-black uppercase"
+              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+            >
+              New Assessment Phase
+            </button>
           </div>
-          <p className="mt-1 text-sm font-semibold" style={{ color: BRAND.muted }}>
-            One locked readout per assessment. Use these links to review prior assessments and export a dated PDF.
-          </p>
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead>
                 <tr className="text-xs font-black uppercase tracking-wider" style={{ color: BRAND.greyBlue }}>
                   <th className="pb-2 pr-3">Assessment</th>
+                  <th className="pb-2 pr-3">Module</th>
                   <th className="pb-2 pr-3">Date</th>
                   <th className="pb-2 pr-3">Status</th>
                   <th className="pb-2">Actions</th>
@@ -3011,7 +3097,17 @@ export default function CrmOrganizationClient({
               <tbody>
                 {org.assessments.map((a) => (
                   <tr key={a.id} className="border-t font-semibold" style={{ borderColor: BRAND.border }}>
-                    <td className="py-2 pr-3">{a.name || a.id}</td>
+                    <td className="py-2 pr-3">
+                      <div>{a.name || a.id}</div>
+                      {a.cohort_name ? (
+                        <div className="text-xs font-semibold" style={{ color: BRAND.muted }}>
+                          {a.cohort_name}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {a.assessment_type === "PRIORITY_DISCOVERY" ? "Priority Discovery" : "Readiness"}
+                    </td>
                     <td className="py-2 pr-3">{new Date(a.created_at).toLocaleDateString()}</td>
                     <td className="py-2 pr-3">
                       {a.locked_at ? "Locked" : "In progress"} · {a.status}
@@ -3019,35 +3115,54 @@ export default function CrmOrganizationClient({
                     <td className="py-2">
                       <div className="flex flex-wrap gap-2">
                         <a
-                          href={`/assessments/${a.id}/narrative`}
+                          href={`/admin/assessments/${a.id}`}
                           className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
                           style={{ borderColor: BRAND.border, color: BRAND.dark }}
                         >
-                          Insights
+                          Manage
                         </a>
-                        <a
-                          href={`/assessments/${a.id}/project-scope`}
-                          className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
-                          style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                        >
-                          Scope
-                        </a>
-                        <a
-                          href={`/api/admin/assessments/${a.id}/narrative/pdf`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
-                          style={{ borderColor: BRAND.border, color: BRAND.dark }}
-                        >
-                          PDF
-                        </a>
+                        {a.assessment_type === "PRIORITY_DISCOVERY" ? (
+                          <a
+                            href={`/admin/assessments/${a.id}/priority-results`}
+                            className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                            style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                          >
+                            Priority Readout
+                          </a>
+                        ) : (
+                          <>
+                            <a
+                              href={`/assessments/${a.id}/narrative`}
+                              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                            >
+                              Insights
+                            </a>
+                            <a
+                              href={`/assessments/${a.id}/project-scope`}
+                              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                            >
+                              Scope
+                            </a>
+                            <a
+                              href={`/api/admin/assessments/${a.id}/narrative/pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-lg border bg-white px-3 py-1.5 text-xs font-black uppercase"
+                              style={{ borderColor: BRAND.border, color: BRAND.dark }}
+                            >
+                              PDF
+                            </a>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))}
                 {org.assessments.length === 0 ? (
                   <tr>
-                    <td className="py-2" colSpan={4} style={{ color: BRAND.muted }}>
+                    <td className="py-2" colSpan={5} style={{ color: BRAND.muted }}>
                       No assessments yet.
                     </td>
                   </tr>
@@ -3057,5 +3172,21 @@ export default function CrmOrganizationClient({
           </div>
         </section>
     </AdminShell>
+    {showCreateAssessmentModal && org ? (
+      <CreateAssessmentModal
+        organizationId={org.id}
+        existingAssessments={org.assessments.map((a) => ({
+          id: a.id,
+          name: a.name,
+          assessmentType: a.assessment_type,
+          cohortName: a.cohort_name,
+        }))}
+        onClose={() => setShowCreateAssessmentModal(false)}
+        onCreated={() => {
+          void loadOrg();
+        }}
+      />
+    ) : null}
+    </>
   );
 }
