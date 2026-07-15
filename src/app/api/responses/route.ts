@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createHash } from "crypto";
+import { maybeNotifyExecutiveInsightsViewers } from "@/lib/executiveInsightsNotifications";
+import { getInviteOrigin } from "@/lib/assessmentInvites";
 
 const BodySchema = z
   .object({
@@ -233,6 +235,13 @@ export async function POST(req: NextRequest) {
       }
       throw e;
     }
+
+    void maybeNotifyExecutiveInsightsViewers({
+      assessmentId: assessment_id,
+      originFallback: getInviteOrigin(req.nextUrl.origin),
+    }).catch((err) => {
+      console.error("[responses] executive insights notify failed:", err);
+    });
 
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (err: any) {

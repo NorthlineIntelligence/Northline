@@ -145,10 +145,13 @@ export default function PriorityResultsPage() {
     setRunning(true);
     setMessage("Generating executive readout. This can take several minutes with the executive model...");
     try {
-      const res = await fetch(`/api/admin/priority-discovery/assessments/${assessmentId}/analysis`, {
+      const res = await fetch(
+        `/api/admin/priority-discovery/assessments/${assessmentId}/analysis${analysis ? "?force=1" : ""}`,
+        {
         method: "POST",
         credentials: "include",
-      });
+        }
+      );
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
         setMessage(json?.error ?? `Analysis failed (${res.status}).`);

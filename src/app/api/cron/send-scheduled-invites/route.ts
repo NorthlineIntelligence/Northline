@@ -4,8 +4,11 @@ import { processDueScheduledInvites } from "@/lib/scheduledInvites";
 function isAuthorized(req: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
-    // Local dev has no Vercel Cron; allow processing when running next dev.
-    return process.env.NODE_ENV === "development";
+    if (process.env.NODE_ENV === "development") return true;
+    console.error(
+      "[cron/send-scheduled-invites] CRON_SECRET is not set in production; scheduled invites cannot run."
+    );
+    return false;
   }
 
   const auth = req.headers.get("authorization") ?? "";

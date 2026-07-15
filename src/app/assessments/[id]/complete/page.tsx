@@ -124,7 +124,12 @@ export default function AssessmentCompletePage() {
           setAssessmentType(metaJson.assessment.assessment_type);
         }
         if (metaJson?.assessment?.assessment_type === "PRIORITY_DISCOVERY") {
-          if (!cancelled) setInsightsAccess("restricted");
+          const insightsRes = await fetch(`/api/assessments/${assessmentId}/priority-insights${authQs}`, {
+            credentials: "include",
+          });
+          if (!cancelled) {
+            setInsightsAccess(insightsRes.ok ? "allowed" : "restricted");
+          }
           return;
         }
         const res = await fetch(`/api/assessments/${assessmentId}/narrative${authQs}`, {
@@ -232,7 +237,7 @@ export default function AssessmentCompletePage() {
               type="button"
               onClick={() => {
                 if (!assessmentId) return;
-                router.push(`/admin/assessments/${assessmentId}/priority-results`);
+                router.push(`/assessments/${assessmentId}/executive-insights${authQs}`);
               }}
               disabled={!assessmentId}
               style={{
@@ -249,7 +254,31 @@ export default function AssessmentCompletePage() {
                 boxShadow: assessmentId ? "0 6px 22px rgba(52, 176, 180, 0.35)" : "none",
               }}
             >
-              Open Executive Readout →
+              Open Executive Insights →
+            </button>
+          ) : insightsAccess === "allowed" && assessmentType === "PRIORITY_DISCOVERY" ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!assessmentId) return;
+                router.push(`/assessments/${assessmentId}/executive-insights${authQs}`);
+              }}
+              disabled={!assessmentId}
+              style={{
+                background: BRAND.cyan,
+                color: BRAND.dark,
+                border: "none",
+                padding: "14px 22px",
+                borderRadius: 14,
+                fontWeight: 800,
+                fontSize: 14,
+                letterSpacing: "0.02em",
+                cursor: assessmentId ? "pointer" : "not-allowed",
+                opacity: assessmentId ? 1 : 0.55,
+                boxShadow: assessmentId ? "0 6px 22px rgba(52, 176, 180, 0.35)" : "none",
+              }}
+            >
+              Executive Insights →
             </button>
           ) : insightsAccess === "restricted" ? (
             <button

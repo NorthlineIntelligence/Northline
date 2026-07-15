@@ -7,6 +7,7 @@ import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from 
 import { briefForPerceptionSignal } from "@/lib/perceptionAlignmentBriefs";
 import { pickPerceptionSignalsForDisplay, PERCEPTION_ALIGNMENT_EXECUTIVE_NOTE } from "@/lib/perceptionAlignmentSignals";
 import { ASSESSMENTS_IN_PROGRESS_MESSAGE } from "@/lib/assessmentParticipantMessages";
+import { ExecutiveInsightsInstructions } from "@/components/executive-insights/ExecutiveInsightsInstructions";
 
 const openSans = Open_Sans({
   subsets: ["latin"],
@@ -973,6 +974,10 @@ export default function AssessmentResultsPage() {
                 >
                   {submitting ? "Generating…" : narrative ? "Generated (locked)" : "Generate"}
                 </button>
+
+                <div style={{ marginTop: 16, width: "100%" }}>
+                  <ExecutiveInsightsInstructions compact />
+                </div>
 
                 <button
                   onClick={() => setShowRaw((s) => !s)}

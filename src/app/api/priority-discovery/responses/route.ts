@@ -6,6 +6,8 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPriorityQuestionsForAssessment } from "@/lib/priorityDiscovery/assessmentQuestions";
+import { maybeNotifyExecutiveInsightsViewers } from "@/lib/executiveInsightsNotifications";
+import { getInviteOrigin } from "@/lib/assessmentInvites";
 
 const ResponseSchema = z.object({
   questionId: z.string().uuid(),
@@ -198,6 +200,13 @@ export async function POST(req: NextRequest) {
           });
         }
       }
+    });
+
+    void maybeNotifyExecutiveInsightsViewers({
+      assessmentId: body.assessmentId,
+      originFallback: getInviteOrigin(req.nextUrl.origin),
+    }).catch((err) => {
+      console.error("[priority-discovery/responses] executive insights notify failed:", err);
     });
 
     return NextResponse.json({

@@ -84,6 +84,7 @@ model Assessment {
   assessment_date   DateTime?
   status            AssessmentStatus @default(DRAFT)
   locked_at         DateTime?
+  executive_insights_notified_at DateTime? @map("executiveInsightsNotifiedAt")
   created_at        DateTime         @default(now())
   assessment_type   AssessmentKind   @default(READINESS) @map("assessment_type")
   question_set_version String        @default("1")

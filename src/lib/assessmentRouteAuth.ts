@@ -96,6 +96,36 @@ export async function authorizeParticipantOrInvite(
   };
 }
 
+/** Invite or session participant who may view Executive Insights. */
+export async function authorizeExecutiveInsightsParticipant(
+  req: NextRequest,
+  assessmentId: string,
+  overrides?: { email?: string; token?: string }
+) {
+  const auth = await authorizeParticipantOrInvite(req, assessmentId, overrides);
+  if (!auth.ok) return { ok: false as const };
+
+  if (auth.auth === "admin") {
+    return { ok: true as const, auth: auth.auth, participantId: null, userEmail: auth.userEmail };
+  }
+
+  const participantId = auth.auth === "invite" || auth.auth === "session" ? auth.participantId : null;
+  if (!participantId) return { ok: false as const };
+
+  const participant = await prisma.participant.findUnique({
+    where: { id: participantId },
+    select: { id: true, can_view_executive_insights: true, email: true },
+  });
+  if (!participant?.can_view_executive_insights) return { ok: false as const };
+
+  return {
+    ok: true as const,
+    auth: auth.auth,
+    participantId: participant.id,
+    userEmail: participant.email,
+  };
+}
+
 export async function allParticipantsCompleted(assessmentId: string) {
   const rows = await prisma.$queryRaw<Array<{ completed_at: Date | null }>>`
     SELECT completed_at

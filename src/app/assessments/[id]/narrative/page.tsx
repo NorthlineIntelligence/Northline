@@ -8,6 +8,7 @@ import { pickPerceptionSignalsForDisplay } from "@/lib/perceptionAlignmentSignal
 import { Open_Sans } from "next/font/google";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 import { ASSESSMENTS_IN_PROGRESS_MESSAGE } from "@/lib/assessmentParticipantMessages";
+import { ExecutiveInsightsInstructions } from "@/components/executive-insights/ExecutiveInsightsInstructions";
 
 const openSans = Open_Sans({
   subsets: ["latin"],
@@ -1537,6 +1538,10 @@ export default function AssessmentNarrativePage() {
       >
         {submitting ? "Generating…" : "Generate / Refresh"}
       </button>
+
+      <div style={{ marginTop: 16, width: "100%" }}>
+        <ExecutiveInsightsInstructions compact />
+      </div>
 
       {showProjectScopeLink ? (
         <a
