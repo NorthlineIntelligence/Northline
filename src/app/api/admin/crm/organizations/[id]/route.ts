@@ -4,6 +4,7 @@ import { CrmPipelineStage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAdminApiUser } from "@/lib/adminApiAuth";
 import { isCrmFollowUpOverdue } from "@/lib/crmPipeline";
+import { getReportingParticipantCompletionStats } from "@/lib/assessmentParticipantCompletion";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
@@ -102,6 +103,38 @@ export async function GET(
   const latestPriorityDiscoveryAssessmentId =
     org.assessments.find((a) => a.assessment_type === "PRIORITY_DISCOVERY")?.id ?? null;
 
+  let priorityDiscoveryStatus: {
+    assessmentId: string | null;
+    assessmentComplete: boolean;
+    analysisReady: boolean;
+    roadmapsReady: boolean;
+    participantsCompleted: number;
+    participantsTotal: number;
+  } = {
+    assessmentId: latestPriorityDiscoveryAssessmentId,
+    assessmentComplete: false,
+    analysisReady: false,
+    roadmapsReady: false,
+    participantsCompleted: 0,
+    participantsTotal: 0,
+  };
+
+  if (latestPriorityDiscoveryAssessmentId) {
+    const [completion, analysisCount, roadmapCount] = await Promise.all([
+      getReportingParticipantCompletionStats(latestPriorityDiscoveryAssessmentId),
+      prisma.priorityAnalysis.count({ where: { assessment_id: latestPriorityDiscoveryAssessmentId } }),
+      prisma.priorityDiscoveryRoadmapBundle.count({ where: { assessment_id: latestPriorityDiscoveryAssessmentId } }),
+    ]);
+    priorityDiscoveryStatus = {
+      assessmentId: latestPriorityDiscoveryAssessmentId,
+      assessmentComplete: completion.all_participants_completed,
+      analysisReady: analysisCount > 0,
+      roadmapsReady: roadmapCount > 0,
+      participantsCompleted: completion.participants_completed,
+      participantsTotal: completion.participants_total,
+    };
+  }
+
   let latestNarrativeAssessmentId: string | null = null;
   if (latestReadinessAssessmentId) {
     const n = await prisma.assessmentNarrative.findFirst({
@@ -190,6 +223,7 @@ export async function GET(
     links: {
       executiveInsightsAssessmentId: latestNarrativeAssessmentId,
       priorityDiscoveryAssessmentId: latestPriorityDiscoveryAssessmentId,
+      priorityDiscovery: priorityDiscoveryStatus,
       projectScope: latestScope
         ? {
             assessmentId: latestScope.assessment_id,

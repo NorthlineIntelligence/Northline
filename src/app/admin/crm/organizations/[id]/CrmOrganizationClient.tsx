@@ -55,6 +55,14 @@ type OrgResponse = {
   links: {
     executiveInsightsAssessmentId: string | null;
     priorityDiscoveryAssessmentId: string | null;
+    priorityDiscovery: {
+      assessmentId: string | null;
+      assessmentComplete: boolean;
+      analysisReady: boolean;
+      roadmapsReady: boolean;
+      participantsCompleted: number;
+      participantsTotal: number;
+    };
     projectScope: { assessmentId: string; version: number } | null;
   };
   alerts: { followUpOverdue: boolean; overdueInvoices: number };
@@ -180,6 +188,8 @@ export default function CrmOrganizationClient({
   const [data, setData] = useState<OrgResponse | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [roadmapGenerating, setRoadmapGenerating] = useState(false);
+  const [roadmapError, setRoadmapError] = useState<string | null>(null);
   const [showCreateAssessmentModal, setShowCreateAssessmentModal] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -1155,7 +1165,38 @@ export default function CrmOrganizationClient({
   const org = data.organization;
   const execId = data.links.executiveInsightsAssessmentId;
   const priorityDiscoveryId = data.links.priorityDiscoveryAssessmentId;
+  const priorityDiscovery = data.links.priorityDiscovery;
   const scope = data.links.projectScope;
+  const canGenerateRoadmaps = Boolean(priorityDiscoveryId) && priorityDiscovery.assessmentComplete;
+  const roadmapButtonHint = !priorityDiscoveryId
+    ? "No Priority Discovery assessment found."
+    : !priorityDiscovery.assessmentComplete
+      ? `Complete the assessment first (${priorityDiscovery.participantsCompleted}/${priorityDiscovery.participantsTotal} participants).`
+      : priorityDiscovery.roadmapsReady
+        ? "Regenerate admin PM projects and roadmaps from the Top 5."
+        : "Create admin PM projects and phased roadmaps from the Top 5 and org documentation.";
+
+  async function generatePriorityRoadmaps(force = false) {
+    if (!priorityDiscoveryId || !canGenerateRoadmaps) return;
+    setRoadmapGenerating(true);
+    setRoadmapError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/priority-discovery/assessments/${priorityDiscoveryId}/roadmaps${force ? "?force=1" : ""}`,
+        { method: "POST", credentials: "include" }
+      );
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to generate roadmaps.");
+      }
+      await loadOrg();
+      router.push(`/admin/assessments/${priorityDiscoveryId}/priority-roadmaps`);
+    } catch (err: unknown) {
+      setRoadmapError(err instanceof Error ? err.message : "Failed to generate roadmaps.");
+    } finally {
+      setRoadmapGenerating(false);
+    }
+  }
   const overdueFollow = data.alerts.followUpOverdue;
   const stage = org.crm_pipeline_stage;
   const stepIdx = CRM_PIPELINE_ORDER.indexOf(stage);
@@ -1420,6 +1461,45 @@ export default function CrmOrganizationClient({
                   No Priority Discovery assessment found for this client.
                 </div>
               )}
+              {priorityDiscoveryId ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={!canGenerateRoadmaps || roadmapGenerating}
+                    onClick={() => generatePriorityRoadmaps(priorityDiscovery.roadmapsReady)}
+                    title={roadmapButtonHint}
+                    className="rounded-xl px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    style={{
+                      background: canGenerateRoadmaps ? BRAND.cyan : BRAND.greyBlue,
+                    }}
+                  >
+                    {roadmapGenerating
+                      ? "Generating PM roadmaps…"
+                      : priorityDiscovery.roadmapsReady
+                        ? "Regenerate PM roadmaps from Top 5 →"
+                        : "Generate PM roadmaps from Top 5 →"}
+                  </button>
+                  {!canGenerateRoadmaps ? (
+                    <div className="text-xs font-semibold" style={{ color: BRAND.muted }}>
+                      {roadmapButtonHint}
+                    </div>
+                  ) : null}
+                  {roadmapError ? (
+                    <div className="text-xs font-semibold" style={{ color: BRAND.danger }}>
+                      {roadmapError}
+                    </div>
+                  ) : null}
+                  {priorityDiscovery.roadmapsReady ? (
+                    <a
+                      href={`/admin/assessments/${priorityDiscoveryId}/priority-roadmaps`}
+                      className="rounded-xl border px-4 py-3 text-sm font-bold"
+                      style={{ borderColor: BRAND.border, color: BRAND.dark, background: BRAND.surfaceMuted }}
+                    >
+                      View admin PM roadmaps →
+                    </a>
+                  ) : null}
+                </>
+              ) : null}
               {scope ? (
                 <a
                   href={`/assessments/${scope.assessmentId}/project-scope`}

@@ -50,6 +50,7 @@ model Organization {
   created_at         DateTime               @default(now())
   assessments        Assessment[]
   priority_analyses  PriorityAnalysis[]
+  priority_roadmap_bundles PriorityDiscoveryRoadmapBundle[]
   documents          OrganizationDocument[]
   participants       Participant[]
   invite_schedules   AssessmentInviteSchedule[]
@@ -106,6 +107,7 @@ model Assessment {
   project_scopes     AssessmentProjectScope[]
   priority_responses PriorityResponse[]
   priority_analyses  PriorityAnalysis[]
+  priority_roadmap_bundles PriorityDiscoveryRoadmapBundle[]
   invite_schedules   AssessmentInviteSchedule[]
   crm_quotes         CrmQuote[]
   pm_projects        PmProject[]
@@ -186,6 +188,7 @@ model PriorityAnalysis {
   Assessment  Assessment        @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
   Organization Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   projects    PriorityProject[]
+  roadmap_bundles PriorityDiscoveryRoadmapBundle[]
 
   @@index([assessment_id, created_at])
   @@index([organization_id, created_at])
@@ -219,6 +222,24 @@ model PriorityProject {
   PriorityAnalysis PriorityAnalysis @relation(fields: [priority_analysis_id], references: [id], onDelete: Cascade)
 
   @@index([priority_analysis_id, rank])
+}
+
+model PriorityDiscoveryRoadmapBundle {
+  id                    String   @id @default(uuid()) @db.Uuid
+  assessment_id         String   @db.Uuid @map("assessmentId")
+  organization_id       String   @db.Uuid @map("organizationId")
+  priority_analysis_id  String   @db.Uuid @map("priorityAnalysisId")
+  ai_model_used         String?  @map("aiModelUsed")
+  roadmaps_json         Json     @map("roadmapsJson")
+  pm_project_ids_json   Json?    @map("pmProjectIdsJson")
+  created_at            DateTime @default(now()) @map("createdAt")
+
+  Assessment       Assessment       @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  Organization     Organization     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  PriorityAnalysis PriorityAnalysis @relation(fields: [priority_analysis_id], references: [id], onDelete: Cascade)
+
+  @@index([assessment_id, created_at])
+  @@index([organization_id, created_at])
 }
 
 model AssessmentInviteSchedule {
