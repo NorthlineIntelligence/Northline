@@ -694,7 +694,6 @@ function normalizeAnalysis(raw: any, input: PriorityDiscoveryAnalysisInput): Pri
 }
 
 export async function analyzePriorityDiscoveryAssessment(input: PriorityDiscoveryAnalysisInput) {
-  const isClientSpecific = input.readoutProfile === "client_specific";
   const prompt = `Analyze this AI Priority Discovery Assessment and return JSON only.
 
 Required JSON shape:
@@ -732,31 +731,21 @@ Executive readout requirements:
 - riskRegister must tie risks to business impact and mitigation. Avoid vague risks like "change management" without explaining business consequence.
 - The Top 5 project cards must each read like something a manager could approve and an executive could defend.
 - Prefer plain language over jargon. No hype. No filler. No invented facts.
-${isClientSpecific ? `
-Client-specific readout requirements:
-- This readout must be unmistakably tailored to the client in the input. Generic strategy language is unacceptable.
-- Name the organization, workflows, systems, teams, and constraints from the provided notes and documents.
-- Ground every Top 5 project, pain point, and recommendation in participant answers and/or uploaded document excerpts.
-- Use participant language in evidenceFromResponses. Do not fabricate quotes.
-- If a document title or CRM note mentions a system, process, KPI, or initiative, reference it explicitly where relevant.
-- Call out contradictions between leadership and team responses when present in the evidence digest.
-` : ""}
 
 Priority score formula:
 businessImpactScore * 0.25 + urgencyScore * 0.20 + AIApplicabilityScore * 0.15 + automationApplicabilityScore * 0.15 + synergyScore * 0.15 + dataReadinessScore * 0.05 - riskScore * 0.05, normalized 0-100.
 
-${isClientSpecific ? buildClientSpecificPromptInstructions(input) : `Input:\n${JSON.stringify(input, null, 2)}`}`;
+Input:
+${JSON.stringify(input, null, 2)}`;
 
   const result = await callModelRouter({
     prompt,
     taskType: "assessment_analysis",
     requestedMode: input.aiProcessingMode ?? "executive",
     clientId: input.organization.id,
-    systemPrompt: isClientSpecific
-      ? PRIORITY_DISCOVERY_CLIENT_SPECIFIC_SYSTEM_PROMPT
-      : PRIORITY_DISCOVERY_SYSTEM_PROMPT,
-    temperature: isClientSpecific ? 0.2 : 0.15,
-    maxTokens: isClientSpecific ? 9000 : 6000,
+    systemPrompt: PRIORITY_DISCOVERY_SYSTEM_PROMPT,
+    temperature: 0.15,
+    maxTokens: 6000,
   });
 
   let raw: any;

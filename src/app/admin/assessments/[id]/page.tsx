@@ -1981,6 +1981,22 @@ async function setParticipantPortalRole(
                             </button>
 
                             <button
+                              onClick={() => router.push(`/admin/assessments/${assessmentId}/participants/${p.id}/answers`)}
+                              style={{
+                                background: BRAND.cyan,
+                                color: "white",
+                                border: "none",
+                                padding: "8px 10px",
+                                borderRadius: 10,
+                                fontWeight: 900,
+                                cursor: "pointer",
+                              }}
+                              title="View this participant's assessment answers"
+                            >
+                              View answers
+                            </button>
+
+                            <button
                               onClick={() => deleteParticipant(p.id)}
                               disabled={isLocked || Boolean(p.completed_at) || deletingParticipantId === p.id}
                               style={{

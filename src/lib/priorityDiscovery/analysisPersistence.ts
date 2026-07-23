@@ -6,6 +6,7 @@ import {
   type PriorityDiscoveryAnalysisInput,
   type PriorityProjectOutput,
 } from "@/lib/priorityDiscovery/analysis";
+import { analyzeClientSpecificInternalReadout } from "@/lib/priorityDiscovery/clientSpecificReadout";
 
 export type ReadoutProfileSlug = "standard" | "client_specific";
 
@@ -265,16 +266,10 @@ export async function getLatestPriorityAnalysis(
 }
 
 export async function getPriorityAnalysisForAdminRoadmaps(assessmentId: string) {
-  return (
-    (await getLatestPriorityAnalysis(assessmentId, "client_specific")) ??
-    (await getLatestPriorityAnalysis(assessmentId, "standard"))
-  );
+  return getLatestPriorityAnalysis(assessmentId, "standard");
 }
 
 export async function createPriorityAnalysisRecord(input: PriorityDiscoveryAnalysisInput) {
-  const result = await analyzePriorityDiscoveryAssessment(input);
-  const output = result.output;
-
   const readoutProfile = input.readoutProfile ?? "standard";
 
   const previousAnalysis = await prisma.priorityAnalysis.findFirst({
@@ -285,6 +280,48 @@ export async function createPriorityAnalysisRecord(input: PriorityDiscoveryAnaly
     orderBy: { created_at: "desc" },
     select: { consultant_notes_html: true },
   });
+
+  if (readoutProfile === "client_specific") {
+    const result = await analyzeClientSpecificInternalReadout(input);
+    const internal = result.output;
+
+    const created = await prisma.$transaction(async (tx) => {
+      const analysis = await tx.priorityAnalysis.create({
+        data: {
+          assessment_id: input.assessmentId,
+          organization_id: input.organization.id,
+          ai_model_used: result.modelUsed,
+          input_hash: result.inputHash,
+          readout_profile: PriorityReadoutProfile.CLIENT_SPECIFIC,
+          output_json: {
+            readoutProfile: "client_specific",
+            formatVersion: 2,
+            internalReadout: internal,
+          } as unknown as Prisma.InputJsonValue,
+          executive_summary: internal.internalBrief,
+          overall_synergy_score: null,
+          consultant_notes_html: previousAnalysis?.consultant_notes_html ?? null,
+        },
+      });
+
+      return tx.priorityAnalysis.findUniqueOrThrow({
+        where: { id: analysis.id },
+        include: { projects: { orderBy: { rank: "asc" } } },
+      });
+    });
+
+    return {
+      analysis: created,
+      modelUsed: result.modelUsed,
+      modeUsed: result.modeUsed,
+      providerUsed: result.providerUsed,
+      warnings: result.warnings,
+      cached: false as const,
+    };
+  }
+
+  const result = await analyzePriorityDiscoveryAssessment(input);
+  const output = result.output;
 
   const created = await prisma.$transaction(async (tx) => {
     const analysis = await tx.priorityAnalysis.create({

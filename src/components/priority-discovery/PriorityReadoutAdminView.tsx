@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { NORTHLINE_BRAND as BRAND, NORTHLINE_SHELL_BG as shellBackground } from "@/lib/northlineBrand";
 import { ConsultantNotesPanel } from "@/components/priority-discovery/ConsultantNotesPanel";
+import { ClientSpecificInternalReadoutView } from "@/components/priority-discovery/ClientSpecificInternalReadoutView";
+import type { ClientSpecificInternalReadout } from "@/lib/priorityDiscovery/clientSpecificReadout";
 import type { ReadoutProfileSlug } from "@/lib/priorityDiscovery/analysisPersistence";
 
 type Project = {
@@ -48,6 +50,8 @@ type Analysis = {
     risksAndDependencies?: string[];
     riskRegister?: RiskItem[];
     managerReviewChecklist?: string[];
+    formatVersion?: number;
+    internalReadout?: ClientSpecificInternalReadout;
   };
   createdAt: string;
   projects: Project[];
@@ -259,6 +263,7 @@ export function PriorityReadoutAdminView({
   }
 
   const output = analysis?.outputJson ?? {};
+  const internalReadout = isClientSpecific ? output.internalReadout ?? null : null;
   const executiveReadout = output.executiveReadout;
   const impactAssessment = output.impactAssessment;
   const aiRecommendations = output.aiRecommendations ?? [];
@@ -372,6 +377,24 @@ export function PriorityReadoutAdminView({
           </div>
         ) : (
           <>
+            {isClientSpecific && internalReadout ? (
+              <ClientSpecificInternalReadoutView
+                assessmentId={assessmentId}
+                analysisId={analysis.id}
+                consultantNotesHtml={analysis.consultantNotesHtml}
+                internalReadout={internalReadout}
+                createdAt={analysis.createdAt}
+                onNotesSaved={(html) => setAnalysis((prev) => (prev ? { ...prev, consultantNotesHtml: html } : prev))}
+              />
+            ) : isClientSpecific ? (
+              <div className="mt-8 rounded-2xl border bg-white p-6 shadow-sm" style={{ borderColor: BRAND.border }}>
+                <div className="text-lg font-semibold">Legacy client readout format detected</div>
+                <p className="mt-2 text-sm" style={{ color: BRAND.greyBlue }}>
+                  Regenerate to produce the new detailed internal diagnostic readout.
+                </p>
+              </div>
+            ) : (
+              <>
             <div className="no-print mt-6 flex flex-wrap gap-2">
               <button onClick={exportJson} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold" style={{ borderColor: BRAND.border }}>Export JSON</button>
               <button onClick={exportResponsesCsv} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold" style={{ borderColor: BRAND.border }}>Export Responses CSV</button>
@@ -600,6 +623,8 @@ export function PriorityReadoutAdminView({
                 </Panel>
               </section>
             ) : null}
+              </>
+            )}
           </>
         )}
       </div>
