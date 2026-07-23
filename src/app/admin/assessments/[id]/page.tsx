@@ -119,6 +119,7 @@ export default function AdminAssessmentPage() {
   const [aiProcessingMode, setAiProcessingMode] = useState<AiProcessingMode>("executive");
   const [savingAiMode, setSavingAiMode] = useState(false);
   const [aiModeResult, setAiModeResult] = useState<string | null>(null);
+  const [generatingClientReadout, setGeneratingClientReadout] = useState(false);
 
   const [org, setOrg] = useState<OrgPayload | null>(null);
 
@@ -778,6 +779,29 @@ async function setParticipantPortalRole(
     setSavingAiMode(false);
   }
 
+  async function generateClientSpecificReadout() {
+    if (!assessmentId) return;
+    setGeneratingClientReadout(true);
+    setAiModeResult("Generating client-specific readout from documents, CRM notes, and participant answers...");
+    try {
+      const res = await fetch(
+        `/api/admin/priority-discovery/assessments/${assessmentId}/analysis?force=1&profile=client_specific`,
+        { method: "POST", credentials: "include" }
+      );
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setAiModeResult(`Error (${res.status}): ${json?.error ?? "Client-specific readout failed."}`);
+        setGeneratingClientReadout(false);
+        return;
+      }
+      setAiModeResult(`Client-specific readout generated using ${json.modelUsed ?? "Northline AI"}. Open the readout to review.`);
+      setGeneratingClientReadout(false);
+    } catch (err: unknown) {
+      setAiModeResult(err instanceof Error ? err.message : "Client-specific readout failed.");
+      setGeneratingClientReadout(false);
+    }
+  }
+
   if (loading) {
     return (
       <main
@@ -1254,7 +1278,7 @@ async function setParticipantPortalRole(
               Priority Discovery AI Processing
             </div>
             <div style={{ marginTop: 6, color: BRAND.muted, fontSize: 13 }}>
-              Choose which private Northline model runs when you generate or regenerate the executive readout.
+              Choose which private Northline model runs when you generate or regenerate the executive readout. Use client-specific generation when the default readout feels too generic.
             </div>
             <div style={{ marginTop: 16 }}>
               <AiProcessingModeToggle
@@ -1275,7 +1299,7 @@ async function setParticipantPortalRole(
             >
               <button
                 onClick={saveAiProcessingMode}
-                disabled={savingAiMode}
+                disabled={savingAiMode || generatingClientReadout}
                 style={{
                   background: savingAiMode ? "#98a2b3" : BRAND.dark,
                   color: "white",
@@ -1287,6 +1311,21 @@ async function setParticipantPortalRole(
                 }}
               >
                 {savingAiMode ? "Saving…" : "Save AI Mode"}
+              </button>
+              <button
+                onClick={generateClientSpecificReadout}
+                disabled={generatingClientReadout || savingAiMode}
+                style={{
+                  background: generatingClientReadout ? "#98a2b3" : BRAND.cyan,
+                  color: "white",
+                  border: "none",
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  fontWeight: 900,
+                  cursor: generatingClientReadout ? "not-allowed" : "pointer",
+                }}
+              >
+                {generatingClientReadout ? "Generating…" : "Generate Client-Specific Readout"}
               </button>
             </div>
             {aiModeResult ? (

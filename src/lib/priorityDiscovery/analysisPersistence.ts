@@ -84,8 +84,23 @@ export function toClientPriorityAnalysis(analysis: {
   };
 }
 
+function formatPriorityAnswer(response: {
+  answer_text?: string | null;
+  answer_number?: number | null;
+  answer_json?: unknown;
+}) {
+  if (response.answer_text?.trim()) return response.answer_text.trim();
+  if (response.answer_number != null) return String(response.answer_number);
+  if (Array.isArray(response.answer_json)) {
+    return response.answer_json.map((entry) => String(entry ?? "").trim()).filter(Boolean).join(" | ");
+  }
+  if (response.answer_json != null) return JSON.stringify(response.answer_json);
+  return "";
+}
+
 export async function buildPriorityAnalysisInput(
-  assessmentId: string
+  assessmentId: string,
+  options?: { readoutProfile?: "standard" | "client_specific" }
 ): Promise<PriorityDiscoveryAnalysisInput | null> {
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
@@ -99,6 +114,7 @@ export async function buildPriorityAnalysisInput(
           tech_stack_notes: true,
           integration_notes: true,
           process_workflow_notes: true,
+          workflow_map_ai_summary: true,
           assessments: {
             where: { assessment_type: "READINESS" },
             orderBy: { created_at: "desc" },
@@ -107,8 +123,8 @@ export async function buildPriorityAnalysisInput(
           },
           documents: {
             orderBy: { created_at: "desc" },
-            take: 8,
-            select: { title: true, text_extracted: true },
+            take: 12,
+            select: { title: true, text_extracted: true, source_type: true },
           },
         },
       },
@@ -137,10 +153,58 @@ export async function buildPriorityAnalysisInput(
     ? (await buildAssessmentResultsPayload({ assessmentId: readinessAssessmentId })).body
     : null;
 
-  const documentNotes = assessment.organization.documents
-    .map((doc) => `${doc.title}: ${(doc.text_extracted ?? "").slice(0, 4000)}`)
-    .filter((entry) => entry.trim().length > 0)
+  const documentExcerpts = assessment.organization.documents
+    .map((doc) => {
+      const fullText = doc.text_extracted ?? "";
+      const excerptLimit = options?.readoutProfile === "client_specific" ? 12000 : 6000;
+      return {
+        title: doc.title,
+        sourceType: doc.source_type,
+        excerpt: fullText.slice(0, excerptLimit),
+        truncated: fullText.length > excerptLimit,
+      };
+    })
+    .filter((doc) => doc.excerpt.trim().length > 0);
+
+  const documentNotes = documentExcerpts
+    .map((doc) => `${doc.title}: ${doc.excerpt}`)
     .join("\n\n");
+
+  const participantById = new Map(
+    assessment.Participant.map((participant) => [participant.id, participant])
+  );
+
+  const mappedResponses = responses.map((response) => ({
+    participantId: response.participant_id,
+    questionId: response.question_id,
+    section: response.Question.section,
+    questionText: response.Question.question_text,
+    responseType: response.Question.response_type,
+    scoringDimension: response.Question.scoring_dimension,
+    answerText: response.answer_text,
+    answerNumber: response.answer_number,
+    answerJson: response.answer_json,
+  }));
+
+  const evidenceDigest = mappedResponses
+    .map((response) => {
+      const participant = participantById.get(response.participantId);
+      const answer = formatPriorityAnswer({
+        answer_text: response.answerText,
+        answer_number: response.answerNumber,
+        answer_json: response.answerJson,
+      });
+      if (!answer) return null;
+      return {
+        section: response.section,
+        question: response.questionText,
+        answer,
+        participantRole: participant?.role ?? null,
+        participantDepartment: participant?.department ?? null,
+        participantSeniority: participant?.seniority_level ?? null,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry != null);
 
   return {
     organization: {
@@ -160,21 +224,15 @@ export async function buildPriorityAnalysisInput(
       seniorityLevel: participant.seniority_level,
       department: participant.department,
     })),
-    responses: responses.map((response) => ({
-      participantId: response.participant_id,
-      questionId: response.question_id,
-      section: response.Question.section,
-      questionText: response.Question.question_text,
-      responseType: response.Question.response_type,
-      scoringDimension: response.Question.scoring_dimension,
-      answerText: response.answer_text,
-      answerNumber: response.answer_number,
-      answerJson: response.answer_json,
-    })),
+    responses: mappedResponses,
     readinessResults,
     notes: documentNotes || null,
     questionSetVersion: assessment.question_set_version,
     aiProcessingMode: assessment.ai_processing_mode === "FAST" ? "fast" : "executive",
+    readoutProfile: options?.readoutProfile ?? "standard",
+    documentExcerpts,
+    workflowMapSummary: assessment.organization.workflow_map_ai_summary,
+    evidenceDigest,
   };
 }
 
@@ -203,7 +261,10 @@ export async function createPriorityAnalysisRecord(input: PriorityDiscoveryAnaly
         organization_id: input.organization.id,
         ai_model_used: result.modelUsed,
         input_hash: result.inputHash,
-        output_json: output as unknown as Prisma.InputJsonValue,
+        output_json: {
+          ...output,
+          readoutProfile: input.readoutProfile ?? "standard",
+        } as unknown as Prisma.InputJsonValue,
         executive_summary: output.executiveSummary,
         overall_synergy_score: output.alignmentAnalysis.overallSynergyScore,
         consultant_notes_html: previousAnalysis?.consultant_notes_html ?? null,
@@ -255,6 +316,7 @@ export async function createPriorityAnalysisRecord(input: PriorityDiscoveryAnaly
 export async function getOrGeneratePriorityAnalysis(args: {
   assessmentId: string;
   force?: boolean;
+  readoutProfile?: "standard" | "client_specific";
 }) {
   if (!args.force) {
     const existing = await getLatestPriorityAnalysis(args.assessmentId);
@@ -270,7 +332,9 @@ export async function getOrGeneratePriorityAnalysis(args: {
     }
   }
 
-  const input = await buildPriorityAnalysisInput(args.assessmentId);
+  const input = await buildPriorityAnalysisInput(args.assessmentId, {
+    readoutProfile: args.readoutProfile ?? "standard",
+  });
   if (!input) {
     throw new Error("Priority Discovery assessment not found");
   }

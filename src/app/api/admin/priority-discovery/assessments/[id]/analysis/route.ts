@@ -81,12 +81,20 @@ export async function POST(
 
   const { id } = await context.params;
   const force = req.nextUrl.searchParams.get("force") === "1";
+  const profile = req.nextUrl.searchParams.get("profile");
+  const readoutProfile = profile === "client_specific" ? "client_specific" : "standard";
+  const shouldForce = force || readoutProfile === "client_specific";
 
   try {
-    const result = await getOrGeneratePriorityAnalysis({ assessmentId: id, force });
+    const result = await getOrGeneratePriorityAnalysis({
+      assessmentId: id,
+      force: shouldForce,
+      readoutProfile,
+    });
     return NextResponse.json({
       ok: true,
       cached: result.cached,
+      readoutProfile,
       analysis: toClientPriorityAnalysis(result.analysis),
       modelUsed: result.modelUsed,
       modeUsed: result.modeUsed,

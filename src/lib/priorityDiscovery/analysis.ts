@@ -39,6 +39,22 @@ export type PriorityDiscoveryAnalysisInput = {
   notes?: string | null;
   questionSetVersion: string;
   aiProcessingMode?: "fast" | "executive";
+  readoutProfile?: "standard" | "client_specific";
+  documentExcerpts?: Array<{
+    title: string;
+    sourceType?: string | null;
+    excerpt: string;
+    truncated?: boolean;
+  }>;
+  workflowMapSummary?: string | null;
+  evidenceDigest?: Array<{
+    section: string;
+    question: string;
+    answer: string;
+    participantRole?: string | null;
+    participantDepartment?: string | null;
+    participantSeniority?: string | null;
+  }>;
 };
 
 export type PriorityProjectOutput = {
@@ -152,6 +168,65 @@ Evaluation logic:
 * Weak projects sound exciting but lack process clarity, data readiness, ownership, or alignment.
 * AI should assist, recommend, summarize, route, draft, analyze, or orchestrate.
 * Automation should only be recommended when the workflow is stable enough to repeat safely.`;
+
+export const PRIORITY_DISCOVERY_CLIENT_SPECIFIC_SYSTEM_PROMPT = `${PRIORITY_DISCOVERY_SYSTEM_PROMPT}
+
+Additional rules for client-specific readouts:
+* Write for this exact client using their organization name, industry, systems, workflows, and uploaded documents.
+* Every major claim must trace to participant answers, CRM notes, readiness results, workflow map summary, or uploaded document excerpts.
+* Use verbatim participant language in evidenceFromResponses and pain point evidence whenever possible.
+* Name specific tools, teams, workflows, customers, or process steps mentioned in the input. Do not substitute generic labels.
+* Avoid generic consulting filler such as "digital transformation", "leverage AI", "streamline operations", "unlock value", or "move the needle" unless the input used that exact language.
+* Top 5 project names must describe this client's actual workflow or business problem, not generic project templates.
+* If documents or notes mention constraints, vendors, KPIs, or initiatives, reference them explicitly in the readout and Top 5 cards.
+* When evidence conflicts, explain the disagreement using roles/departments from the evidence digest.
+* If a recommendation depends on missing data, say exactly what is missing and why it blocks action.`;
+
+function buildClientSpecificPromptInstructions(input: PriorityDiscoveryAnalysisInput) {
+  const orgName = input.organization.name?.trim() || "this organization";
+  return `CLIENT-SPECIFIC READOUT MODE
+
+You are generating a client-specific executive readout for ${orgName}. The current output is too generic. Your job is to make every section unmistakably about this client.
+
+Mandatory specificity rules:
+- Reference ${orgName} by name throughout the readout.
+- Use the evidenceDigest entries as primary source material. Quote or paraphrase participant answers closely.
+- Use documentExcerpts and CRM notes to name systems, workflows, initiatives, constraints, and stakeholders mentioned by the client.
+- Each topPriorityProjects item MUST include at least 2 evidenceFromResponses entries that sound like real participant quotes or document-backed facts.
+- Each topPainPoints item MUST include evidence entries tied to named functions, workflows, or document titles when available.
+- Each aiRecommendations item MUST explain why it fits ${orgName}'s stated context, not a generic company.
+- Do not invent vendors, metrics, teams, or initiatives that are not supported by the input.
+- Prefer concrete nouns from the input over abstract strategy language.
+
+Organization profile:
+${JSON.stringify(input.organization, null, 2)}
+
+Uploaded documents and extracted excerpts:
+${JSON.stringify(input.documentExcerpts ?? [], null, 2)}
+
+CRM / workflow notes:
+${JSON.stringify(
+    {
+      contextNotes: input.organization.contextNotes,
+      techStackNotes: input.organization.techStackNotes,
+      integrationNotes: input.organization.integrationNotes,
+      processWorkflowNotes: input.organization.processWorkflowNotes,
+      workflowMapSummary: input.workflowMapSummary,
+      legacyNotesField: input.notes,
+    },
+    null,
+    2
+  )}
+
+Participant evidence digest:
+${JSON.stringify(input.evidenceDigest ?? [], null, 2)}
+
+Readiness results:
+${JSON.stringify(input.readinessResults ?? null, null, 2)}
+
+Full raw responses for cross-check:
+${JSON.stringify(input.responses, null, 2)}`;
+}
 
 export function stableHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -619,6 +694,7 @@ function normalizeAnalysis(raw: any, input: PriorityDiscoveryAnalysisInput): Pri
 }
 
 export async function analyzePriorityDiscoveryAssessment(input: PriorityDiscoveryAnalysisInput) {
+  const isClientSpecific = input.readoutProfile === "client_specific";
   const prompt = `Analyze this AI Priority Discovery Assessment and return JSON only.
 
 Required JSON shape:
@@ -656,21 +732,31 @@ Executive readout requirements:
 - riskRegister must tie risks to business impact and mitigation. Avoid vague risks like "change management" without explaining business consequence.
 - The Top 5 project cards must each read like something a manager could approve and an executive could defend.
 - Prefer plain language over jargon. No hype. No filler. No invented facts.
+${isClientSpecific ? `
+Client-specific readout requirements:
+- This readout must be unmistakably tailored to the client in the input. Generic strategy language is unacceptable.
+- Name the organization, workflows, systems, teams, and constraints from the provided notes and documents.
+- Ground every Top 5 project, pain point, and recommendation in participant answers and/or uploaded document excerpts.
+- Use participant language in evidenceFromResponses. Do not fabricate quotes.
+- If a document title or CRM note mentions a system, process, KPI, or initiative, reference it explicitly where relevant.
+- Call out contradictions between leadership and team responses when present in the evidence digest.
+` : ""}
 
 Priority score formula:
 businessImpactScore * 0.25 + urgencyScore * 0.20 + AIApplicabilityScore * 0.15 + automationApplicabilityScore * 0.15 + synergyScore * 0.15 + dataReadinessScore * 0.05 - riskScore * 0.05, normalized 0-100.
 
-Input:
-${JSON.stringify(input, null, 2)}`;
+${isClientSpecific ? buildClientSpecificPromptInstructions(input) : `Input:\n${JSON.stringify(input, null, 2)}`}`;
 
   const result = await callModelRouter({
     prompt,
     taskType: "assessment_analysis",
     requestedMode: input.aiProcessingMode ?? "executive",
     clientId: input.organization.id,
-    systemPrompt: PRIORITY_DISCOVERY_SYSTEM_PROMPT,
-    temperature: 0.15,
-    maxTokens: 6000,
+    systemPrompt: isClientSpecific
+      ? PRIORITY_DISCOVERY_CLIENT_SPECIFIC_SYSTEM_PROMPT
+      : PRIORITY_DISCOVERY_SYSTEM_PROMPT,
+    temperature: isClientSpecific ? 0.2 : 0.15,
+    maxTokens: isClientSpecific ? 9000 : 6000,
   });
 
   let raw: any;

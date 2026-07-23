@@ -37,6 +37,7 @@ type Analysis = {
   overallSynergyScore: number;
   consultantNotesHtml: string | null;
   outputJson: {
+    readoutProfile?: "standard" | "client_specific";
     executiveReadout?: ExecutiveReadout;
     impactAssessment?: ImpactAssessment;
     aiRecommendations?: AiRecommendation[];
@@ -120,6 +121,7 @@ export default function PriorityResultsPage() {
   const [editedProjects, setEditedProjects] = useState<Record<string, Partial<Project>>>({});
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [runningClientSpecific, setRunningClientSpecific] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [openEvidence, setOpenEvidence] = useState<Record<string, boolean>>({});
 
@@ -141,33 +143,53 @@ export default function PriorityResultsPage() {
     setLoading(false);
   }
 
-  async function runAnalysis() {
-    setRunning(true);
-    setMessage("Generating executive readout. This can take several minutes with the executive model...");
+  async function runAnalysis(readoutProfile: "standard" | "client_specific" = "standard") {
+    const isClientSpecific = readoutProfile === "client_specific";
+    if (isClientSpecific) {
+      setRunningClientSpecific(true);
+    } else {
+      setRunning(true);
+    }
+    setMessage(
+      isClientSpecific
+        ? "Generating client-specific readout from uploaded documents, CRM notes, and participant answers. This can take several minutes..."
+        : "Generating executive readout. This can take several minutes with the executive model..."
+    );
     try {
+      const params = new URLSearchParams();
+      if (analysis || isClientSpecific) params.set("force", "1");
+      if (isClientSpecific) params.set("profile", "client_specific");
+      const query = params.toString();
       const res = await fetch(
-        `/api/admin/priority-discovery/assessments/${assessmentId}/analysis${analysis ? "?force=1" : ""}`,
+        `/api/admin/priority-discovery/assessments/${assessmentId}/analysis${query ? `?${query}` : ""}`,
         {
-        method: "POST",
-        credentials: "include",
+          method: "POST",
+          credentials: "include",
         }
       );
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
         setMessage(json?.error ?? `Analysis failed (${res.status}).`);
-        setRunning(false);
+        if (isClientSpecific) setRunningClientSpecific(false);
+        else setRunning(false);
         return;
       }
       setAnalysis(json.analysis);
       setEditedProjects({});
-      setRunning(false);
-      setMessage(`Analysis complete using ${json.modelUsed}.`);
+      if (isClientSpecific) setRunningClientSpecific(false);
+      else setRunning(false);
+      setMessage(
+        isClientSpecific
+          ? `Client-specific readout complete using ${json.modelUsed}.`
+          : `Analysis complete using ${json.modelUsed}.`
+      );
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err);
       setMessage(
         `The request was interrupted before the browser received a response. Refresh this page to check whether the readout was saved. Detail: ${detail}`
       );
-      setRunning(false);
+      if (isClientSpecific) setRunningClientSpecific(false);
+      else setRunning(false);
     }
   }
 
@@ -233,6 +255,7 @@ export default function PriorityResultsPage() {
   }
 
   const output = analysis?.outputJson ?? {};
+  const readoutProfile = output.readoutProfile ?? "standard";
   const executiveReadout = output.executiveReadout;
   const impactAssessment = output.impactAssessment;
   const aiRecommendations = output.aiRecommendations ?? [];
@@ -270,13 +293,23 @@ export default function PriorityResultsPage() {
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">AI Priority Discovery Results</h1>
             <p className="mt-2 max-w-3xl text-sm font-medium" style={{ color: BRAND.greyBlue }}>
-              Executive-ready Top 5 AI and automation opportunities tied to participant evidence. Human review is expected before export or implementation.
+              Executive-ready Top 5 AI and automation opportunities tied to participant evidence. Use{" "}
+              <span className="font-semibold" style={{ color: BRAND.dark }}>Generate Client-Specific Readout</span> when the default readout feels too generic.
             </p>
           </div>
           <div className="no-print flex flex-wrap gap-2">
             <Link href="/admin/assessments" className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold shadow-sm" style={{ borderColor: BRAND.border }}>Assessments</Link>
-            <button onClick={runAnalysis} disabled={running} className="rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm" style={{ background: running ? "#98a2b3" : BRAND.dark }}>
+            <button onClick={() => runAnalysis("standard")} disabled={running || runningClientSpecific} className="rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm" style={{ background: running ? "#98a2b3" : BRAND.dark }}>
               {running ? "Generating..." : analysis ? "Regenerate Executive Readout" : "Generate Executive Readout"}
+            </button>
+            <button
+              onClick={() => runAnalysis("client_specific")}
+              disabled={running || runningClientSpecific}
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm"
+              style={{ background: runningClientSpecific ? "#98a2b3" : BRAND.cyan }}
+              title="Uses uploaded documents, CRM notes, workflow map, and verbatim participant answers to produce a client-specific readout."
+            >
+              {runningClientSpecific ? "Generating..." : "Generate Client-Specific Readout"}
             </button>
           </div>
         </div>
@@ -304,6 +337,14 @@ export default function PriorityResultsPage() {
               <div className="rounded-2xl border bg-white p-6 shadow-sm" style={{ borderColor: BRAND.border }}>
                 <div className="text-xs font-black uppercase tracking-[0.14em]" style={{ color: BRAND.cyan }}>
                   Executive readout
+                  {readoutProfile === "client_specific" ? (
+                    <span
+                      className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em]"
+                      style={{ background: "#E0F7FA", color: BRAND.dark }}
+                    >
+                      Client-specific
+                    </span>
+                  ) : null}
                 </div>
                 <h2 className="mt-2 text-2xl font-semibold leading-tight">
                   {executiveReadout?.headline ?? "Priority Discovery Executive Summary"}
