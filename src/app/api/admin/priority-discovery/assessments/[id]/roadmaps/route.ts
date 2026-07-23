@@ -5,6 +5,7 @@ import { getReportingParticipantCompletionStats } from "@/lib/assessmentParticip
 import {
   getLatestPriorityAnalysis,
   getOrGeneratePriorityAnalysis,
+  getPriorityAnalysisForAdminRoadmaps,
 } from "@/lib/priorityDiscovery/analysisPersistence";
 import { generatePriorityDiscoveryRoadmaps } from "@/lib/priorityDiscovery/generateRoadmaps";
 import { persistPriorityDiscoveryRoadmaps } from "@/lib/priorityDiscovery/persistRoadmapsToPm";
@@ -94,10 +95,10 @@ export async function POST(
     }
   }
 
-  let analysis = await getLatestPriorityAnalysis(id);
+  let analysis = await getPriorityAnalysisForAdminRoadmaps(id);
   if (!analysis) {
     try {
-      const generated = await getOrGeneratePriorityAnalysis({ assessmentId: id });
+      const generated = await getOrGeneratePriorityAnalysis({ assessmentId: id, readoutProfile: "standard" });
       analysis = generated.analysis;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

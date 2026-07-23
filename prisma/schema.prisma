@@ -183,6 +183,7 @@ model PriorityAnalysis {
   executive_summary     String?  @map("executiveSummary") @db.Text
   overall_synergy_score Int?     @map("overallSynergyScore")
   consultant_notes_html String?  @map("consultantNotesHtml") @db.Text
+  readout_profile       PriorityReadoutProfile @default(STANDARD) @map("readoutProfile")
   created_at            DateTime @default(now()) @map("createdAt")
 
   Assessment  Assessment        @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
@@ -191,6 +192,7 @@ model PriorityAnalysis {
   roadmap_bundles PriorityDiscoveryRoadmapBundle[]
 
   @@index([assessment_id, created_at])
+  @@index([assessment_id, readout_profile, created_at])
   @@index([organization_id, created_at])
 }
 
@@ -575,6 +577,11 @@ enum PriorityConfidenceLevel {
   LOW @map("low")
   MEDIUM @map("medium")
   HIGH @map("high")
+}
+
+enum PriorityReadoutProfile {
+  STANDARD
+  CLIENT_SPECIFIC
 }
 
 enum NarrativeStatus {

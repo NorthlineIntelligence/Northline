@@ -28,7 +28,9 @@ export async function GET(
   if (!admin.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const { id } = await context.params;
-  const analysis = await getLatestPriorityAnalysis(id);
+  const profile = req.nextUrl.searchParams.get("profile");
+  const readoutProfile = profile === "client_specific" ? "client_specific" : "standard";
+  const analysis = await getLatestPriorityAnalysis(id, readoutProfile);
 
   if (!analysis) return NextResponse.json({ ok: true, analysis: null });
 
@@ -83,12 +85,11 @@ export async function POST(
   const force = req.nextUrl.searchParams.get("force") === "1";
   const profile = req.nextUrl.searchParams.get("profile");
   const readoutProfile = profile === "client_specific" ? "client_specific" : "standard";
-  const shouldForce = force || readoutProfile === "client_specific";
 
   try {
     const result = await getOrGeneratePriorityAnalysis({
       assessmentId: id,
-      force: shouldForce,
+      force,
       readoutProfile,
     });
     return NextResponse.json({

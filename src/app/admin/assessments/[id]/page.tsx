@@ -119,7 +119,6 @@ export default function AdminAssessmentPage() {
   const [aiProcessingMode, setAiProcessingMode] = useState<AiProcessingMode>("executive");
   const [savingAiMode, setSavingAiMode] = useState(false);
   const [aiModeResult, setAiModeResult] = useState<string | null>(null);
-  const [generatingClientReadout, setGeneratingClientReadout] = useState(false);
 
   const [org, setOrg] = useState<OrgPayload | null>(null);
 
@@ -779,29 +778,6 @@ async function setParticipantPortalRole(
     setSavingAiMode(false);
   }
 
-  async function generateClientSpecificReadout() {
-    if (!assessmentId) return;
-    setGeneratingClientReadout(true);
-    setAiModeResult("Generating client-specific readout from documents, CRM notes, and participant answers...");
-    try {
-      const res = await fetch(
-        `/api/admin/priority-discovery/assessments/${assessmentId}/analysis?force=1&profile=client_specific`,
-        { method: "POST", credentials: "include" }
-      );
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) {
-        setAiModeResult(`Error (${res.status}): ${json?.error ?? "Client-specific readout failed."}`);
-        setGeneratingClientReadout(false);
-        return;
-      }
-      setAiModeResult(`Client-specific readout generated using ${json.modelUsed ?? "Northline AI"}. Open the readout to review.`);
-      setGeneratingClientReadout(false);
-    } catch (err: unknown) {
-      setAiModeResult(err instanceof Error ? err.message : "Client-specific readout failed.");
-      setGeneratingClientReadout(false);
-    }
-  }
-
   if (loading) {
     return (
       <main
@@ -1299,7 +1275,7 @@ async function setParticipantPortalRole(
             >
               <button
                 onClick={saveAiProcessingMode}
-                disabled={savingAiMode || generatingClientReadout}
+                disabled={savingAiMode}
                 style={{
                   background: savingAiMode ? "#98a2b3" : BRAND.dark,
                   color: "white",
@@ -1313,19 +1289,19 @@ async function setParticipantPortalRole(
                 {savingAiMode ? "Saving…" : "Save AI Mode"}
               </button>
               <button
-                onClick={generateClientSpecificReadout}
-                disabled={generatingClientReadout || savingAiMode}
+                type="button"
+                onClick={() => router.push(`/admin/assessments/${assessmentId}/priority-client-readout`)}
                 style={{
-                  background: generatingClientReadout ? "#98a2b3" : BRAND.cyan,
+                  background: BRAND.cyan,
                   color: "white",
                   border: "none",
                   padding: "10px 14px",
                   borderRadius: 12,
                   fontWeight: 900,
-                  cursor: generatingClientReadout ? "not-allowed" : "pointer",
+                  cursor: "pointer",
                 }}
               >
-                {generatingClientReadout ? "Generating…" : "Generate Client-Specific Readout"}
+                Open Client-Specific Readout →
               </button>
             </div>
             {aiModeResult ? (

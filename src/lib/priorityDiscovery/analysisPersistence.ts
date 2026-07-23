@@ -1,4 +1,4 @@
-import { Prisma, PriorityConfidenceLevel, PriorityEstimatedEffort, PriorityTimeHorizon } from "@prisma/client";
+import { Prisma, PriorityConfidenceLevel, PriorityEstimatedEffort, PriorityReadoutProfile, PriorityTimeHorizon } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildAssessmentResultsPayload } from "@/lib/assessmentResultsEngine";
 import {
@@ -6,6 +6,18 @@ import {
   type PriorityDiscoveryAnalysisInput,
   type PriorityProjectOutput,
 } from "@/lib/priorityDiscovery/analysis";
+
+export type ReadoutProfileSlug = "standard" | "client_specific";
+
+function toDbReadoutProfile(profile: ReadoutProfileSlug): PriorityReadoutProfile {
+  return profile === "client_specific"
+    ? PriorityReadoutProfile.CLIENT_SPECIFIC
+    : PriorityReadoutProfile.STANDARD;
+}
+
+function fromDbReadoutProfile(profile: PriorityReadoutProfile): ReadoutProfileSlug {
+  return profile === PriorityReadoutProfile.CLIENT_SPECIFIC ? "client_specific" : "standard";
+}
 
 function effortToEnum(value: PriorityProjectOutput["estimatedEffort"]) {
   if (value === "low") return PriorityEstimatedEffort.LOW;
@@ -36,6 +48,7 @@ export function toClientPriorityAnalysis(analysis: {
   executive_summary: string | null;
   overall_synergy_score: number | null;
   consultant_notes_html: string | null;
+  readout_profile?: PriorityReadoutProfile;
   created_at: Date;
   projects?: Array<Record<string, unknown>>;
 }) {
@@ -46,6 +59,7 @@ export function toClientPriorityAnalysis(analysis: {
     aiModelUsed: analysis.ai_model_used,
     inputHash: analysis.input_hash,
     outputJson: analysis.output_json,
+    readoutProfile: fromDbReadoutProfile(analysis.readout_profile ?? PriorityReadoutProfile.STANDARD),
     executiveSummary: analysis.executive_summary,
     overallSynergyScore: analysis.overall_synergy_score,
     consultantNotesHtml: analysis.consultant_notes_html,
@@ -236,20 +250,38 @@ export async function buildPriorityAnalysisInput(
   };
 }
 
-export async function getLatestPriorityAnalysis(assessmentId: string) {
+export async function getLatestPriorityAnalysis(
+  assessmentId: string,
+  readoutProfile: ReadoutProfileSlug = "standard"
+) {
   return prisma.priorityAnalysis.findFirst({
-    where: { assessment_id: assessmentId },
+    where: {
+      assessment_id: assessmentId,
+      readout_profile: toDbReadoutProfile(readoutProfile),
+    },
     orderBy: { created_at: "desc" },
     include: { projects: { orderBy: { rank: "asc" } } },
   });
+}
+
+export async function getPriorityAnalysisForAdminRoadmaps(assessmentId: string) {
+  return (
+    (await getLatestPriorityAnalysis(assessmentId, "client_specific")) ??
+    (await getLatestPriorityAnalysis(assessmentId, "standard"))
+  );
 }
 
 export async function createPriorityAnalysisRecord(input: PriorityDiscoveryAnalysisInput) {
   const result = await analyzePriorityDiscoveryAssessment(input);
   const output = result.output;
 
+  const readoutProfile = input.readoutProfile ?? "standard";
+
   const previousAnalysis = await prisma.priorityAnalysis.findFirst({
-    where: { assessment_id: input.assessmentId },
+    where: {
+      assessment_id: input.assessmentId,
+      readout_profile: toDbReadoutProfile(readoutProfile),
+    },
     orderBy: { created_at: "desc" },
     select: { consultant_notes_html: true },
   });
@@ -261,9 +293,10 @@ export async function createPriorityAnalysisRecord(input: PriorityDiscoveryAnaly
         organization_id: input.organization.id,
         ai_model_used: result.modelUsed,
         input_hash: result.inputHash,
+        readout_profile: toDbReadoutProfile(readoutProfile),
         output_json: {
           ...output,
-          readoutProfile: input.readoutProfile ?? "standard",
+          readoutProfile,
         } as unknown as Prisma.InputJsonValue,
         executive_summary: output.executiveSummary,
         overall_synergy_score: output.alignmentAnalysis.overallSynergyScore,
@@ -318,8 +351,10 @@ export async function getOrGeneratePriorityAnalysis(args: {
   force?: boolean;
   readoutProfile?: "standard" | "client_specific";
 }) {
+  const readoutProfile = args.readoutProfile ?? "standard";
+
   if (!args.force) {
-    const existing = await getLatestPriorityAnalysis(args.assessmentId);
+    const existing = await getLatestPriorityAnalysis(args.assessmentId, readoutProfile);
     if (existing) {
       return {
         analysis: existing,
@@ -333,7 +368,7 @@ export async function getOrGeneratePriorityAnalysis(args: {
   }
 
   const input = await buildPriorityAnalysisInput(args.assessmentId, {
-    readoutProfile: args.readoutProfile ?? "standard",
+    readoutProfile,
   });
   if (!input) {
     throw new Error("Priority Discovery assessment not found");
