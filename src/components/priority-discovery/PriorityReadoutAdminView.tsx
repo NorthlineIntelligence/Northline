@@ -343,6 +343,15 @@ export function PriorityReadoutAdminView({
                 Internal client readout →
               </Link>
             )}
+            {isClientSpecific ? (
+              <Link
+                href={`/admin/assessments/${assessmentId}/participant-answers?returnTo=client-readout`}
+                className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold shadow-sm"
+                style={{ borderColor: BRAND.border }}
+              >
+                All participant answers →
+              </Link>
+            ) : null}
             <button
               onClick={() => runAnalysis(Boolean(analysis))}
               disabled={running}
